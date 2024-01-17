@@ -1,0 +1,3 @@
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) counter.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) SDRAMConfigRegister.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) SDRAMController.sv ]

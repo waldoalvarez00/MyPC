@@ -1,0 +1,25 @@
+
+
+C:/Users/waldo/Desktop/FPGA programmers/MyPC/Quartus/rtl/VGA/VGAPrefetchRAM.sv
+
+Jan 17 08AM:16:40>: Illegal filename  extension (.sv).
+
+Do you want to edit the file anyway?
+
+C:/Users/waldo/Desktop/FPGA programmers/MyPC/Quartus/rtl/VGA/VGAPrefetchRAM.sv
+
+Jan 17 08AM:16:49>: Illegal filename  extension (.sv).
+
+Do you want to edit the file anyway?
+
+C:/Users/waldo/Desktop/FPGA programmers/MyPC/Quartus/rtl/VGA/VGAPrefetchRAM.sv
+
+Jan 17 08AM:16:49>: Illegal filename  extension (.sv).
+
+Do you want to edit the file anyway?
+
+C:/Users/waldo/Desktop/FPGA programmers/MyPC/Quartus/rtl/VGA/VGAPrefetchRAM.sv
+
+Jan 17 08AM:16:52>: Illegal filename  extension (.sv).
+
+Do you want to edit the file anyway?

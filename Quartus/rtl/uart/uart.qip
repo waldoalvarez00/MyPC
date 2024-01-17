@@ -1,0 +1,5 @@
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) BaudRateGen.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) Receiver.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) Transmitter.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) Uart.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) UartPorts.sv ]

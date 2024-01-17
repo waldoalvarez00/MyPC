@@ -1,0 +1,7 @@
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) BIOS.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) BIOSControlRegister.sv ]
+
+
+
+
+

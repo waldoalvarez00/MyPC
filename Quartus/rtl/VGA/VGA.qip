@@ -1,0 +1,14 @@
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) DACRam.v ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) FBPrefetch.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) FontColorLUT.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) FrameBuffer.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) VGAController.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) VGAPrefetchRAM.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) VGARegisters.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) VGASync.sv ]
+
+
+
+
+
+
