@@ -1,50 +1,63 @@
-# Building the BIOS
+# BIOS Building Project
 
-You need some linux to build the BIOS because gcc 16 bits is only currently available on Linux. You can use VMware Player that is free, Virtual Box or Hyper-V
+This project outlines the steps to build a BIOS using a Linux environment. The primary focus is on using a 16-bit GCC compiler, which is available only on Linux platforms. This guide uses Ubuntu 22.04.3 LTS as the base system.
 
-I installed Ubuntu 22.04.3 LTS
+## Prerequisites
 
-First install 16bits gcc. In ubuntu or similar console type:
+- Linux Environment (Ubuntu 22.04.3 LTS recommended)
+- Virtualization Tool (VMware Player, Virtual Box, or Hyper-V)
 
+## Installation
+
+### Install 16-bit GCC
+
+To install the 16-bit version of GCC, open your terminal and execute the following commands:
+
+```bash
 sudo add-apt-repository ppa:tkchia/build-ia16
 sudo apt-get update
 sudo apt-get install gcc-ia16-elf
 
+### Install Make
 
-later install make:
+You'll also need 'make' for building the BIOS. Install it by typing:
 
+```bash
 sudo apt install make
 
 At the BIOS directory type:
 
+```bash
 make
 
-This will create a folder "output" where bios-mypc will be created
+This command creates an "output" folder where bios-mypc will be generated.
 
 
-Later you need to process this file (bios-mypc) with the python script to create a .mif file, type:
+## Post-Build Processing
 
+To convert the bios-mypc file to a .mif file, use the provided Python script:
+
+```bash
 python make-bios-mif.py bios-mypc bios.mif
 
-
-drop this .mif file at the root of the Quartus folder and build the project with the new BIOS
-
+Place the resulting bios.mif file at the root of your Quartus folder and rebuild the project with the new BIOS.
 
 # Notes about the BIOS
 
 The BIOS starts at entry.S this is AT&T assembler and creates an environment where the C can kick in
 
-
 # Dissassembling the BIOS
 
 you can use objdump, is not the best but will give close output of what is in memory:
 
-intel syntax
+intel syntax:
 
+```bash
 objdump -D -b binary -m i386 -Maddr16,data16 --adjust-vma=0xc000 -M intel bios-mypc > disasm.txt
 
-at&t syntax
+at&t syntax:
 
+```bash
 objdump -D -b binary -m i386 -Maddr16,data16 --adjust-vma=0xc000 bios-mypc > disasm.txt
 
 
