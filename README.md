@@ -1,2 +1,2 @@
 # MyPC
-Initial Attempt to port James Iles Computer to the Mister
+Initial Attempt to port Jamie Iles Computer to the Mister
