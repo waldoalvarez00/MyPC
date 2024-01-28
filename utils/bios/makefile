@@ -40,13 +40,13 @@ $(TARGET): $(OBJECTS_C) $(OBJECTS_ASM)
 
 
 %.o: %.c
-	#$(CC) $(CFLAGS) -c $< -o $(OUTDIR)/$@
-	$(CC) $(CFLAGS) $(ASMLFLAGS) -c $< -o $(OUTDIR)/$@
-	$(CC) $(CFLAGS) $(ASMLFLAGS) -S $< -o $(OUTDIR)/$(basename $@).s
+	$(CC) $(CFLAGS) -c $< -o $(OUTDIR)/$@
+	#$(CC) $(CFLAGS) $(ASMLFLAGS) -c $< -o $(OUTDIR)/$@
+	#$(CC) $(CFLAGS) $(ASMLFLAGS) -S $< -o $(OUTDIR)/$(basename $@).s
 %.o: %.S
-	#$(AS) $(ASFLAGS) -c $< -o $(OUTDIR)/$@
-	$(AS) $(ASFLAGS) $(ASMLFLAGS) -c $< -o $(OUTDIR)/$@
-	$(AS) $(ASFLAGS) $(ASMLFLAGS) -S $< -o $(OUTDIR)/$(basename $@).s
+	$(AS) $(ASFLAGS) -c $< -o $(OUTDIR)/$@
+	#$(AS) $(ASFLAGS) $(ASMLFLAGS) -c $< -o $(OUTDIR)/$@
+	#$(AS) $(ASFLAGS) $(ASMLFLAGS) -S $< -o $(OUTDIR)/$(basename $@).s
 
 clean:
 	rm -rf $(OUTDIR)

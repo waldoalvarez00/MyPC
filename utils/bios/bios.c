@@ -20,6 +20,7 @@
 #include "bios.h"
 #include "display.h"
 #include "sd.h"
+#include "leds.h"
 #include "io.h"
 #include "serial.h"
 #include "keyboard.h"
@@ -183,14 +184,51 @@ void scrub_mem(void)
         memset_seg(seg << 12, 0, 0, ~0);
 }
 
+void video_putstr(const char *str) {
+    while (*str) {
+        video_putchar(*str++);
+    }
+}
+
 void root(void)
 {
-    scrub_mem();
+    //scrub_mem(); // BUG ?
+    
+    
+    
+    
+    
+    
     install_vectors();
-
-    irq_init();
+    
+    led_set(1);
+    
+    //video_putstr("s80x86 BIOS, (C) Jamie Iles, Waldo Alvarez " __DATE__ " " __TIME__ "\n");
+    
+    
     bda_init();
+    
+    while(1){};
+    
     display_init();
+    
+    
+    
+    irq_init();
+    
+    
+    //bda_init();
+    //display_init();
+
+    
+    
+    //---- write string to mcga
+    video_putstr("s80x86 BIOS, (C) Jamie Iles " __DATE__ " " __TIME__ "\n");
+    
+    
+    
+    
+    
 
     putstr("s80x86 BIOS, (C) Jamie Iles, " __DATE__ " " __TIME__ "\n");
     
@@ -206,6 +244,8 @@ void root(void)
     putstr("\n");
 
     init_timer();
+    
+
 
     keyboard_init();
     mouse_hw_init();

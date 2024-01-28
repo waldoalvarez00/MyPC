@@ -19,3 +19,4 @@
 
 void display_init(void);
 int in_video_mode(void);
+void video_putchar(char c);
