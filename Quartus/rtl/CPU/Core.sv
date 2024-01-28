@@ -1,4 +1,5 @@
 // Copyright Jamie Iles, 2017
+// Waldo Alvarez, 2024
 //
 // This file is part of s80x86.
 //
@@ -14,6 +15,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with s80x86.  If not, see <http://www.gnu.org/licenses/>.
+
 
 `default_nettype none
 module Core(input logic clk,
@@ -159,7 +161,9 @@ wire mem_read;
 wire mem_write;
 wire mar_wr_sel;
 wire [15:0] mar_wr_val;
-wire loadstore_start = (mem_read | mem_write) & ~loadstore_complete;
+
+
+//wire loadstore_start = (mem_read | mem_write) & ~loadstore_complete;
 wire loadstore_is_store = mem_write;
 wire loadstore_complete;
 wire loadstore_busy;
@@ -414,11 +418,15 @@ LoadStore       LoadStore(.clk(clk),
                           .m_wr_en(data_m_wr_en),
                           .m_bytesel(data_m_bytesel),
                           // Control
-                          .start(loadstore_start),
+                          //.start(loadstore_start),
+								  
+								  .mem_read(mem_read),
+								  .mem_write(mem_write),
+								  
                           .is_8bit(is_8_bit),
                           .wr_en(loadstore_is_store),
                           .busy(loadstore_busy),
-                          .complete(loadstore_complete),
+                          //.complete(loadstore_complete),
                           .io(io_operation));
 
 PosedgeToPulse PosedgeToPulse(.d(nmi),

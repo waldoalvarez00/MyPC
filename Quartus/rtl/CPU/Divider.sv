@@ -15,7 +15,13 @@
 // You should have received a copy of the GNU General Public License
 // along with s80x86.  If not, see <http://www.gnu.org/licenses/>.
 
+
+
 // Non-restoring division
+
+// Wallace tree maybe?
+// Newton Raphson?
+
 `default_nettype none
 module Divider(input logic clk,
                input logic reset,
@@ -104,6 +110,9 @@ always_comb begin
     end
 end
 
+
+
+
 always_comb begin
     case (state)
     INIT: next_state = start && !error && !raise_error ? WORKING : INIT;
@@ -115,6 +124,9 @@ always_comb begin
     if (reset)
         next_state = INIT;
 end
+
+
+
 
 always_ff @(posedge clk or posedge reset) begin
     if (reset) begin

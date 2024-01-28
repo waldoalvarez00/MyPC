@@ -1,11 +1,11 @@
 //============================================================================
 //
-//  Copyright Waldo Alvarez, 2023 
+//  Copyright Waldo Alvarez, 2024
 //  https://pipflow.com
 //
 //  This program is free software; you can redistribute it and/or modify it
 //  under the terms of the GNU General Public License as published by the Free
-//  Software Foundation; either version 2 of the License, or (at your option)
+//  Software Foundation; either version 3 of the License, or (at your option)
 //  any later version.
 //
 //  This program is distributed in the hope that it will be useful, but WITHOUT
@@ -193,8 +193,8 @@ assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DD
 assign VGA_SL = 0;
 assign VGA_F1 = 0;
 assign VGA_SCALER  = 0;
-//assign VGA_DISABLE = 0;
-//assign HDMI_FREEZE = 0;
+assign VGA_DISABLE = 0;
+assign HDMI_FREEZE = 0;
 
 assign VGA_SL = 0;
 assign VGA_F1 = 0;
@@ -270,7 +270,7 @@ wire wps2_mouse_data_out;
 wire wps2_mouse_clk_in;
 wire wps2_mouse_data_in;
 
-hps_io #(.CONF_STR(CONF_STR)) hps_io
+hps_io #(.CONF_STR(CONF_STR), .PS2DIV(2000), .PS2WE(1)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -319,8 +319,10 @@ pll pll
 	.outclk_2(pit_clk),
 	// outclk_3 - used for signaltap II 150 MHz
 	.outclk_4(clk_mem), // 120 MHz
-	.locked(plock)
+	.locked(/*plock*/)
 );
+
+
 
 
 
@@ -568,6 +570,72 @@ end
 always_ff @(posedge sys_clk)
     default_io_ack <= default_io_access;
 
+	 
+
+
+always_comb begin
+    // Initialize all accesses to 0
+    leds_access = 1'b0;
+    sdram_config_access = 1'b0;
+    default_io_access = 1'b0;
+    uart_access = 1'b0;
+    spi_access = 1'b0;
+    irq_control_access = 1'b0;
+    pic_access = 1'b0;
+    timer_access = 1'b0;
+    bios_control_access = 1'b0;
+    vga_reg_access = 1'b0;
+    ps2_kbd_access = 1'b0;
+    ps2_mouse_access = 1'b0;
+
+    // Determine access type based on conditions
+    if (d_io && data_m_access) begin
+        // Check for each access type
+        if (data_m_addr[15:1] == 15'b1111_1111_1111_111) begin
+            leds_access = 1'b1;
+        end
+        else if (data_m_addr[15:1] == 15'b1111_1111_1111_110) begin
+            sdram_config_access = 1'b1;
+        end
+        else if (data_m_addr[15:1] == 15'b1111_1111_1111_101) begin
+            uart_access = 1'b1;
+        end
+        else if (data_m_addr[15:3] == 13'b1111_1111_1111_00) begin
+            spi_access = 1'b1;
+        end
+        else if (data_m_addr[15:1] == 15'b1111_1111_1111_011) begin
+            irq_control_access = 1'b1;
+        end
+        else if (data_m_addr[15:1] == 15'b1111_1111_1110_110) begin
+            bios_control_access = 1'b1;
+        end
+        else if (data_m_addr[15:3] == 13'b0000_0000_0100_00) begin
+            timer_access = 1'b1;
+        end
+        else if (data_m_addr[15:1] == 15'b0000_0000_0010_000) begin
+            pic_access = 1'b1;
+        end
+        else if (data_m_addr[15:5] == 11'b0000_0011_110) begin
+            vga_reg_access = 1'b1;
+        end
+        else if (data_m_addr[15:1] == 15'b1111_1111_1110_000) begin
+            ps2_mouse_access = 1'b1;
+        end
+        else if (data_m_addr[15:1] == 15'b0000_0000_0110_000) begin
+            ps2_kbd_access = 1'b1;
+        end
+        else begin
+            default_io_access = 1'b1;
+        end
+    end
+    // No need for else part; signals are already initialized to 0
+end
+
+
+/*
+	
+
+// Note, check for glitches	
 always_comb begin
     leds_access = 1'b0;
     sdram_config_access = 1'b0;
@@ -608,6 +676,11 @@ always_comb begin
     end
 end
 
+*/
+/*
+
+// original
+
 always_comb begin
     sdram_access = 1'b0;
     bios_access = 1'b0;
@@ -627,7 +700,71 @@ always_comb begin
     end
 end
 
+*/
+
+
+
+
+
+/*
+
+
+
+always_comb begin
+    // Default assignments
+    sdram_access = 1'b0;
+    bios_access = 1'b0;
+    vga_access = 1'b0;
+
+    // Determine access type based on conditions
+    if (q_m_access) begin
+        // Check for BIOS access
+        if (bios_enabled && q_m_addr[19:14] == 8'b1111_11) begin
+            bios_access = 1'b1;
+        end
+        // Check for VGA access
+        else if (q_m_addr[19:14] == 6'b1011_10 || q_m_addr[19:16] == 4'b1010) begin
+            vga_access = 1'b1;
+        end
+        // Default to SDRAM access
+        else begin
+            sdram_access = 1'b1;
+        end
+    end
+    
+end
+
+*/
+
+
+// proper decoding, no glitches, no delay
+
+always_comb begin
+    // Reset defaults
+    sdram_access = 1'b0;
+    bios_access = 1'b0;
+    vga_access = 1'b0;
+
+    if (q_m_access) begin
+	    if(bios_enabled) begin
+          casez (q_m_addr[19:14])
+              6'b111111: bios_access = 1'b1;
+              6'b101110, 6'b1011??: vga_access = 1'b1;
+              default:   sdram_access = 1'b1;
+          endcase
+		  end else begin
+		    casez (q_m_addr[19:14])
+			     // BIOS Turns into RAM
+              6'b101110: vga_access   = 1'b1;
+				  6'b1011??: vga_access   = 1'b1;
+              default:   sdram_access = 1'b1;
+        endcase
+		  end
+    end
+end
+
 wire data_mem_ack;
+
 
 /*
 BitSync         ResetSync(.clk(sys_clk),
@@ -639,29 +776,41 @@ BitSync         ResetSync(.clk(sys_clk),
 
 assign sys_clk = clk_sys;
 
+/*
+wire extendw;
+
+AckExtender AckExtender(
+.clk(sys_clk),
+.rst_n(xreset),
+.ack_in(extendw),
+.ack_out(data_mem_ack)
+);
+*/
 
 
 // Instruction / Data Arbiter
 
-MemArbiter IDArbiter(.clk(sys_clk),
+IDArbiter IDArbiter(.clk(sys_clk),
+//MemArbiter IDArbiter(.clk(sys_clk),
                      .reset(xreset),
 
-                     .a_m_addr(instr_m_addr),
-                     .a_m_data_in(instr_m_data_in),
-                     .a_m_data_out(16'b0),
-                     .a_m_access(instr_m_access),
-                     .a_m_ack(instr_m_ack),
-                     .a_m_wr_en(1'b0),
-                     .a_m_bytesel(2'b11),
+                     .instr_m_addr(instr_m_addr),
+                     .instr_m_data_in(instr_m_data_in),
+                     .instr_m_data_out(16'b0),
+                     .instr_m_access(instr_m_access),
+                     .instr_m_ack(instr_m_ack),
+                     .instr_m_wr_en(1'b0),
+                     .instr_m_bytesel(2'b11),
 							
 							
-                     .b_m_addr(data_m_addr),
-                     .b_m_data_in(mem_data),
-                     .b_m_data_out(data_m_data_out),
-                     .b_m_access(data_m_access & ~d_io),
-                     .b_m_ack(data_mem_ack),
-                     .b_m_wr_en(data_m_wr_en),
-                     .b_m_bytesel(data_m_bytesel),
+                     .data_m_addr(data_m_addr),
+                     .data_m_data_in(mem_data),
+                     .data_m_data_out(data_m_data_out),
+                     .data_m_access(data_m_access & ~d_io),
+                     .data_m_ack(data_mem_ack),
+							//.data_m_ack(extendw),
+                     .data_m_wr_en(data_m_wr_en),
+                     .data_m_bytesel(data_m_bytesel),
 							
 
                      // Output bus connections
@@ -702,42 +851,44 @@ wire [1:0] sdram_m_bytesel;
 // Direct Maped Cache (Combined Data / Instructions)
 
 
-/*
-MemArbiter CacheVGAArbiter(
+
+//MemArbiter CacheVGAArbiter(
+MemArbiterExtend CacheVGAArbiter(
     .clk(sys_clk),
     .reset(xreset),
 	 
 
     // Connect CPU interface directly to the arbiter
-    .a_m_addr(q_m_addr),
-    .a_m_data_in(sdram_data),
-    .a_m_data_out(q_m_data_out),
-    .a_m_access(q_m_access & sdram_access),
-    .a_m_ack(cache_ack),
-    .a_m_wr_en(q_m_wr_en),
-    .a_m_bytesel(q_m_bytesel),
+    .cpu_m_addr(q_m_addr),
+    .cpu_m_data_in(sdram_data),
+    .cpu_m_data_out(q_m_data_out),
+    .cpu_m_access(/*q_m_access &*/ sdram_access), // q_m_access seems an attempt to eliminate a glitch in sdram_access
+    .cpu_m_ack(cache_ack),
+    .cpu_m_wr_en(q_m_wr_en),
+    .cpu_m_bytesel(q_m_bytesel),
 
     // VGA port
-    .b_m_addr(fb_sdram_m_addr),
-    .b_m_data_in(fb_sdram_m_data_in),
-    .b_m_data_out(fb_sdram_m_data_out),
-    .b_m_access(fb_sdram_m_access),
-    .b_m_ack(fb_sdram_m_ack),
-    .b_m_wr_en(fb_sdram_m_wr_en),
-    .b_m_bytesel(fb_sdram_m_bytesel),
+    .mcga_m_addr(fb_sdram_m_addr),
+    .mcga_m_data_in(fb_sdram_m_data_in),
+    .mcga_m_data_out(fb_sdram_m_data_out),
+    .mcga_m_access(fb_sdram_m_access),
+    .mcga_m_ack(fb_sdram_m_ack),
+    .mcga_m_wr_en(fb_sdram_m_wr_en),
+    .mcga_m_bytesel(fb_sdram_m_bytesel),
 
     // SDRAM interface
-    .q_m_addr(sdram_m_addr),
-    .q_m_data_in(sdram_m_data_out),
-    .q_m_data_out(sdram_m_data_in),
-    .q_m_access(sdram_m_access),
-    .q_m_ack(sdram_m_ack),
-    .q_m_wr_en(sdram_m_wr_en),
-    .q_m_bytesel(sdram_m_bytesel),
+    .sdram_m_addr(sdram_m_addr),
+    .sdram_m_data_in(sdram_m_data_out),
+    .sdram_m_data_out(sdram_m_data_in),
+    .sdram_m_access(sdram_m_access),
+    .sdram_m_ack(sdram_m_ack),
+    .sdram_m_wr_en(sdram_m_wr_en),
+    .sdram_m_bytesel(sdram_m_bytesel),
     .q_b(arb_to_vga)
 );
-*/
 
+
+/*
 
 Cache #(.lines(8192 / 16))
       Cache(
@@ -749,7 +900,7 @@ Cache #(.lines(8192 / 16))
 				
 				
 				// CPU interface
-            .c_access(q_m_access & sdram_access),
+            .c_access(/*q_m_access &* / sdram_access),
             .c_addr(q_m_addr),
             .c_data_in(sdram_data),
             .c_data_out(q_m_data_out),
@@ -771,42 +922,42 @@ Cache #(.lines(8192 / 16))
 				
             );
 				
-MemArbiter CacheVGAArbiter(.clk(sys_clk),
+MemArbiterExtend CacheVGAArbiter(.clk(sys_clk),
                            .reset(xreset),
                            // Cache port
-                           .a_m_addr(cache_sdram_m_addr),
-                           .a_m_data_in(cache_sdram_m_data_out),
-                           .a_m_data_out(cache_sdram_m_data_in),
-                           .a_m_access(cache_sdram_m_access),
-                           .a_m_ack(cache_sdram_m_ack),
-                           .a_m_wr_en(cache_sdram_m_wr_en),
-                           .a_m_bytesel(cache_sdram_m_bytesel),
+                           .cpu_m_addr(cache_sdram_m_addr),
+                           .cpu_m_data_in(cache_sdram_m_data_out),
+                           .cpu_m_data_out(cache_sdram_m_data_in),
+                           .cpu_m_access(cache_sdram_m_access),
+                           .cpu_m_ack(cache_sdram_m_ack),
+                           .cpu_m_wr_en(cache_sdram_m_wr_en),
+                           .cpu_m_bytesel(cache_sdram_m_bytesel),
 						   
                            // VGA port
 									
 									
-                           .b_m_addr(fb_sdram_m_addr),
-                           .b_m_data_in(fb_sdram_m_data_in),
-                           .b_m_data_out(fb_sdram_m_data_out),
-                           .b_m_access(fb_sdram_m_access),
-                           .b_m_ack(fb_sdram_m_ack),
-                           .b_m_wr_en(fb_sdram_m_wr_en),
-                           .b_m_bytesel(fb_sdram_m_bytesel),
+                           .mcga_m_addr(fb_sdram_m_addr),
+                           .mcga_m_data_in(fb_sdram_m_data_in),
+                           .mcga_m_data_out(fb_sdram_m_data_out),
+                           .mcga_m_access(fb_sdram_m_access),
+                           .mcga_m_ack(fb_sdram_m_ack),
+                           .mcga_m_wr_en(fb_sdram_m_wr_en),
+                           .mcga_m_bytesel(fb_sdram_m_bytesel),
 									
 									
 						   
                            // Q
-                           .q_m_addr(sdram_m_addr),
-                           .q_m_data_in(sdram_m_data_out),
-                           .q_m_data_out(sdram_m_data_in),
-                           .q_m_access(sdram_m_access),
-                           .q_m_ack(sdram_m_ack),
-                           .q_m_wr_en(sdram_m_wr_en),
-                           .q_m_bytesel(sdram_m_bytesel),
+                           .sdram_m_addr(sdram_m_addr),
+                           .sdram_m_data_in(sdram_m_data_out),
+                           .sdram_m_data_out(sdram_m_data_in),
+                           .sdram_m_access(sdram_m_access),
+                           .sdram_m_ack(sdram_m_ack),
+                           .sdram_m_wr_en(sdram_m_wr_en),
+                           .sdram_m_bytesel(sdram_m_bytesel),
                            .q_b(arb_to_vga));
 	
 
-	
+	*/
 	
 	
 	
@@ -857,6 +1008,85 @@ sdram3g SDRAMController(
 
 wire clk_mem;
 
+/*
+sdramsn5 sdram
+(
+	.*,
+	.init(0), //~clock_locked),
+	.clk(clk_mem),
+	
+	.addr({2'b0, arb_to_vga, sdram_m_addr}),
+	.din(sdram_m_data_in),
+	.dout(sdram_m_data_out),
+	.rd(sdram_m_access),
+	.wr(sdram_m_wr_en),
+	.word(sdram_m_bytesel),
+	.configdone(sdram_config_done),
+	.ack(sdram_m_ack),
+	.busy()
+);*/
+
+
+pllsdram pllsdram
+(
+	.refclk(CLK_50M),
+	.rst(0),
+	.outclk_0(pllsdram1), // 30 MHz
+	.outclk_1(pllsdram2), // 25.11 MHz
+	.locked(plock)
+);
+
+assign SDRAM_CKE   = 1;
+
+wire pllsdram2;
+wire pllsdram1;
+
+assign SDRAM_CLK = pllsdram2;
+
+sdramtut6 SDRAM
+(
+	// CPU interface
+	//.wb_clk		(clk_sys		    ),
+	
+	.oe		(sdram_m_access ),
+	
+	.we		(sdram_m_wr_en  ),
+	.ack		(sdram_m_ack    ),
+
+	.bytesel		(sdram_m_bytesel),
+	.addr		({2'b0, arb_to_vga, sdram_m_addr} ), // Arb_to_vga separates memory spaces
+	.din	(sdram_m_data_in ),
+	.dout	(sdram_m_data_out),
+	
+
+	// SDRAM interface to the MT48LC16M16 chip
+	.clk	(pllsdram1	 ),
+	.init		(~plock	 ),
+
+	//.sd_clk_out (SDRAM_CLK   ),
+	//.sd_cke		(SDRAM_CKE	 ),
+	.sd_data   	(SDRAM_DQ  	 ),
+	.sd_addr 	(SDRAM_A     ),
+	.sd_dqmh     (SDRAM_DQMH),
+	.sd_dqml     (SDRAM_DQML),
+	//.sd_dqml     (SDRAM_DQML),
+	//.sd_dqmh     (SDRAM_DQMH),
+	.sd_cs    (SDRAM_nCS   ),
+	.sd_ba      (SDRAM_BA  	 ),
+	.sd_we    (SDRAM_nWE   ),
+	.sd_ras   (SDRAM_nRAS  ),
+	.sd_cas   (SDRAM_nCAS  ),
+	
+	
+	
+	
+	// Other
+	
+	.configdone(sdram_config_done) // SDRAM was initialized
+);
+
+
+/*
 sdrama4 SDRAM
 (
 	// CPU interface
@@ -888,7 +1118,7 @@ sdrama4 SDRAM
 	.sd_we_n    (SDRAM_nWE   ),
 	.sd_ras_n   (SDRAM_nRAS  ),
 	.sd_cas_n   (SDRAM_nCAS  ),
-	.sd_ready	( /*ram_ready*/ ),
+	.sd_ready	( /*ram_ready* / ),
 	
 	
 	
@@ -896,7 +1126,7 @@ sdrama4 SDRAM
 	
 	.configdone(sdram_config_done) // SDRAM was initialized
 );
-
+*/
 
 
 
@@ -1200,34 +1430,35 @@ wire fb_sdram_m_wr_en;
 wire [1:0] fb_sdram_m_bytesel;
 wire arb_to_vga;
 
-MemArbiter CPUVGAArbiter(.clk(sys_clk),
+//MemArbiter CPUVGAArbiter(.clk(sys_clk),
+MemArbiterExtend CPUVGAArbiter(.clk(sys_clk),
                          .reset(xreset),
                          // CPU port
-                         .a_m_addr(cpu_fb_addr),
-                         .a_m_data_in(vga_data),
-                         .a_m_data_out(data_m_data_out),
-                         .a_m_access(vga_access),
-                         .a_m_ack(vga_ack),
-                         .a_m_wr_en(q_m_wr_en),
-                         .a_m_bytesel(q_m_bytesel),
+                         .cpu_m_addr(cpu_fb_addr),
+                         .cpu_m_data_in(vga_data),
+                         .cpu_m_data_out(data_m_data_out),
+                         .cpu_m_access(vga_access),
+                         .cpu_m_ack(vga_ack),
+                         .cpu_m_wr_en(q_m_wr_en),
+                         .cpu_m_bytesel(q_m_bytesel),
 						 
                          // VGA port
-                         .b_m_addr(fb_address),
-                         .b_m_data_in(fb_data),
-                         .b_m_data_out(),
-                         .b_m_access(fb_access),
-                         .b_m_ack(fb_ack),
-                         .b_m_wr_en(1'b0),
-                         .b_m_bytesel(2'b11),
+                         .mcga_m_addr(fb_address),
+                         .mcga_m_data_in(fb_data),
+                         .mcga_m_data_out(),
+                         .mcga_m_access(fb_access),
+                         .mcga_m_ack(fb_ack),
+                         .mcga_m_wr_en(1'b0),
+                         .mcga_m_bytesel(2'b11),
 						 
                          // Q
-                         .q_m_addr(fb_sdram_m_addr),
-                         .q_m_data_in(fb_sdram_m_data_in),
-                         .q_m_data_out(fb_sdram_m_data_out),
-                         .q_m_access(fb_sdram_m_access),
-                         .q_m_ack(fb_sdram_m_ack),
-                         .q_m_wr_en(fb_sdram_m_wr_en),
-                         .q_m_bytesel(fb_sdram_m_bytesel),
+                         .sdram_m_addr(fb_sdram_m_addr),
+                         .sdram_m_data_in(fb_sdram_m_data_in),
+                         .sdram_m_data_out(fb_sdram_m_data_out),
+                         .sdram_m_access(fb_sdram_m_access),
+                         .sdram_m_ack(fb_sdram_m_ack),
+                         .sdram_m_wr_en(fb_sdram_m_wr_en),
+                         .sdram_m_bytesel(fb_sdram_m_bytesel),
                          .q_b());
 
 								 							 
@@ -1239,13 +1470,22 @@ MemArbiter CPUVGAArbiter(.clk(sys_clk),
 	//wire V_BLANK;
 	//wire ce_pix;
 	
+	wire vga_rw;
+	wire vga_bw;
+	wire vga_gw;
 	
 									
 VGAController VGAController(.clk(vga_clk),
                             .reset(xreset),
-                            .vga_r(VGA_R[7:5]), // Map the 3 lower bits of vga_r to the 3 highest bits of VGA_R
+                            
+									 //.vga_r(vga_rw),
+                            //.vga_g(vga_gw),
+                            //.vga_b(vga_bw),
+									 
+									 .vga_r(VGA_R[7:5]), // Map the 3 lower bits of vga_r to the 3 highest bits of VGA_R
                             .vga_g(VGA_G[7:5]), // Map the 3 lower bits of vga_g to the 3 highest bits of VGA_G
                             .vga_b(VGA_B[7:5]), // Map the 3 lower bits of vga_b to the 3 highest bits of VGA_B
+									 
 									 .vga_hsync(HSync),
 		                      .vga_vsync(VSync),
 									 .H_BLANK(/*H_BLANK*/),
@@ -1253,6 +1493,13 @@ VGAController VGAController(.clk(vga_clk),
 									 .ce_pix(/*ce_pix*/),
 									 .DE(VGA_DE),
                             .*);
+									 
+
+
+//assign VGA_R = {vga_rw, 5'b00000}; // Assign the 4 bits of vga_r to the 4 highest bits of VGA_R and lower 4 bits to 0
+//assign VGA_G = {vga_gw, 5'b00000}; // Assign the 4 bits of vga_g to the 4 highest bits of VGA_G and lower 4 bits to 0
+//assign VGA_B = {vga_bw, 5'b00000}; // Assign the 4 bits of vga_b to the 4 highest bits of VGA_B and lower 4 bits to 0
+									 
 
 VGARegisters VGARegisters(.clk(sys_clk),
                           .reset(xreset),

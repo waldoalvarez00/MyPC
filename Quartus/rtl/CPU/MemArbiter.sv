@@ -109,6 +109,44 @@ module MemArbiter(input logic clk,
                   output logic q_m_wr_en,
                   output logic [1:0] q_m_bytesel,
                   output logic q_b);
+						
+/*
+    
+	 // Round-robin control
+    reg round_robin;
+
+    // Assign outputs based on the current value of round_robin
+    assign q_b = round_robin;
+    assign q_m_addr = round_robin ? b_m_addr : a_m_addr;
+    assign q_m_data_out = round_robin ? b_m_data_out : a_m_data_out;
+    assign q_m_access = round_robin ? b_m_access : a_m_access;
+    assign q_m_wr_en = round_robin ? b_m_wr_en : a_m_wr_en;
+    assign q_m_bytesel = round_robin ? b_m_bytesel : a_m_bytesel;
+
+    assign a_m_data_in = !round_robin ? q_m_data_in : 16'b0;
+    assign a_m_ack = !round_robin & q_m_ack;
+    assign b_m_data_in = round_robin ? q_m_data_in : 16'b0;
+    assign b_m_ack = round_robin & q_m_ack;
+
+    // Arbiter logic with pending request check
+    always_ff @(posedge clk or posedge reset) begin
+        if (reset) begin
+            round_robin <= 1'b0; // Start with the instruction bus
+        end else if (q_m_ack) begin
+            // Check for pending requests before switching
+            if (round_robin) begin
+                // If currently serving data bus, switch to instruction bus if it has a request
+                if (a_m_access) round_robin <= 1'b0;
+            end else begin
+                // If currently serving instruction bus, switch to data bus if it has a request
+                if (b_m_access) round_robin <= 1'b1;
+            end
+        end
+    end
+	 
+	 
+endmodule*/
+
 
 reg grant_to_b;
 reg grant_active;
@@ -123,6 +161,7 @@ assign q_m_bytesel = q_b ? b_m_bytesel : a_m_bytesel;
 
 assign a_m_data_in = grant_active & ~grant_to_b ? q_m_data_in : 16'b0;
 assign a_m_ack = grant_active & ~grant_to_b & q_m_ack;
+
 assign b_m_data_in = grant_active & grant_to_b ? q_m_data_in : 16'b0;
 assign b_m_ack = grant_active & grant_to_b & q_m_ack;
 
@@ -140,3 +179,4 @@ always_ff @(posedge clk or posedge reset) begin
 end
 
 endmodule
+

@@ -83,8 +83,9 @@ reg drive_dat;
 //assign ps2_clk = state == STATE_INHIBIT ? 1'b0 : 1'bz;
 //assign ps2_dat = drive_dat ? dat_o : 1'bz;
 
-assign ps2_clk_out = (state == STATE_INHIBIT) ? 1'b0 : 1'bz;
-assign ps2_dat_out = drive_dat ? dat_o : 1'bz;
+//assign ps2_clk_out = (state == STATE_INHIBIT) ? 1'b0 : 1'bz;
+assign ps2_clk_out = (state == STATE_INHIBIT) ? 1'b0 : 1'b1;
+assign ps2_dat_out = dat_o; //drive_dat ? dat_o : 1'bz;
 
 BitSync         ClkSync(.clk(clk),
                         .reset(reset),

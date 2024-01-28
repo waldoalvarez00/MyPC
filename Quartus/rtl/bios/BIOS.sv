@@ -31,8 +31,35 @@ wire wr_en = data_m_access & cs & data_m_wr_en;
 wire [15:0] q;
 assign data_m_data_out = data_m_ack ? q : 16'b0;
 
+
+/*
+
+logic [1:0] ack_counter;
+
+always_ff @(posedge clk) begin
+    if (!cs || !data_m_access) begin
+        // Reset ack and counter when cs or data_m_access is not asserted
+        data_m_ack <= 0;
+        ack_counter <= 0;
+    end else if (ack_counter < 2) begin
+        // Assert ack and increment counter for 2 clock cycles
+        data_m_ack <= 1;
+        ack_counter <= ack_counter + 1;
+    end else begin
+        // De-assert ack after 2 clock cycles
+        data_m_ack <= 0;
+    end
+end
+
+
+*/
+
+
+
+
 always_ff @(posedge clk)
     data_m_ack <= cs & data_m_access;
+	 
 
 altsyncram	altsyncram_component(.address_a(data_m_addr[$clog2(depth):1]),
                                      .byteena_a(data_m_bytesel),

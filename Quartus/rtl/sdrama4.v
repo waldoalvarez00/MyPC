@@ -73,7 +73,7 @@ localparam RASCAS_DELAY   = 3'd3;   // tRCD=20ns -> 3 cycles@128MHz
 //localparam BURST_LENGTH   = 3'b011; // 000=1, 001=2, 010=4, 011=8, 111 = continuous.
 localparam BURST_LENGTH   = 3'b000;
 localparam ACCESS_TYPE    = 1'b0;   // 0=sequential, 1=interleaved
-localparam CAS_LATENCY    = 3'd3;   // 2/3 allowed
+localparam CAS_LATENCY    = 3'd2;   // 2/3 allowed
 localparam OP_MODE        = 2'b00;  // only 00 (standard operation) allowed
 localparam NO_WRITE_BURST = 1'b1;   // 0= write burst enabled, 1=only single access write
 localparam RFC_DELAY      = 4'd7;   // tRFC=66ns -> 9 cycles@128MHz
@@ -102,6 +102,9 @@ wire       sd_req = wb_req & ~wb_ack;
 wire       sd_reading = wb_req  & ~wb_we;
 wire       sd_writing = wb_req  & wb_we;
 
+
+
+
 localparam CYCLE_IDLE       = 4'd0;
 localparam CYCLE_RAS_START  = CYCLE_IDLE;
 localparam CYCLE_RFSH_START = CYCLE_RAS_START; 
@@ -119,13 +122,16 @@ localparam CYCLE_READ6      = CYCLE_READ5+ 1'd1;               // 14
 localparam CYCLE_READ7      = CYCLE_READ6+ 1'd1;               // 15
 localparam CYCLE_RFSH_END   = CYCLE_RFSH_START + RFC_DELAY;
 
-localparam RAM_CLK          = 120000000;
+localparam RAM_CLK          = 100000000;
 localparam REFRESH_PERIOD   = (RAM_CLK / (16 * 8192));
 
 initial 
 begin
   configdone = 0;
 end
+
+
+//assign sd_dq = wb_we? wb_dat_i:16'bZZZZZZZZZZZZZZZZ;
 
 always @(posedge sd_clk_in) begin 
 	reg        sd_reqD, sd_reqD2;
@@ -235,7 +241,7 @@ always @(posedge sd_clk_in) begin
 						sd_cycle        <= sd_cycle + 3'd1;
 						
 					end
-					else if(sd_newreq) 
+					else if(sd_newreq & ~wb_ack) 
 					begin
 						sd_cmd 	       <= CMD_ACTIVE;
 						sd_addr	       <= wb_adr[21:10];
@@ -332,9 +338,13 @@ always @(posedge sd_clk_in) begin
 end
 
 
+/*
+
+reg [3:0] ack_counter;
+
 always @(posedge wb_clk) begin 
 	
-	reg [1:0] ack_counter;
+	
 	reg sd_doneD; // done delayed
 	
 	
@@ -365,9 +375,8 @@ always @(posedge wb_clk) begin
 	
 			wb_dat_o <= sd_dat[0];
 			
-			 
 			wb_ack	<= 1;
-			ack_counter <= 2; /*ACK_DURATION*/;
+			ack_counter <= 4; /*ACK_DURATION* /;
 			
 		end
 		
@@ -375,10 +384,10 @@ always @(posedge wb_clk) begin
 		
 	end
 	
-end
+end*/
 
 
-/*
+
 always @(posedge wb_clk) begin 
 	
 	
@@ -430,7 +439,7 @@ always @(posedge wb_clk) begin
 	end
 end
 
-*/
+
 
 // drive control signals according to current command
 assign sd_cke   = 1;
@@ -439,8 +448,8 @@ assign sd_ras_n = sd_cmd[2];
 assign sd_cas_n = sd_cmd[1];
 assign sd_we_n  = sd_cmd[0];
 
-assign sd_dqmh   = wb_sel[1];
-assign sd_dqml   = wb_sel[0];
+assign sd_dqmh   = ~wb_sel[1];
+assign sd_dqml   = ~wb_sel[0];
 
 
 altddio_out

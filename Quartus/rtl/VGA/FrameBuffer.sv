@@ -86,6 +86,9 @@ FBPrefetch FBPrefetch(.sys_clk(sys_clk),
                       .mode(get_video_mode(graphics_enabled,
                                            vga_256_color)),
                       .q(vga_q),
+							 . fb_ack(fb_ack),
+							 .fb_address(fb_address),
+                      .fb_access(fb_access),
                       .*);
 
 always_ff @(posedge clk)

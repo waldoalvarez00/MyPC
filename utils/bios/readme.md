@@ -50,7 +50,7 @@ Place the resulting bios.mif file at the root of your Quartus folder and rebuild
 
 The BIOS starts at entry.S this is AT&T assembler and creates an environment where the C can kick in
 
-# Dissassembling the BIOS
+# Disassembling the BIOS
 
 you can use objdump, is not the best but will give close output of what is in memory:
 
