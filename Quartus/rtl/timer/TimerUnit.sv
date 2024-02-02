@@ -67,11 +67,11 @@ a module would be used in applications requiring precise timing or waveform gene
 module TimerUnit(input logic clk,
                  input logic reset,
                  input logic pit_clk,
-                 input logic [7:0] reload_in,
-                 input logic load,
-                 input logic [1:0] rw_in,
-                 input logic [1:0] mode_in,
-                 input logic configure,
+                 input logic [7:0] reload_in, // An 8-bit input used to set the reload value for the timer.
+                 input logic load,            // A control signal to load the reload_in value into the timer
+                 input logic [1:0] rw_in,     // A 2-bit input specifying the read/write operation mode
+                 input logic [1:0] mode_in,   // A 2-bit input that selects the operating mode of the timer
+                 input logic configure,       // A signal to apply the configuration specified by mode_in and rw_in
                  input logic latch_count,
                  input logic read_count,
                  output logic [7:0] count_out,
@@ -92,11 +92,16 @@ reg last_gate;
 
 wire trigger = gate & ~last_gate;
 
+
+
+
 task count_rate_gen;
 begin
     if (trigger) begin
+	 
         count <= reload[0] ? reload - 1'b1 : reload;
         out <= 1'b1;
+		  
     end else if (pit_clk_posedge && gate) begin
         if (count == 16'b0 || count == 16'b1)
             count <= reload[0] ? reload - 16'd1 : reload;
@@ -107,6 +112,9 @@ begin
     end
 end
 endtask
+
+
+
 
 task count_square_wave;
 begin
@@ -125,16 +133,21 @@ begin
 end
 endtask
 
+
+
 always_ff @(posedge clk) begin
     last_pit_clk <= pit_clk;
     last_gate <= gate;
 end
 
 always_ff @(posedge clk or posedge reset) begin
+
     if (reset) begin
+	 
         latched_count <= 16'b0;
         access_low <= 1'b0;
         latched <= 2'b00;
+		  
     end else begin
         if (read_count && rw == 2'b11) begin
             latched_count <= {8'b0, latched_count[15:8]};
@@ -159,49 +172,95 @@ always_comb begin
         count_out = access_low ? count[7:0] : count[15:8];
 end
 
-always_ff @(posedge reset or posedge clk) begin
-    if (reset) begin
-        rw <= 2'b0;
-        mode <= 2'b0;
-    end else if (configure) begin
-        mode <= mode_in;
-        rw <= rw_in;
-    end
-end
+
+
+// Load configuration mode and rw
 
 always_ff @(posedge reset or posedge clk) begin
     if (reset) begin
-        reload <= 16'b0;
-        reload_low_stored <= 1'b0;
+	 
+        rw <= 2'b0;
+        mode <= 2'b0;
+		  
     end else if (configure) begin
+	 
+        mode <= mode_in;
+        rw <= rw_in;
+		  
+    end
+end
+
+
+
+
+always_ff @(posedge reset or posedge clk) begin
+
+    if (reset) begin
+	 
         reload <= 16'b0;
         reload_low_stored <= 1'b0;
+		  
+    end else if (configure) begin
+	 
+        reload <= 16'b0;
+        reload_low_stored <= 1'b0;
+		  
     end else if (load) begin
-        if (rw == 2'b10) begin
+	 
+        if (rw == 2'b10) begin // High byte
+		  
             reload[15:8] <= reload_in;
-        end else if (rw == 2'b01) begin
+				
+        end else if (rw == 2'b01) begin // Low Byte
+		  
             reload[7:0] <= reload_in;
+				
         end else begin
+		  
             if (reload_low_stored) begin
-                reload <= {reload_in, reload_low};
+				
+                // Check if both bytes are zero, if so, load maximum value
+                // This should be the behaviour according to 8253 documentation
+                // and some BIOSes are setting it to program the tick timer
+					 
+                if (reload_in == 8'b0 && reload_low == 8'b0) begin
+                    reload <= 16'hFFFF;
+                end else begin
+                    reload <= {reload_in, reload_low};
+                end
                 reload_low_stored <= 1'b0;
+					 
+                //reload <= {reload_in, reload_low};
+                //reload_low_stored <= 1'b0;
+					 
+					 
             end else begin
+				
                 reload_low <= reload_in;
                 reload_low_stored <= 1'b1;
             end
+				
         end
+		  
     end
 end
 
+
 always_ff @(posedge reset or posedge clk) begin
     if (reset) begin
+	 
         count <= 16'b0;
         out <= 1'b1;
+		  
     end else begin
+	 
+	 
         if (mode[1:0] == 2'b11)
             count_rate_gen();
         else if (mode[1:0] == 2'b10)
             count_square_wave();
+				
+
 
         if (!gate)
             out <= 1'b1;

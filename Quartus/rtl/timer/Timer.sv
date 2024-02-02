@@ -15,79 +15,53 @@
 // You should have received a copy of the GNU General Public License
 // along with s80x86.  If not, see <http://www.gnu.org/licenses/>.
 
+
+
+
 /*
 
-
-This Verilog code defines a module named Timer, which appears to be a part of a larger digital system, possibly an FPGA or ASIC design. The module interfaces with external components or systems through various input and output signals and incorporates two instances of a TimerUnit module, which we discussed earlier. Let's break down the key components:
-
-Module Declaration
-Timer: The module name.
-Inputs: Includes the system clock (clk), reset signal (reset), a timer clock (pit_clk), and several control signals (cs, data_m_addr, data_m_data_in, data_m_bytesel, data_m_wr_en, data_m_access, speaker_gate_en).
-Outputs: Includes data output (data_m_data_out), an acknowledgment signal (data_m_ack), an interrupt signal (intr), and a speaker output (speaker_out).
-Internal Signals
 pit_clk_sync: A synchronized version of the pit_clk signal.
-Access control signals (access_timer0, access_timer2, access_ctrl): Determine which part of the module is being accessed based on control inputs.
-ctrl_wr_val, channel: Used for configuring the internal TimerUnit instances.
-timer0_count, timer2_count: Outputs from the TimerUnit instances.
-Components
-BitSync: This component synchronizes the pit_clk signal to the system clock clk. This is important for maintaining timing integrity in digital systems.
 
-Two TimerUnit Instances: The module contains two instances of the TimerUnit module (Timer0 and Timer2). Each instance is configured separately and has distinct functions:
+BitSync: This component synchronizes the pit_clk signal to the system clock clk. 
+
+Two TimerUnit Instances: The module contains two instances of the TimerUnit module (Timer0 and Timer2). 
+Each instance is configured separately and has distinct functions:
 
 Timer0 is configured for general timing purposes and its output is connected to the intr (interrupt) signal.
 
 Timer2 is configured for audio or speaker-related timing, with its output connected to speaker_out.
 
-Functional Logic
 
-The module reads and writes data to the TimerUnit instances based on the control signals. It uses access_timer0, access_timer2, and access_ctrl to determine which TimerUnit to interact with and how to configure or read from it.
-Data read from the timer units is placed on the data_m_data_out bus when read operations occur.
-The data_m_ack signal is an acknowledgment that is asserted when a valid access to the module occurs.
-
-Operation
-The Timer module seems to be part of a system with memory-mapped I/O, where specific addresses (data_m_addr) and byte select signals (data_m_bytesel) are used to interact with the module.
-The module supports write operations (configuring the timer units or controlling their operation) and read operations (reading the current timer count).
-The timers can be used for generating interrupts (intr) or controlling a speaker (speaker_out), with the latter being gated by speaker_gate_en.
-Summary
-
-In summary, this Timer module is a versatile component designed for timing-related functions in a digital system. It can be configured for different purposes (like generating interrupts or controlling a speaker) and interacts with other system components through memory-mapped I/O. The use of two separate timer units allows for flexible and varied timing functionalities within the same module.
-
-*/
-
-/*
 
 Inputs and Output Explained
 
 input logic [1:1] data_m_addr
 
 This is a one-bit input signal named data_m_addr.
-Since the bit range is [1:1], it indicates that only one bit is used, effectively making data_m_addr a single-bit value. This is a somewhat unusual way to
- declare a single-bit signal, as typically you might see input logic data_m_addr without the bit range for a single-bit signal.
- 
-This signal is likely used as part of an addressing scheme to select between different functionalities or registers within the Timer module. In the given code, 
-it is used to differentiate between accesses to timer0 and timer2 and also to access the control register.
+Since the bit range is [1:1], it indicates that only one bit is used
+
+
+This signal is used to select between different functionalities or registers within the Timer module. 
+It is used to differentiate between accesses to timer0 and timer2 and also to access the control register.
 
 input logic [15:0] data_m_data_in
 
 This is a 16-bit input bus named data_m_data_in.
 
-It is used to input data into the Timer module, probably for configuration or setting values like reload values for the timers.
-The width of 16 bits suggests that the module can accept a relatively wide range of data values, which is typical 
-for memory-mapped I/O operations in digital systems.
+It is used to input data into the Timer module, probably for configuration or setting 
+values like reload values for the timers.
 
 output logic [15:0] data_m_data_out
 
 This is a 16-bit output bus named data_m_data_out.
 It is used to output data from the Timer module. This could be the current count of the timers or some status information.
 The 16-bit width matches the input bus, allowing for a consistent data interface size for both reading from and writing to the module.
+
+
 input logic [1:0] data_m_bytesel
 
 This is a 2-bit input signal named data_m_bytesel.
-It is likely used as a byte-select or byte-enable signal. In memory-mapped I/O and bus interfaces, byte-select signals are often 
-used to determine which bytes of a wider data bus are active or should be considered valid during a particular data transfer.
-
-For a 16-bit bus, a 2-bit byte-select signal makes sense: it can be used to select between the upper byte ([15:8]), the lower byte ([7:0]), 
-or both bytes of the data_m_data_in bus for operations.
+It is used as a byte-select or byte-enable signal.
 
 Usage in the Module
 In the Timer module, these signals are used to control data flow and module configuration. For example, data_m_addr is used in 
@@ -95,21 +69,60 @@ conjunction with data_m_bytesel to control which part of the module is accessed 
 or the control registers. data_m_data_in provides the data for these operations, and data_m_data_out is used to send data back 
 to the rest of the system, such as the current timer counts or status information.
 
-The combination of these signals allows for flexible and controlled interaction with the Timer module, 
-enabling it to function correctly within a larger digital system, likely involving a CPU or 
-microcontroller with a memory-mapped peripheral interface.
 
 
+
+
+
+PIT Channels and Their Uses
+
+
+Channel 0: Used for system timing purposes, like generating interrupts for the system clock.
+Channel 1: Originally used in the PC for dynamic RAM refresh, but often not used or available in later models.
+Channel 2: Connected to the PC speaker, can be used for sound generation or as a general-purpose timer.
+
+I/O Ports for the 8253/8254 PIT
+
+0x40: Control register for Channel 0
+0x41: Control register for Channel 1
+0x42: Control register for Channel 2
+
+0x43: Mode/Command register, used to set the operation mode of the counters.
+
+
+Programming the PIT
+
+Select the Counter and Mode: First, you need to write a control word to the Mode/Command register
+ (0x43) to select the counter you want to configure and the mode it should operate in. The control 
+ word is structured as follows:
+
+Bits 6-7: Select the counter (00 for Channel 0, 01 for Channel 1, 10 for Channel 2).
+Bits 4-5: Select the access mode (latch count, low byte only, high byte only, low byte/high byte).
+Bits 1-3: Select the operating mode (e.g., rate generator, square wave generator).
+
+Bit 0: Select the binary (0) or BCD (1) counting mode.
+Set the Count Value: After configuring the mode and counter, you need to write the count value to 
+the counter's register. For modes where you set both the low byte and high byte (like the low 
+byte/high byte access mode), you write the low byte first, then the high byte.
+
+For example, to program Channel 2 to generate a square wave, you might do the following:
+
+Write the control word to 0x43 to select Channel 2, low byte/high byte mode, and square wave mode.
+Write the low byte of the count to 0x42.
+Write the high byte of the count to 0x42.
 
 */
+
 
 `default_nettype none
 module Timer(input logic clk,
              input logic reset,
              input logic pit_clk,
-             input logic cs,
+				 
+             input logic cs, // Enabled when io and addr == 4Xh (40h - 43h)
 			 
              input  logic  [1:1]  data_m_addr,
+				 
              input  logic  [15:0] data_m_data_in,
              output logic  [15:0] data_m_data_out,
              input  logic  [1:0]  data_m_bytesel,
@@ -125,12 +138,18 @@ module Timer(input logic clk,
              input logic speaker_gate_en);
 
 wire pit_clk_sync;
+
 wire access_timer0 = cs & data_m_access & ~data_m_addr[1] & data_m_bytesel[0];
 wire access_timer2 = cs & data_m_access & data_m_addr[1] & data_m_bytesel[0];
+
 wire access_ctrl = cs & data_m_access & data_m_addr[1] & data_m_bytesel[1];
+
+
 // verilator lint_off UNUSED
 wire [7:0] ctrl_wr_val = data_m_data_in[15:8];
 // verilator lint_on UNUSED
+
+
 wire [1:0] channel = ctrl_wr_val[7:6];
 
 wire [7:0] timer0_count;
@@ -152,6 +171,8 @@ TimerUnit Timer0(.pit_clk(pit_clk_sync),
                  .count_out(timer0_count),
                  .out(intr),
                  .gate(1'b1),
+                 .clk(clk),
+                 .reset(reset),					  
                  .*);
 
 TimerUnit Timer2(.pit_clk(pit_clk_sync),
@@ -165,17 +186,25 @@ TimerUnit Timer2(.pit_clk(pit_clk_sync),
                  .count_out(timer2_count),
                  .out(speaker_out),
                  .gate(speaker_gate_en),
+                 .clk(clk),
+                 .reset(reset),
                  .*);
+
+
+
 
 always_ff @(posedge clk)
     if (access_timer0 && !data_m_wr_en)
-        data_m_data_out <= {8'b0, timer0_count};
+        data_m_data_out <= {8'b0, timer0_count}; // Reads timer 0
     else if (access_timer2 && !data_m_wr_en)
-        data_m_data_out <= {8'b0, timer2_count};
+        data_m_data_out <= {8'b0, timer2_count}; // Reads Timer 2
     else
         data_m_data_out <= 16'b0;
 
+
+
+// Returns ACK to CPU on access
+
 always_ff @(posedge clk)
     data_m_ack <= cs & data_m_access;
-
 endmodule
