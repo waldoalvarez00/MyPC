@@ -41,6 +41,7 @@ module PS2Host #(parameter clkf=50000000)
 					  output ps2_dat_out
 					  
 					  );
+					  
 
 localparam tx_clock_inhibit_reload = (clkf / 1000000) * 100;
 localparam tx_clock_inhibit_bits = $clog2(tx_clock_inhibit_reload);

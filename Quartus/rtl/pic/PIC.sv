@@ -15,13 +15,15 @@
 // You should have received a copy of the GNU General Public License
 // along with s80x86.  If not, see <http://www.gnu.org/licenses/>.
 
+
+
 // PIC-"lite"
 //
 // Only supports a single PIC, edge triggered interrupts and non-specific or
 // specific EOI.  No rotating priorities etc.
 
 
-//  Intel 8259 alternative
+//  Intel 8259 alternative (quite basic)
 
 `default_nettype none
 module PIC(input logic clk,
@@ -52,11 +54,11 @@ enum bit [1:0] {
     REG_LATCH_ISR
 } reg_latch;
 
-reg [7:3] vector_address;
-reg [7:0] mask, isr, irr;
-reg [2:0] delivered;
+reg  [7:3] vector_address;
+reg  [7:0] mask, isr, irr;
+reg  [2:0] delivered;
 
-reg [7:0] intr_last;
+reg  [7:0] intr_last;
 wire [7:0] intr_edges = (intr_in ^ intr_last) & intr_in;
 
 wire [7:0] command_read_val = reg_latch == REG_LATCH_IRR ? irr :
@@ -73,10 +75,16 @@ always_comb begin
     INIT_STATE_ICW1: next_init_state =
         access_command & data_m_wr_en & data_m_data_in[4] ?
             INIT_STATE_ICW2 : INIT_STATE_ICW1;
+				
     INIT_STATE_ICW2: next_init_state = access_data & data_m_wr_en ?
-        INIT_STATE_ICW4 : INIT_STATE_ICW2;
+        INIT_STATE_ICW3 : INIT_STATE_ICW2;
+		  
+    INIT_STATE_ICW3: next_init_state = access_data & data_m_wr_en ?
+        INIT_STATE_ICW4 : INIT_STATE_ICW3;
+		  
     INIT_STATE_ICW4: next_init_state = access_data & data_m_wr_en ?
         INIT_STATE_IDLE : INIT_STATE_ICW4;
+		  
     default: next_init_state = init_state;
     endcase
 
@@ -96,18 +104,23 @@ always_ff @(posedge clk)
 always_ff @(posedge clk)
     data_m_ack <= cs & data_m_access;
 
+	 
+// Idle State Mask
 always_ff @(posedge reset or posedge clk)
     if (reset)
         mask <= 8'b0;
     else if (init_state == INIT_STATE_IDLE && access_data && data_m_wr_en)
         mask <= data_m_data_in[15:8];
 
+// ICW2 State
 always_ff @(posedge reset or posedge clk)
     if (reset)
         vector_address <= 5'b0;
     else if (access_data && data_m_wr_en && init_state == INIT_STATE_ICW2)
         vector_address <= data_m_data_in[15:11];
 
+
+// Idle state latch
 always_ff @(posedge reset or posedge clk)
     if (reset)
         reg_latch <= REG_LATCH_NONE;
@@ -127,6 +140,7 @@ always_ff @(posedge reset or posedge clk)
             irr <= irr | (~mask & intr_edges);
     end
 
+	 
 always_ff @(posedge reset or posedge clk)
     if (reset)
         isr <= 8'b0;
