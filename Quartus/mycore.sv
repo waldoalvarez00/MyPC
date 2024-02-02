@@ -566,12 +566,36 @@ always_comb begin
 end
 
 
-
+// Avoids the CPU locking waiting for non existent IO
 always_ff @(posedge sys_clk)
     default_io_ack <= default_io_access;
 
 	 
+// Cleaner RTL	 
+AddressDecoderIO AddressDecoderIO(
 
+    .d_io(d_io),
+	 .data_m_addr(data_m_addr),
+    .data_m_access(data_m_access),
+
+    // Select outputs
+    .leds_access(leds_access),
+    .sdram_config_access(sdram_config_access),
+    .default_io_access(default_io_access),
+    .uart_access(uart_access),
+    .spi_access(spi_access),
+    .irq_control_access(irq_control_access),
+    .pic_access(pic_access),
+    .timer_access(timer_access),
+    .bios_control_access(bios_control_access),
+    .vga_reg_access(vga_reg_access),
+    .ps2_kbd_access(ps2_kbd_access),
+    .ps2_mouse_access(ps2_mouse_access)
+	 
+);
+
+
+/*
 
 always_comb begin
     // Initialize all accesses to 0
@@ -631,52 +655,10 @@ always_comb begin
     // No need for else part; signals are already initialized to 0
 end
 
-
-/*
-	
-
-// Note, check for glitches	
-always_comb begin
-    leds_access = 1'b0;
-    sdram_config_access = 1'b0;
-    default_io_access = 1'b0;
-    uart_access = 1'b0;
-    spi_access = 1'b0;
-    irq_control_access = 1'b0;
-    pic_access = 1'b0;
-    timer_access = 1'b0;
-    bios_control_access = 1'b0;
-
-    vga_reg_access = 1'b0;
-
-
-    ps2_kbd_access = 1'b0;
-    ps2_mouse_access = 1'b0;
-
-
-    if (d_io && data_m_access) begin
-        casez ({data_m_addr[15:1], 1'b0})
-        16'b1111_1111_1111_1110: leds_access = 1'b1;
-        16'b1111_1111_1111_1100: sdram_config_access = 1'b1;
-        16'b1111_1111_1111_1010: uart_access = 1'b1;
-        16'b1111_1111_1111_00z0: spi_access = 1'b1;
-        16'b1111_1111_1111_0110: irq_control_access = 1'b1;
-        16'b1111_1111_1110_1100: bios_control_access = 1'b1;
-        16'b0000_0000_0100_00z0: timer_access = 1'b1;
-        16'b0000_0000_0010_0000: pic_access = 1'b1;
-// VGA
-        16'b0000_0011_110z_zzzz: vga_reg_access = 1'b1;
-
-// PS2
-        16'b1111_1111_1110_0000: ps2_mouse_access = 1'b1;
-        16'b0000_0000_0110_0000: ps2_kbd_access = 1'b1;
-
-        default:  default_io_access = 1'b1;
-        endcase
-    end
-end
-
 */
+
+
+
 /*
 
 // original
@@ -1366,7 +1348,10 @@ Core Core(
     .debug_wr_en(debug_wr_en)
 );
 
-		  
+
+// Seems this module is used to test interrupts
+// by generating interrupts with a port access 
+// from CPU. Is non standar hardware
 
 IRQController IRQController(.clk(sys_clk),
                             .reset(xreset),
@@ -1374,7 +1359,11 @@ IRQController IRQController(.clk(sys_clk),
                             .data_m_ack(irq_control_ack),
                             .data_m_data_out(irq_control_data),
                             .data_m_data_in(data_m_data_out),
+									 .nmi(nmi),
+									 .intr_test(intr_test),
                             .*);
+
+
 
 PIC PIC(.clk(sys_clk),
         .reset(xreset),
@@ -1384,6 +1373,8 @@ PIC PIC(.clk(sys_clk),
         .data_m_data_in(data_m_data_out),
         .intr_in(irqs),
         .*);
+
+
 
 Timer Timer(.clk(sys_clk),
             .reset(xreset),
