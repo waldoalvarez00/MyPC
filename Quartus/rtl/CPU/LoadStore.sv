@@ -25,7 +25,7 @@ module LoadStore(input clk,
                  input reset,
 					  
                  // Memory Address Register
-                 input logic write_mar, // microcode order
+                 input logic write_mar,      // microcode order
                  input logic [15:0] segment, // 80x86 segment register value comming from Segment Register File
                  input [15:0] mar_in,
 					  
@@ -128,7 +128,7 @@ assign busy = (mem_read | mem_write) & ~complete;
 								    current_state <= UNALIGNED_FIRST_BYTE_READ_8Bit;
 									 complete <= 1'b0;
 									 
-									 m_addr <= io ? {3'b0, mar[15:1]} : {segment, 3'b0} + {3'b0, mar[15:1]};
+									 m_addr <= io ? {3'b0, mar[15:0]} : {segment, 3'b0} + {3'b0, mar[15:1]};
 									 
 							   end
 								
@@ -136,7 +136,7 @@ assign busy = (mem_read | mem_write) & ~complete;
 								    complete <= 1'b0;
 								    current_state <= UNALIGNED_FIRST_BYTE_WRITE_8bit;
 									 
-									 m_addr <= io ? {3'b0, mar[15:1]} : {segment, 3'b0} + {3'b0, mar_out[15:1]};
+									 m_addr <= io ? {3'b0, mar[15:0]} : {segment, 3'b0} + {3'b0, mar_out[15:1]};
 									 
 								end
 							
@@ -168,13 +168,13 @@ assign busy = (mem_read | mem_write) & ~complete;
 						     if (mem_read) begin
 							  complete <= 1'b0;
 							  current_state <= READ;
-							  m_addr <= io ? {3'b0, mar_out[15:1]} : {segment, 3'b0} + {3'b0, mar_out[15:1]};
+							  m_addr <= io ? {3'b0, mar_out[15:0]} : {segment, 3'b0} + {3'b0, mar_out[15:1]};
 							  end 
 							  
 							  if (mem_write) begin
 							  complete <= 1'b0;
 							  current_state <= WRITE;
-							  m_addr <= io ? {3'b0, mar_out[15:1]} : {segment, 3'b0} + {3'b0, mar_out[15:1]};
+							  m_addr <= io ? {3'b0, mar_out[15:0]} : {segment, 3'b0} + {3'b0, mar_out[15:1]};
 							  end
 							  
 						  end
@@ -223,7 +223,7 @@ assign busy = (mem_read | mem_write) & ~complete;
 						  
                     m_bytesel <= 2'b10;
 						  
-						  m_data_out = {mdr[7:0], 8'b0}; // Unaligned and first byte
+						  m_data_out <= {mdr[7:0], 8'b0}; // Unaligned and first byte
 						  current_state <= WAIT_ACK_WRITE;
 						  
                 end
@@ -236,7 +236,7 @@ assign busy = (mem_read | mem_write) & ~complete;
 						  
                     m_bytesel <= 2'b10;
 						  
-						  m_data_out = {mdr[7:0], 8'b0}; // Unaligned and first byte
+						  m_data_out <= {mdr[7:0], 8'b0}; // Unaligned and first byte
 						  current_state <= WAIT_ACK_0_WRITE;
 						  
                 end
@@ -259,7 +259,7 @@ assign busy = (mem_read | mem_write) & ~complete;
                     m_access <= 1'b1;
                     m_wr_en <= 1'b1;
                     m_bytesel <= 2'b01;
-						  m_data_out = {8'b0, mdr[15:8]}; // Unaligned and second byte
+						  m_data_out <= {8'b0, mdr[15:8]}; // Unaligned and second byte
 						  current_state <= WAIT_ACK_WRITE;
                     
                 end
