@@ -547,6 +547,20 @@ wire io_ack = sdram_config_ack |
               ps2_mouse_ack |
 
               bios_control_ack;
+				  
+				  
+reg post_sdram_reset; // delayed reset after SDRAM is configured
+
+always @(posedge sys_clk or posedge xreset) begin
+    if (xreset) begin
+        // When system is under reset, prepare to wait for SDRAM configuration
+        post_sdram_reset <= 1'b1;
+    end else if (sdram_config_done) begin
+        // Once SDRAM configuration is done, clear the post SDRAM reset signal
+        post_sdram_reset <= 1'b0;
+    end
+end
+
 
 always_comb begin
     if (DDRAM_BUSY) begin
@@ -594,68 +608,6 @@ AddressDecoderIO AddressDecoderIO(
 	 
 );
 
-
-/*
-
-always_comb begin
-    // Initialize all accesses to 0
-    leds_access = 1'b0;
-    sdram_config_access = 1'b0;
-    default_io_access = 1'b0;
-    uart_access = 1'b0;
-    spi_access = 1'b0;
-    irq_control_access = 1'b0;
-    pic_access = 1'b0;
-    timer_access = 1'b0;
-    bios_control_access = 1'b0;
-    vga_reg_access = 1'b0;
-    ps2_kbd_access = 1'b0;
-    ps2_mouse_access = 1'b0;
-
-    // Determine access type based on conditions
-    if (d_io && data_m_access) begin
-        // Check for each access type
-        if (data_m_addr[15:1] == 15'b1111_1111_1111_111) begin
-            leds_access = 1'b1;
-        end
-        else if (data_m_addr[15:1] == 15'b1111_1111_1111_110) begin
-            sdram_config_access = 1'b1;
-        end
-        else if (data_m_addr[15:1] == 15'b1111_1111_1111_101) begin
-            uart_access = 1'b1;
-        end
-        else if (data_m_addr[15:3] == 13'b1111_1111_1111_00) begin
-            spi_access = 1'b1;
-        end
-        else if (data_m_addr[15:1] == 15'b1111_1111_1111_011) begin
-            irq_control_access = 1'b1;
-        end
-        else if (data_m_addr[15:1] == 15'b1111_1111_1110_110) begin
-            bios_control_access = 1'b1;
-        end
-        else if (data_m_addr[15:3] == 13'b0000_0000_0100_00) begin
-            timer_access = 1'b1;
-        end
-        else if (data_m_addr[15:1] == 15'b0000_0000_0010_000) begin
-            pic_access = 1'b1;
-        end
-        else if (data_m_addr[15:5] == 11'b0000_0011_110) begin
-            vga_reg_access = 1'b1;
-        end
-        else if (data_m_addr[15:1] == 15'b1111_1111_1110_000) begin
-            ps2_mouse_access = 1'b1;
-        end
-        else if (data_m_addr[15:1] == 15'b0000_0000_0110_000) begin
-            ps2_kbd_access = 1'b1;
-        end
-        else begin
-            default_io_access = 1'b1;
-        end
-    end
-    // No need for else part; signals are already initialized to 0
-end
-
-*/
 
 
 
@@ -758,23 +710,14 @@ BitSync         ResetSync(.clk(sys_clk),
 
 assign sys_clk = clk_sys;
 
-/*
-wire extendw;
 
-AckExtender AckExtender(
-.clk(sys_clk),
-.rst_n(xreset),
-.ack_in(extendw),
-.ack_out(data_mem_ack)
-);
-*/
 
 
 // Instruction / Data Arbiter
 
 IDArbiter IDArbiter(.clk(sys_clk),
 //MemArbiter IDArbiter(.clk(sys_clk),
-                     .reset(xreset),
+                     .reset(post_sdram_reset),
 
                      .instr_m_addr(instr_m_addr),
                      .instr_m_data_in(instr_m_data_in),
@@ -837,7 +780,7 @@ wire [1:0] sdram_m_bytesel;
 //MemArbiter CacheVGAArbiter(
 MemArbiterExtend CacheVGAArbiter(
     .clk(sys_clk),
-    .reset(xreset),
+    .reset(post_sdram_reset),
 	 
 
     // Connect CPU interface directly to the arbiter
@@ -943,260 +886,73 @@ MemArbiterExtend CacheVGAArbiter(.clk(sys_clk),
 	
 	
 	
-	/*
-sdram3g SDRAMController(
-
-   .init(!plock),        // reset to initialize RAM
-   .clk(sys_clk),
 	
-	
-	                              // SDRAM_* - signals to the MT48LC16M16 chip
-   .SDRAM_DQ(SDRAM_DQ),           // 16 bit bidirectional data bus
-   .SDRAM_A(SDRAM_A),             // 13 bit multiplexed address bus
-   .SDRAM_DQML(SDRAM_DQML),       // two byte masks
-   .SDRAM_DQMH(SDRAM_DQMH),  
-   .SDRAM_BA(SDRAM_BA),           // two banks
-   .SDRAM_nCS(SDRAM_nCS),         // a single chip select
-   .SDRAM_nWE(SDRAM_nWE),         // write enable
-   .SDRAM_nRAS(SDRAM_nRAS),       // row address select
-   .SDRAM_nCAS(SDRAM_nCAS),       // columns address select
-   .SDRAM_CKE(SDRAM_CKE),         // clock enable
-   .SDRAM_CLK(SDRAM_CLK),
-                                  //
-   .wtbt0(sdram_m_bytesel),        // 16bit mode:  bit1 - write high byte, bit0 - write low byte,
-                                  // 8bit mode:  2'b00 - use addr[0] to decide which byte to write
-                                  // Ignored while reading.
-											 
-	.addr0({5'b0, arb_to_vga, sdram_m_addr}),        // 25 bit address for 8bit mode. addr[0] = 0 for 16bit mode for correct operations.
-   .dout0(sdram_m_data_out),                        // data output to cpu
-   .din0(sdram_m_data_in),                          // data input from cpu
-	
-   //.we0(sdram_m_wr_en & sdram_m_access),            // cpu requests write
-	
-   .req0(~sdram_m_wr_en & sdram_m_access),           // cpu requests read
-   
-	.ack0(sdram_m_ack),                              // ack the operation
-	
-	
-	.wrl0(sdram_m_bytesel[0]),
-	.wrh0(sdram_m_bytesel[1]),
-	
-	.ready(),                                        // dout is valid. Ready to accept new read/write. (not connected)
-	
-	
-	.configdone(sdram_config_done) // SDRAM was initialized
-
-);*/
 
 wire clk_mem;
-
-/*
-sdramsn5 sdram
-(
-	.*,
-	.init(0), //~clock_locked),
-	.clk(clk_mem),
-	
-	.addr({2'b0, arb_to_vga, sdram_m_addr}),
-	.din(sdram_m_data_in),
-	.dout(sdram_m_data_out),
-	.rd(sdram_m_access),
-	.wr(sdram_m_wr_en),
-	.word(sdram_m_bytesel),
-	.configdone(sdram_config_done),
-	.ack(sdram_m_ack),
-	.busy()
-);*/
 
 
 pllsdram pllsdram
 (
 	.refclk(CLK_50M),
 	.rst(0),
-	.outclk_0(pllsdram1), // 30 MHz
-	.outclk_1(pllsdram2), // 25.11 MHz
+	.outclk_0(pllsdram1), // 80 MHz
+	.outclk_1(pllsdram2), // 80 MHz
 	.locked(plock)
 );
 
+
+// clock enable
 assign SDRAM_CKE   = 1;
 
 wire pllsdram2;
 wire pllsdram1;
 
+
 assign SDRAM_CLK = pllsdram2;
 
 sdramtut6 SDRAM
 (
+
+   .clk     (pllsdram1   ),
+	.init    (~plock      ),    // When pll is stable
+
+
 	// CPU interface
-	//.wb_clk		(clk_sys		    ),
 	
 	.oe		(sdram_m_access ),
 	
 	.we		(sdram_m_wr_en  ),
-	.ack		(sdram_m_ack    ),
+	.ack		(sdram_m_ack    ), // ack the operation
 
-	.bytesel		(sdram_m_bytesel),
-	.addr		({2'b0, arb_to_vga, sdram_m_addr} ), // Arb_to_vga separates memory spaces
-	.din	(sdram_m_data_in ),
-	.dout	(sdram_m_data_out),
-	
-
-	// SDRAM interface to the MT48LC16M16 chip
-	.clk	(pllsdram1	 ),
-	.init		(~plock	 ),
-
-	//.sd_clk_out (SDRAM_CLK   ),
-	//.sd_cke		(SDRAM_CKE	 ),
-	.sd_data   	(SDRAM_DQ  	 ),
-	.sd_addr 	(SDRAM_A     ),
-	.sd_dqmh     (SDRAM_DQMH),
-	.sd_dqml     (SDRAM_DQML),
-	//.sd_dqml     (SDRAM_DQML),
-	//.sd_dqmh     (SDRAM_DQMH),
-	.sd_cs    (SDRAM_nCS   ),
-	.sd_ba      (SDRAM_BA  	 ),
-	.sd_we    (SDRAM_nWE   ),
-	.sd_ras   (SDRAM_nRAS  ),
-	.sd_cas   (SDRAM_nCAS  ),
-	
-	
-	
-	
-	// Other
-	
-	.configdone(sdram_config_done) // SDRAM was initialized
-);
-
-
-/*
-sdrama4 SDRAM
-(
-	// CPU interface
-	.wb_clk		(clk_sys		    ),
-	.wb_req		(sdram_m_access ),
-	
-	.wb_we		(sdram_m_wr_en  ),
-	.wb_ack		(sdram_m_ack    ),
-
-	.wb_sel		(sdram_m_bytesel),
-	.wb_adr		({2'b0, arb_to_vga, sdram_m_addr} ), // Arb_to_vga separates memory spaces
-	.wb_dat_i	(sdram_m_data_in ),
-	.wb_dat_o	(sdram_m_data_out),
-	
-
-	// SDRAM interface to the MT48LC16M16 chip
-	.sd_clk_in	(clk_mem	 ),
-	.sd_rst		(~plock	 ),
-
-	.sd_clk_out (SDRAM_CLK   ),
-	.sd_cke		(SDRAM_CKE	 ),
-	.sd_dq   	(SDRAM_DQ  	 ),
-	.sd_addr 	(SDRAM_A     ),
-	//.sd_dqm     ({SDRAM_DQMH,SDRAM_DQML}),
-	.sd_dqml     (SDRAM_DQML),
-	.sd_dqmh     (SDRAM_DQMH),
-	.sd_cs_n    (SDRAM_nCS   ),
-	.sd_ba      (SDRAM_BA  	 ),
-	.sd_we_n    (SDRAM_nWE   ),
-	.sd_ras_n   (SDRAM_nRAS  ),
-	.sd_cas_n   (SDRAM_nCAS  ),
-	.sd_ready	( /*ram_ready* / ),
-	
-	
-	
-	// Other
-	
-	.configdone(sdram_config_done) // SDRAM was initialized
-);
-*/
-
-
-
-
-	
-/*
-
-assign SDRAM_CLK = ~clk_sys;
-
-sdram2cv SDRAMController
-(
-   .init(!plock),        // reset to initialize RAM
-   .clk(sys_clk),
-	
-	
-	                              // SDRAM_* - signals to the MT48LC16M16 chip
-   .SDRAM_DQ(SDRAM_DQ),           // 16 bit bidirectional data bus
-   .SDRAM_A(SDRAM_A),             // 13 bit multiplexed address bus
-   .SDRAM_DQML(SDRAM_DQML),       // two byte masks
-   .SDRAM_DQMH(SDRAM_DQMH),  
-   .SDRAM_BA(SDRAM_BA),           // two banks
-   .SDRAM_nCS(SDRAM_nCS),         // a single chip select
-   .SDRAM_nWE(SDRAM_nWE),         // write enable
-   .SDRAM_nRAS(SDRAM_nRAS),       // row address select
-   .SDRAM_nCAS(SDRAM_nCAS),       // columns address select
-   .SDRAM_CKE(SDRAM_CKE),         // clock enable
-   //.SDRAM_CLK(SDRAM_CLK),
-                                  //
-   .wtbt(sdram_m_bytesel),        // 16bit mode:  bit1 - write high byte, bit0 - write low byte,
-                                  // 8bit mode:  2'b00 - use addr[0] to decide which byte to write
-                                  // Ignored while reading.
+	.bytesel	(sdram_m_bytesel), // 16bit mode:  bit1 - write high byte, bit0 - write low byte,
+                               // 8bit mode:  2'b00 - use addr[0] to decide which byte to write
+                               // Ignored while reading.
 											 
-	.addr({5'b0, arb_to_vga, sdram_m_addr}),        // 25 bit address for 8bit mode. addr[0] = 0 for 16bit mode for correct operations.
-   .dout(sdram_m_data_out),                        // data output to cpu
-   .din(sdram_m_data_in),                          // data input from cpu
-   .we(sdram_m_wr_en & sdram_m_access),            // cpu requests write
-   .rd(~sdram_m_wr_en & sdram_m_access),           // cpu requests read
-   
-	.ack(sdram_m_ack),                            // ack the operation
+	.addr		({2'b0, arb_to_vga, sdram_m_addr}), // Arb_to_vga separates memory spaces
+	.din	   (sdram_m_data_in ),
+	.dout	   (sdram_m_data_out),
 	
-	.ready(),                            // dout is valid. Ready to accept new read/write.
+
+	// SDRAM signals
+	
+	.sd_data (SDRAM_DQ  	 ),   // 16 bit bidirectional data bus
+	.sd_addr (SDRAM_A     ),   // 13 bit multiplexed address bus
+	.sd_dqmh (SDRAM_DQMH),     // masks
+	.sd_dqml (SDRAM_DQML),
+	
+	.sd_cs   (SDRAM_nCS   ),   // Chip select
+	.sd_ba   (SDRAM_BA  	 ),   // Banks
+	.sd_we   (SDRAM_nWE   ),   // write enable
+	.sd_ras  (SDRAM_nRAS  ),   // row address select
+	.sd_cas  (SDRAM_nCAS  ),   // columns address select
 	
 	
+
+	// Other
 	
 	.configdone(sdram_config_done) // SDRAM was initialized
 );
 
-*/
-
-	
-	/*
-	
-sdram1 SDRAMController 
-(
-   .init(!plock),        // reset to initialize RAM
-   .clk(sys_clk),
-                                  //
-                                  // SDRAM_* - signals to the MT48LC16M16 chip
-   .SDRAM_DQ(SDRAM_DQ),           // 16 bit bidirectional data bus
-   .SDRAM_A(SDRAM_A),             // 13 bit multiplexed address bus
-   .SDRAM_DQML(SDRAM_DQML),       // two byte masks
-   .SDRAM_DQMH(SDRAM_DQMH),  
-   .SDRAM_BA(SDRAM_BA),           // two banks
-   .SDRAM_nCS(SDRAM_nCS),         // a single chip select
-   .SDRAM_nWE(SDRAM_nWE),         // write enable
-   .SDRAM_nRAS(SDRAM_nRAS),       // row address select
-   .SDRAM_nCAS(SDRAM_nCAS),       // columns address select
-   .SDRAM_CKE(SDRAM_CKE),         // clock enable
-   .SDRAM_CLK(SDRAM_CLK),
-                                  //
-   .wtbt(sdram_m_bytesel),        // 16bit mode:  bit1 - write high byte, bit0 - write low byte,
-                                  // 8bit mode:  2'b00 - use addr[0] to decide which byte to write
-                                  // Ignored while reading.
-                                  //
-   .addr({5'b0, arb_to_vga, sdram_m_addr}),        // 25 bit address for 8bit mode. addr[0] = 0 for 16bit mode for correct operations.
-   .dout(sdram_m_data_out),                        // data output to cpu
-   .din(sdram_m_data_in),                          // data input from cpu
-   .we(sdram_m_wr_en & sdram_m_access),            // cpu requests write
-   .rd(~sdram_m_wr_en & sdram_m_access),           // cpu requests read
-   .ready(sdram_m_ack),                            // dout is valid. Ready to accept new read/write.
-	
-	
-	
-	.configdone(sdram_config_done) // SDRAM was initialized
-);
-
-
-*/
 	
 	
 /*
@@ -1241,12 +997,17 @@ BIOS #(.depth(8192))
           .data_m_wr_en(q_m_wr_en));
 
 BIOSControlRegister BIOSControlRegister(.clk(sys_clk),
-                                        .reset(xreset),
+                                        .reset(post_sdram_reset),
                                         .cs(bios_control_access),
                                         .data_m_ack(bios_control_ack),
                                         .data_m_data_out(bios_control_data),
                                         .bios_enabled(bios_enabled),
                                         .*);
+
+
+													 
+													 
+// CPU can read this port to check if SDRAM was initialized
 
 SDRAMConfigRegister SDRAMConfigRegister(.clk(sys_clk),
                                         .cs(sdram_config_access),
@@ -1272,7 +1033,7 @@ UartPorts #(.clk_freq(30000000))
                     .data_m_ack(uart_ack),
                     .data_m_data_out(uart_data),
                     .data_m_data_in(data_m_data_out),
-						  .reset(xreset),
+						  .reset(post_sdram_reset),
 						  
                    
                    
@@ -1313,7 +1074,7 @@ SysPLL	SysPLL(.refclk(clk),
 		  
 Core u80186(
     .clk(sys_clk),
-    .reset(xreset), // Replace with actual reset signal name
+    .reset(post_sdram_reset), // Replace with actual reset signal name
 
     // Interrupts
     .nmi(nmi),
@@ -1351,10 +1112,10 @@ Core u80186(
 
 // Seems this module is used to test interrupts
 // by generating interrupts with a port access 
-// from CPU. Is non standar hardware
+// from CPU.
 
 IRQController IRQController(.clk(sys_clk),
-                            .reset(xreset),
+                            .reset(post_sdram_reset),
                             .cs(irq_control_access),
                             .data_m_ack(irq_control_ack),
                             .data_m_data_out(irq_control_data),
@@ -1366,7 +1127,7 @@ IRQController IRQController(.clk(sys_clk),
 
 
 PIC PIC(.clk(sys_clk),
-        .reset(xreset),
+        .reset(post_sdram_reset),
         .cs(pic_access),
         .data_m_ack(pic_ack),
         .data_m_data_out(pic_data),
@@ -1377,7 +1138,7 @@ PIC PIC(.clk(sys_clk),
 
 
 Timer Timer(.clk(sys_clk),
-            .reset(xreset),
+            .reset(post_sdram_reset),
             .pit_clk(pit_clk),
             .cs(timer_access),
             .data_m_ack(timer_ack),
@@ -1423,7 +1184,7 @@ wire arb_to_vga;
 
 //MemArbiter CPUVGAArbiter(.clk(sys_clk),
 MemArbiterExtend CPUVGAArbiter(.clk(sys_clk),
-                         .reset(xreset),
+                         .reset(post_sdram_reset),
                          // CPU port
                          .cpu_m_addr(cpu_fb_addr),
                          .cpu_m_data_in(vga_data),
@@ -1467,7 +1228,7 @@ MemArbiterExtend CPUVGAArbiter(.clk(sys_clk),
 	
 									
 VGAController VGAController(.clk(vga_clk),
-                            .reset(xreset),
+                            .reset(post_sdram_reset),
                             
 									 //.vga_r(vga_rw),
                             //.vga_g(vga_gw),
@@ -1479,9 +1240,9 @@ VGAController VGAController(.clk(vga_clk),
 									 
 									 .vga_hsync(HSync),
 		                      .vga_vsync(VSync),
-									 .H_BLANK(/*H_BLANK*/),
-									 .V_BLANK(/*V_BLANK*/),
-									 .ce_pix(/*ce_pix*/),
+									 .H_BLANK(),
+									 .V_BLANK(),
+									 .ce_pix(),
 									 .DE(VGA_DE),
                             .*);
 									 
@@ -1493,7 +1254,7 @@ VGAController VGAController(.clk(vga_clk),
 									 
 
 VGARegisters VGARegisters(.clk(sys_clk),
-                          .reset(xreset),
+                          .reset(post_sdram_reset),
                           .cs(vga_reg_access),
                           .data_m_ack(vga_reg_ack),
                           .data_m_data_out(vga_reg_data),
@@ -1507,7 +1268,7 @@ VGARegisters VGARegisters(.clk(sys_clk),
 
 PS2KeyboardController #(.clkf(50000000))
 		      PS2KeyboardController(.clk(sys_clk),
-				       .reset(xreset),
+				       .reset(post_sdram_reset),
 					    .cs(ps2_kbd_access),
 					    .data_m_ack(ps2_kbd_ack),
 					    .data_m_data_out(ps2_kbd_data),
@@ -1527,7 +1288,7 @@ PS2KeyboardController #(.clkf(50000000))
 
 PS2MouseController #(.clkf(50000000))
 		   PS2MouseController(.clk(sys_clk),
-			                             .reset(xreset),
+			                             .reset(post_sdram_reset),
                                       .cs(ps2_mouse_access),
                                       .data_m_ack(ps2_mouse_ack),
                                       .data_m_data_out(ps2_mouse_data),
@@ -1545,19 +1306,14 @@ PS2MouseController #(.clkf(50000000))
                                       .*);
 
 
-												  /*
+												  
+												  
+/*
 PoweronReset PoweronReset(.*);
 */
 
 
-
-
-
-
 //assign CE_PIXEL = ce_pix;
-
-
-	
 
 //assign VGA_DE = ~(H_BLANK | V_BLANK);
 assign VGA_HS = HSync;
@@ -1565,8 +1321,8 @@ assign VGA_VS = VSync;
 assign CLK_VIDEO = vga_clk;
 assign CE_PIXEL = 1;
 
-/*
 
+/*
 reg  [26:0] act_cnt;
 always @(posedge clk_sys) act_cnt <= act_cnt + 1'd1; 
 assign LED_USER    = act_cnt[26]  ? act_cnt[25:18]  > act_cnt[7:0]  : act_cnt[25:18]  <= act_cnt[7:0];
@@ -1584,7 +1340,7 @@ LEDSRegister     LEDSRegister(.clk(sys_clk),
                               .data_m_data_in(data_m_data_out),
                               .data_m_data_out(leds_data),
                               .data_m_ack(leds_ack),
-										.reset(xreset),
+										.reset(post_sdram_reset),
 										.resetval(wresetval),
                               .*);
 
