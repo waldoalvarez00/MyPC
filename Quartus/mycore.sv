@@ -1311,7 +1311,7 @@ SysPLL	SysPLL(.refclk(clk),
 */
 
 		  
-Core Core(
+Core u80186(
     .clk(sys_clk),
     .reset(xreset), // Replace with actual reset signal name
 

@@ -21,9 +21,6 @@
 Let's break down the key components and 
 functionality of this module:
 
-Module Declaration
-
-TimerUnit: The name of the module.
 
 Inputs and Outputs: The module has several inputs and outputs that control its operation and provide its results. These include clocks (clk, pit_clk), 
 control signals (reset, load, configure, latch_count, read_count, gate), data inputs (reload_in, rw_in, mode_in), and data outputs (count_out, out).
