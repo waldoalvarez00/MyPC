@@ -270,9 +270,11 @@ wire wps2_mouse_data_out;
 wire wps2_mouse_clk_in;
 wire wps2_mouse_data_in;
 
+
+
 hps_io #(.CONF_STR(CONF_STR), .PS2DIV(2000), .PS2WE(1)) hps_io
 (
-	.clk_sys(clk_sys),
+	.clk_sys(sys_clk),
 	.HPS_BUS(HPS_BUS),
 	.EXT_BUS(),
 	.gamma_bus(),
@@ -306,7 +308,7 @@ hps_io #(.CONF_STR(CONF_STR), .PS2DIV(2000), .PS2WE(1)) hps_io
 ///////////////////////   CLOCKS   ///////////////////////////////
 
 wire plock;
-wire clk_sys;
+
 wire vga_clk;
 
 
@@ -314,7 +316,7 @@ pll pll
 (
 	.refclk(CLK_50M),
 	.rst(0),
-	.outclk_0(clk_sys), // 30 MHz
+	.outclk_0(sys_clk), // 30 MHz
 	.outclk_1(vga_clk), // 25.11 MHz
 	.outclk_2(pit_clk),
 	// outclk_3 - used for signaltap II 150 MHz
@@ -423,6 +425,8 @@ wire [15:0] io_data = sdram_config_data |
 
     ps2_kbd_data |
     ps2_mouse_data |
+	 
+	 ppiout |
 
     leds_data |
     bios_control_data;
@@ -503,6 +507,8 @@ wire uart_access;
 wire uart_ack;
 wire [15:0] uart_data;
 
+wire [7:0] ppiout;
+
 wire spi_access;
 wire spi_ack;
 wire [15:0] spi_data;
@@ -531,6 +537,8 @@ wire [15:0] timer_data;
 wire default_io_access;
 wire default_io_ack;
 
+wire ppi_ack;
+
 wire io_ack = sdram_config_ack |
               default_io_ack |
               uart_ack |
@@ -539,13 +547,10 @@ wire io_ack = sdram_config_ack |
               irq_control_ack |
               pic_ack |
               timer_ack |
-
               vga_reg_ack |
-
-
               ps2_kbd_ack |
               ps2_mouse_ack |
-
+				  ppi_ack |
               bios_control_ack;
 				  
 				  
@@ -585,6 +590,51 @@ always_ff @(posedge sys_clk)
     default_io_ack <= default_io_access;
 
 	 
+	 
+logic   [7:0]   port_b_out;
+logic   [7:0]   port_c_in;
+reg     [7:0]   sw;
+
+assign  sw = 8'b00101101; //hgc_mode ? 8'b00111101 : 8'b00101101; // PCXT DIP Switches (HGC or CGA 80)
+assign  port_c_in[3:0] = port_b_out[3] ? sw[7:4] : sw[3:0];
+
+wire ppi_control_access;
+
+// PPI
+
+KF8255 uF8255 (
+    // Bus
+    .clock(sys_clk),
+    .reset(post_sdram_reset),
+    .chip_select(ppi_control_access),
+    
+	 .read_enable (data_m_access & ~data_m_wr_en),
+	 .write_enable(data_m_access & data_m_wr_en),
+	 .ack(ppi_ack),
+					 
+    .address(data_m_addr[2:1]),
+
+	 .data_bus_in(data_m_data_out[7:0]),
+	 .data_bus_out(ppiout),
+	 
+	 // ack
+	
+
+    // I/O
+    //.[7:0]   port_a_in(),
+    //.[7:0]   port_a_out(),
+    //.port_a_io(),
+
+    //.[7:0]   port_b_in(),
+    .port_b_out(port_b_out),
+    //.port_b_io(),
+
+    .port_c_in(port_c_in)
+    //.[7:0]   port_c_out(),
+    //.[7:0]   port_c_io()
+);
+
+
 // Cleaner RTL	 
 AddressDecoderIO AddressDecoderIO(
 
@@ -604,7 +654,8 @@ AddressDecoderIO AddressDecoderIO(
     .bios_control_access(bios_control_access),
     .vga_reg_access(vga_reg_access),
     .ps2_kbd_access(ps2_kbd_access),
-    .ps2_mouse_access(ps2_mouse_access)
+    .ps2_mouse_access(ps2_mouse_access),
+	 .ppi_control_access(ppi_control_access)
 	 
 );
 
@@ -708,7 +759,7 @@ BitSync         ResetSync(.clk(sys_clk),
 
 */
 
-assign sys_clk = clk_sys;
+
 
 
 
@@ -821,11 +872,11 @@ Cache #(.lines(8192 / 16))
 		      .enabled(1'b1),
 		
             .clk(sys_clk),
-				.reset(xreset),
+				.reset(post_sdram_reset),
 				
 				
 				// CPU interface
-            .c_access(/*q_m_access &* / sdram_access),
+            .c_access(q_m_access & sdram_access),
             .c_addr(q_m_addr),
             .c_data_in(sdram_data),
             .c_data_out(q_m_data_out),
@@ -848,7 +899,7 @@ Cache #(.lines(8192 / 16))
             );
 				
 MemArbiterExtend CacheVGAArbiter(.clk(sys_clk),
-                           .reset(xreset),
+                           .reset(post_sdram_reset),
                            // Cache port
                            .cpu_m_addr(cache_sdram_m_addr),
                            .cpu_m_data_in(cache_sdram_m_data_out),
@@ -954,36 +1005,7 @@ sdramtut6 SDRAM
 );
 
 	
-	
-/*
-SDRAMController #(.size(64 * 1024 * 1024),
-                  .clkf(50000000))
-                SDRAMController(.clk(sys_clk),
-                                .reset(xreset),
-                                .data_m_access(sdram_m_access),
-                                .cs(1'b1),
-                                .h_addr({5'b0, arb_to_vga, sdram_m_addr}),
-                                .h_wdata(sdram_m_data_in),
-                                .h_rdata(sdram_m_data_out),
-                                .h_wr_en(sdram_m_wr_en),
-                                .h_bytesel(sdram_m_bytesel),
-                                .h_compl(sdram_m_ack),
-                                .h_config_done(sdram_config_done),
-										  
-										  
-										  
-										  / * SDRAM signals. * /
-                                .s_ras_n(SDRAM_nRAS),
-                                .s_cas_n(SDRAM_nCAS),
-                                .s_wr_en(SDRAM_nWE),
-                                //.s_bytesel(),
-                                .s_addr(SDRAM_A),
-                                .s_cs_n(SDRAM_nCS),
-                                .s_clken(SDRAM_CKE),
-                                .s_data(SDRAM_DQ),
-                                .s_banksel(SDRAM_BA)
-										  
-                                );*/
+
 
 BIOS #(.depth(8192))
      BIOS(.clk(sys_clk),
@@ -1009,6 +1031,10 @@ BIOSControlRegister BIOSControlRegister(.clk(sys_clk),
 													 
 // CPU can read this port to check if SDRAM was initialized
 
+/*
+
+we don't need this anymore (can load exactly the same BIOS binary in emulator)
+
 SDRAMConfigRegister SDRAMConfigRegister(.clk(sys_clk),
                                         .cs(sdram_config_access),
                                         .data_m_ack(sdram_config_ack),
@@ -1016,7 +1042,7 @@ SDRAMConfigRegister SDRAMConfigRegister(.clk(sys_clk),
                                         .config_done(sdram_config_done),
                                         .*);
 												
-										
+*/									
 								
    //input         UART_CTS,
 	//output        UART_RTS,
@@ -1044,9 +1070,7 @@ UartPorts #(.clk_freq(30000000))
 						 
 
 										
-										/*
-
-
+/*
 
 SPIPorts SPIPorts(.clk(sys_clk),
                   .cs(spi_access),
@@ -1059,9 +1083,10 @@ SPIPorts SPIPorts(.clk(sys_clk),
                   .sclk(spi_sclk),
                   .ncs(spi_ncs),
                   .*);
-						*/
+*/
 
-						/*
+						
+/*
 `ifndef verilator
 SysPLL	SysPLL(.refclk(clk),
 	       .rst(1'b0),
@@ -1125,14 +1150,53 @@ IRQController IRQController(.clk(sys_clk),
                             .*);
 
 
+KF8259 PIC8259(
+
+                .clk(sys_clk),
+                .reset(post_sdram_reset),
+					 
+					 // Active low inputs modified
+					 .chip_select (pic_access),
+					 .read_enable (data_m_access & ~data_m_wr_en),
+					 .write_enable(data_m_access & data_m_wr_en),
+					 
+					 .address(data_m_addr[1]),
+					 
+					 .data_bus_in(data_m_data_out),
+					 .data_bus_out(pic_data),
+					 .ack(pic_ack),
+
+					 .interrupt_request(irqs),
+					 
+                //.interrupt_acknowledge_n(inta),
+					 
+					 .interrupt_acknowledge_n(1'b1),
+					 
+					 .data_bus_io(),
+					 .simpleirq(irq),
+
+					 //.cascade_out(),
+					 //.cascade_io(),
+					 
+					 .cascade_in                 (3'b000),
+					 .slave_program_n            (1'b1),
+					 
+					 .interrupt_acknowledge_simple(inta)
+
+              );
+									 
 
 PIC PIC(.clk(sys_clk),
         .reset(post_sdram_reset),
         .cs(pic_access),
-        .data_m_ack(pic_ack),
-        .data_m_data_out(pic_data),
+        //.data_m_ack(pic_ack),
+		  .data_m_ack(),
+        .data_m_data_out(),
+		  //.data_m_data_out(pic_data),
         .data_m_data_in(data_m_data_out),
         .intr_in(irqs),
+		  .addr(data_m_addr[1]),
+		  .irq(),
         .*);
 
 
@@ -1144,7 +1208,7 @@ Timer Timer(.clk(sys_clk),
             .data_m_ack(timer_ack),
             .data_m_data_out(timer_data),
             .data_m_data_in(data_m_data_out),
-            .data_m_addr(data_m_addr[1]),
+            .data_m_addr(data_m_addr[2:1]),
             .intr(timer_intr),
             .speaker_out(`SPEAKER_TIMER_OUT),
             .speaker_gate_en(`SPEAKER_GATE_EN_IN),
@@ -1267,20 +1331,24 @@ VGARegisters VGARegisters(.clk(sys_clk),
 
 
 PS2KeyboardController #(.clkf(50000000))
-		      PS2KeyboardController(.clk(sys_clk),
+		      PS2KeyboardController(
+				
+                   .clk(sys_clk),
 				       .reset(post_sdram_reset),
+
 					    .cs(ps2_kbd_access),
 					    .data_m_ack(ps2_kbd_ack),
 					    .data_m_data_out(ps2_kbd_data),
 					    .data_m_data_in(data_m_data_out),
-                                            .ps2_intr(ps2_kbd_intr),
-                                            .speaker_gate_en(`SPEAKER_GATE_EN_OUT),
-                                            .speaker_data(`SPEAKER_DATA),
+                   .ps2_intr(ps2_kbd_intr),
+                   .speaker_gate_en(`SPEAKER_GATE_EN_OUT),
+                   .speaker_data(`SPEAKER_DATA),
 														  
-														  .ps2_clk_in(wps2_kbd_clk_2),
-					                             .ps2_clk_out(wps2_kbd_clk_1),
-					                             .ps2_dat_in(wps2_kbd_data_2),
-					                             .ps2_dat_out(wps2_kbd_data_1),
+                   .ps2_clk_in(wps2_kbd_clk_2),
+					    .ps2_clk_out(wps2_kbd_clk_1),
+                   .ps2_dat_in(wps2_kbd_data_2),
+                   .ps2_dat_out(wps2_kbd_data_1),
+						 
 					    .*);
 
 				
