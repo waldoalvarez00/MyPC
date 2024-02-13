@@ -6,8 +6,8 @@
 `include "KF8259_Common_Package.svh"
 
 module KF8259_In_Service (
-    input   logic           clock,
-    input   logic           reset,
+    input                   clock,
+    input                   reset,
 
     // Inputs
     input   logic   [2:0]   priority_rotate,
@@ -32,7 +32,7 @@ module KF8259_In_Service (
     assign next_in_service_register = (in_service_register & ~end_of_interrupt)
                                      | (latch_in_service == 1'b1 ? interrupt : 8'b00000000);
 
-    always_ff @(negedge clock, posedge reset) begin
+    always_ff @(posedge clock, posedge reset) begin
         if (reset)
             in_service_register <= 8'b00000000;
         else
@@ -40,7 +40,7 @@ module KF8259_In_Service (
     end
 
     //
-    // Get Highst level in service
+    // Get Highest level in service
     //
     logic   [7:0]   next_highest_level_in_service;
 
@@ -51,7 +51,7 @@ module KF8259_In_Service (
         next_highest_level_in_service = rotate_left(next_highest_level_in_service, priority_rotate);
     end
 
-    always_ff @(negedge clock, posedge reset) begin
+    always_ff @(posedge reset or posedge clock) begin
         if (reset)
             highest_level_in_service <= 8'b00000000;
         else

@@ -3,20 +3,28 @@
 // 8259A-LIKE PROGRAMMABLE INTERRUPT CONTROLLER
 //
 // Written by Kitune-san
-//
+// Adapted by Waldo Alvarez
+
+//`default_nettype none
+
 module KF8259 (
+
     // Bus
-    input   logic           clock,
-    input   logic           reset,
-    input   logic           chip_select_n,
-    input   logic           read_enable_n,
-    input   logic           write_enable_n,
-    input   logic           address,
+    input   wire            clk,
+    input   wire            reset,
+    input   wire            chip_select,
+    input   wire            read_enable,
+    input   wire            write_enable,
+    input   wire            address,
+	 
+    output  wire    [7:0]   simpleirq,
+    input   wire            interrupt_acknowledge_simple,
 	
-    input   logic   [15:0]   data_bus_in,
-    output  logic   [15:0]   data_bus_out,
+    input   wire    [15:0]  data_bus_in,
+    output  logic   [15:0]  data_bus_out,
 	
     output  logic           data_bus_io,
+    output  wire            ack,
 
     // I/O
     input   logic   [2:0]   cascade_in,
@@ -38,7 +46,7 @@ module KF8259 (
     //
     logic   [7:0]   internal_data_bus;
     logic           write_initial_command_word_1;
-    logic           write_initial_command_word_2_4;
+    logic           write_initial_command_word_2_to_4;
     logic           write_operation_control_word_1;
     logic           write_operation_control_word_2;
     logic           write_operation_control_word_3;
@@ -46,18 +54,21 @@ module KF8259 (
 
     KF8259_Bus_Control_Logic u_Bus_Control_Logic (
         // Bus
-        .clock                              (clock),
-        .reset                              (reset),
-        .chip_select_n                      (chip_select_n),
-        .read_enable_n                      (read_enable_n),
-        .write_enable_n                     (write_enable_n),
-        .address                            (address),
-        .data_bus_in                        (data_bus_in),
+        .clock                             (clk),
+        .reset                             (reset),
+        .chip_select                       (chip_select),
+        .read_enable                       (read_enable),
+        .write_enable                      (write_enable),
+        .address                           (address),
+        .data_bus_in                       (data_bus_in[7:0]),
+		  
+        .ack                                (ack),
+        
 
         // Control signals
         .internal_data_bus                  (internal_data_bus),
         .write_initial_command_word_1       (write_initial_command_word_1),
-        .write_initial_command_word_2_4     (write_initial_command_word_2_4),
+        .write_initial_command_word_2_to_4  (write_initial_command_word_2_to_4),
         .write_operation_control_word_1     (write_operation_control_word_1),
         .write_operation_control_word_2     (write_operation_control_word_2),
         .write_operation_control_word_3     (write_operation_control_word_3),
@@ -69,7 +80,7 @@ module KF8259 (
     //
     logic           out_control_logic_data;
     logic   [7:0]   control_logic_data;
-    logic           level_or_edge_toriggered_config;
+    logic           level_or_edge_triggered_config;
     logic           special_fully_nest_config;
     logic           enable_read_register;
     logic           read_register_isr_or_irr;
@@ -85,7 +96,7 @@ module KF8259 (
 
     KF8259_Control_Logic u_Control_Logic (
         // Bus
-        .clock                              (clock),
+        .clock                              (clk),
         .reset                              (reset),
 
         // External input/output
@@ -99,10 +110,14 @@ module KF8259 (
         .interrupt_acknowledge_n            (interrupt_acknowledge_n),
         .interrupt_to_cpu                   (interrupt_to_cpu),
 
+
+        .interrupt_acknowledge_simple       (interrupt_acknowledge_simple),
+        .simpleirq                          (simpleirq),
+
         // Internal bus
         .internal_data_bus                  (internal_data_bus),
         .write_initial_command_word_1       (write_initial_command_word_1),
-        .write_initial_command_word_2_4     (write_initial_command_word_2_4),
+        .write_initial_command_word_2_to_4  (write_initial_command_word_2_to_4),
         .write_operation_control_word_1     (write_operation_control_word_1),
         .write_operation_control_word_2     (write_operation_control_word_2),
         .write_operation_control_word_3     (write_operation_control_word_3),
@@ -112,7 +127,7 @@ module KF8259 (
         .control_logic_data                 (control_logic_data),
 
         // Registers to interrupt detecting logics
-        .level_or_edge_toriggered_config    (level_or_edge_toriggered_config),
+        .level_or_edge_triggered_config    (level_or_edge_triggered_config),
         .special_fully_nest_config          (special_fully_nest_config),
 
         // Registers to Read logics
@@ -140,11 +155,11 @@ module KF8259 (
 
     KF8259_Interrupt_Request u_Interrupt_Request (
         // Bus
-        .clock                              (clock),
+        .clock                              (clk),
         .reset                              (reset),
 
         // Inputs from control logic
-        .level_or_edge_toriggered_config    (level_or_edge_toriggered_config),
+        .level_or_edge_triggered_config     (level_or_edge_triggered_config),
         .freeze                             (freeze),
         .clear_interrupt_request            (clear_interrupt_request),
 
@@ -181,7 +196,7 @@ module KF8259 (
     //
     KF8259_In_Service u_In_Service (
         // Bus
-        .clock                              (clock),
+        .clock                              (clk),
         .reset                              (reset),
 
         // Inputs
@@ -229,6 +244,15 @@ module KF8259 (
 
     // Read buffer enable signal
     assign  buffer_enable = (slave_program_or_enable_buffer == 1'b1) ? 1'b0 : ~data_bus_io;
+	 
+
+    // Eliminates warning of unused bits
+    logic dummy; // Define a dummy signal
+    always_comb begin
+       dummy = |data_bus_in[15:8]; // Perform a bitwise OR on the upper 8 bits
+    end
+
+
 
 endmodule
 

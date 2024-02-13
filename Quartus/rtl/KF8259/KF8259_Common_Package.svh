@@ -61,6 +61,39 @@ package KF8259_Common_Package;
         endcase
     endfunction
 
+
+/*
+
+function automatic [2:0] bit2num(input [7:0] source);
+    // Parallel comparison for the first level
+    wire upper_half = |source[7:4]; // True if any bit in the upper half is set
+    wire lower_half = |source[3:0]; // True if any bit in the lower half is set
+
+    // Parallel comparison for the second level (within each half)
+    wire upper_quarter = upper_half ? |source[7:6] : |source[3:2];
+    wire lower_quarter = upper_half ? |source[5:4] : |source[1:0];
+
+    // Final determination of the set bit's position
+    begin
+        if (upper_half) begin
+            if (upper_quarter) begin
+                bit2num = source[7] ? 3'b111 : 3'b110;
+            end else begin
+                bit2num = source[5] ? 3'b101 : 3'b100;
+            end
+        end else begin
+            if (lower_quarter) begin
+                bit2num = source[3] ? 3'b011 : 3'b010;
+            end else begin
+                bit2num = source[1] ? 3'b001 : 3'b000;
+            end
+        end
+    end
+endfunction
+
+
+*/
+
     function logic [2:0] bit2num (input [7:0] source);
         if      (source[0] == 1'b1) bit2num = 3'b000;
         else if (source[1] == 1'b1) bit2num = 3'b001;

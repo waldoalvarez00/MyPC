@@ -26,19 +26,23 @@
 //  Intel 8259 alternative (quite basic)
 
 `default_nettype none
-module PIC(input logic clk,
-           input logic reset,
-           input logic cs,
-           input logic [15:0] data_m_data_in,
-           output logic [15:0] data_m_data_out,
-           input logic [1:0] data_m_bytesel,
-           input logic data_m_wr_en,
-           input logic data_m_access,
+module PIC(input         clk,
+           input         reset,
+           input         cs,
+			  
+           input  [15:0] data_m_data_in,
+           output [15:0] data_m_data_out,
+           //input logic [1:0] data_m_bytesel,
+			  
+			  input  addr,
+           input  data_m_wr_en,
+           input  data_m_access,
+			  
            output logic data_m_ack,
-           input logic [7:0] intr_in,
+           input  logic [7:0] intr_in,
            output logic [7:0] irq,
            output logic intr,
-           input logic inta);
+           input  logic inta);
 
 enum bit [2:0] {
     INIT_STATE_ICW1,
@@ -64,8 +68,8 @@ wire [7:0] intr_edges = (intr_in ^ intr_last) & intr_in;
 wire [7:0] command_read_val = reg_latch == REG_LATCH_IRR ? irr :
                               reg_latch == REG_LATCH_ISR ? isr : 8'b0;
 
-wire access_command = cs & data_m_access & data_m_bytesel[0];
-wire access_data = cs & data_m_access & data_m_bytesel[1];
+wire access_command = cs & data_m_access & ~addr;  //data_m_bytesel[0];
+wire access_data    = cs & data_m_access &  addr;  //data_m_bytesel[1];
 
 always_ff @(posedge clk)
     intr_last <= intr_in;
@@ -77,10 +81,10 @@ always_comb begin
             INIT_STATE_ICW2 : INIT_STATE_ICW1;
 				
     INIT_STATE_ICW2: next_init_state = access_data & data_m_wr_en ?
-        INIT_STATE_ICW3 : INIT_STATE_ICW2;
+        INIT_STATE_ICW4 : INIT_STATE_ICW2;
 		  
-    INIT_STATE_ICW3: next_init_state = access_data & data_m_wr_en ?
-        INIT_STATE_ICW4 : INIT_STATE_ICW3;
+    /*INIT_STATE_ICW3: next_init_state = access_data & data_m_wr_en ?
+        INIT_STATE_ICW4 : INIT_STATE_ICW3;*/
 		  
     INIT_STATE_ICW4: next_init_state = access_data & data_m_wr_en ?
         INIT_STATE_IDLE : INIT_STATE_ICW4;
@@ -110,14 +114,14 @@ always_ff @(posedge reset or posedge clk)
     if (reset)
         mask <= 8'b0;
     else if (init_state == INIT_STATE_IDLE && access_data && data_m_wr_en)
-        mask <= data_m_data_in[15:8];
+        mask <= data_m_data_in[7:0];
 
 // ICW2 State
 always_ff @(posedge reset or posedge clk)
     if (reset)
         vector_address <= 5'b0;
     else if (access_data && data_m_wr_en && init_state == INIT_STATE_ICW2)
-        vector_address <= data_m_data_in[15:11];
+        vector_address <= data_m_data_in[7:3];
 
 
 // Idle state latch
@@ -162,10 +166,12 @@ always_ff @(posedge reset or posedge clk)
             isr[delivered] <= 1'b1;
     end
 
+// Builds the vector addr (vectorbase with irqnum)
 always_comb begin
     intr = 1'b0;
     irq = 8'b0;
 
+	 // Scans each int
     for (logic [3:0] i = 4'b0; i < 4'd8; i += 1'b1) begin
         if (inta || isr[i[2:0]])
             break;
