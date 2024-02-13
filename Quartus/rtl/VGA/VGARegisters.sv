@@ -16,11 +16,12 @@
 // along with s80x86.  If not, see <http://www.gnu.org/licenses/>.
 
 `default_nettype none
-module VGARegisters(input logic clk,
-                    input logic vga_clk,
-                    input logic reset,
+module VGARegisters(input wire  clk,
+                    input wire  vga_clk,
+                    input wire  reset,
+						  
                     // Bus
-                    input logic cs,
+                    input wire  cs,
                     input logic [19:1] data_m_addr,
                     input logic [15:0] data_m_data_in,
                     output logic [15:0] data_m_data_out,
@@ -28,9 +29,11 @@ module VGARegisters(input logic clk,
                     input logic data_m_wr_en,
                     input logic data_m_access,
                     output logic data_m_ack,
+						  
                     // VGA
                     input logic vga_vsync,
                     input logic vga_hsync,
+						  
                     // VGA clock domain signals
                     output logic cursor_enabled,
                     output logic graphics_enabled,
@@ -41,21 +44,40 @@ module VGARegisters(input logic clk,
                     output logic [2:0] cursor_scan_start,
                     output logic [2:0] cursor_scan_end,
                     output logic vga_256_color,
-                    input logic [7:0] vga_dac_idx,
+                    input  logic [7:0] vga_dac_idx,
                     output logic [17:0] vga_dac_rd);
 
 wire reg_access     = cs & data_m_access;
-wire sel_index      = reg_access & data_m_addr[4:1] == 4'b1010 & data_m_bytesel[0];
-wire sel_value      = reg_access & data_m_addr[4:1] == 4'b1010 & data_m_bytesel[1];
-wire sel_mode       = reg_access & data_m_addr[4:1] == 4'b1100 & data_m_bytesel[0];
-wire sel_color      = reg_access & data_m_addr[4:1] == 4'b1100 & data_m_bytesel[1];
-wire sel_status     = reg_access & data_m_addr[4:1] == 4'b1101 & data_m_bytesel[0];
-wire sel_amcr       = reg_access & data_m_addr[4:1] == 4'b0000 & data_m_bytesel[0];
-wire sel_dac_wr_idx = reg_access & data_m_addr[4:1] == 4'b0100 & data_m_bytesel[0];
-wire sel_dac_rd_idx = reg_access & data_m_addr[4:1] == 4'b0011 & data_m_bytesel[1];
-wire sel_dac        = reg_access & data_m_addr[4:1] == 4'b0100 & data_m_bytesel[1];
 
-reg [3:0] active_index;
+// We need to fix this with simpler IO
+//wire sel_index      = reg_access & data_m_addr[4:1] == 4'b1010 & data_m_bytesel[0];
+//wire sel_value      = reg_access & data_m_addr[4:1] == 4'b1010 & data_m_bytesel[1];
+//wire sel_mode       = reg_access & data_m_addr[4:1] == 4'b1100 & data_m_bytesel[0];
+//wire sel_color      = reg_access & data_m_addr[4:1] == 4'b1100 & data_m_bytesel[1];
+//wire sel_status     = reg_access & data_m_addr[4:1] == 4'b1101 & data_m_bytesel[0];
+//wire sel_amcr       = reg_access & data_m_addr[4:1] == 4'b0000 & data_m_bytesel[0];
+//wire sel_dac_wr_idx = reg_access & data_m_addr[4:1] == 4'b0100 & data_m_bytesel[0];
+//wire sel_dac_rd_idx = reg_access & data_m_addr[4:1] == 4'b0011 & data_m_bytesel[1];
+//wire sel_dac        = reg_access & data_m_addr[4:1] == 4'b0100 & data_m_bytesel[1];
+
+
+
+wire sel_index       = reg_access & data_m_addr[5:1] == 5'b10100; // 3D4
+wire sel_value       = reg_access & data_m_addr[5:1] == 5'b10101; // 3D5
+
+wire sel_mode        = reg_access & data_m_addr[5:1] == 5'b11000; // 3D8 mode control register
+wire sel_color       = reg_access & data_m_addr[5:1] == 5'b11001; // 3D9
+wire sel_status      = reg_access & data_m_addr[5:1] == 5'b11010; // 3DA status
+
+wire sel_amcr        = reg_access & data_m_addr[5:1] == 5'b00000; // 3C0
+wire sel_dac_wr_idx  = reg_access & data_m_addr[5:1] == 5'b01000; // 3C8
+wire sel_dac_rd_idx  = reg_access & data_m_addr[5:1] == 5'b00111; // 3C7
+wire sel_dac         = reg_access & data_m_addr[5:1] == 5'b01001; // 3C9
+
+
+
+
+reg  [3:0] active_index;
 wire [3:0] index = data_m_wr_en & sel_index ? data_m_data_in[3:0] : active_index;
 wire [7:0] index_value;
 
@@ -105,30 +127,49 @@ BitSync         HsyncSync(.clk(clk),
                           .reset(reset),
                           .d(vga_hsync),
                           .q(hsync));
+								  
+								  
 BitSync         VsyncSync(.clk(clk),
                           .reset(reset),
                           .d(vga_vsync),
                           .q(vsync));
+								  
+								  
 BitSync         GraphicsEnabledSync(.clk(vga_clk),
                                     .reset(reset),
                                     .d(sys_graphics_enabled),
                                     .q(graphics_enabled));
+												
+												
+												
 BitSync         BrightColorsSync(.clk(vga_clk),
                                  .reset(reset),
                                  .d(sys_bright_colors),
                                  .q(bright_colors));
+											
+											
+											
 BitSync         CursorEnabledSync(.clk(vga_clk),
                                   .reset(reset),
                                   .d(sys_cursor_enabled),
                                   .q(cursor_enabled));
+											 
+											 
+											 
 BitSync         PaletteSelSync(.clk(vga_clk),
                                .reset(reset),
                                .d(sys_palette_sel),
                                .q(palette_sel));
+										 
+										 
+										 
 BitSync         Is256ColorSelSync(.clk(vga_clk),
                                   .reset(reset),
                                   .d(sys_256_color),
                                   .q(vga_256_color));
+											 
+											 
+											 
 MCP             #(.width(15),
                   .reset_val(15'b0))
                 CursorMCP(.reset(reset),
@@ -139,6 +180,9 @@ MCP             #(.width(15),
                           .clk_b(vga_clk),
                           .b_data(vga_cursor),
                           .b_load(load_vga_cursor));
+								  
+								  
+								  
 
 MCP             #(.width(3),
                   .reset_val(3'b0))
@@ -150,6 +194,9 @@ MCP             #(.width(3),
                                    .clk_b(vga_clk),
                                    .b_data(vga_cursor_scan_start),
                                    .b_load(load_cursor_scan_start));
+											  
+											  
+											  
 MCP             #(.width(3),
                   .reset_val(3'b0))
                 CursorScanEndMCP(.reset(reset),
@@ -160,6 +207,9 @@ MCP             #(.width(3),
                                  .clk_b(vga_clk),
                                  .b_data(vga_cursor_scan_end),
                                  .b_load(load_cursor_scan_end));
+											
+											
+											
 MCP             #(.width(4),
                   .reset_val(4'b0))
                 BackgroundColorMCP(.reset(reset),
@@ -170,22 +220,40 @@ MCP             #(.width(4),
                                    .clk_b(vga_clk),
                                    .b_data(vga_background_color),
                                    .b_load(load_background_color));
+											  
+											  
 
 always_ff @(posedge vga_clk) begin
+
     if (load_vga_cursor)
         cursor_pos <= vga_cursor;
+		  
     if (load_cursor_scan_start)
         cursor_scan_start <= vga_cursor_scan_start;
+		  
     if (load_cursor_scan_end)
         cursor_scan_end <= vga_cursor_scan_end;
+
     if (load_background_color)
         background_color <= vga_background_color;
+		  
 end
+
+
+
+
+
+// Status register 3DAh
 
 wire [7:0] status = {4'b0, vga_vsync, 2'b0, (~vsync | ~hsync)};
 
+
+
+
 always_ff @(posedge clk)
     sys_cursor_enabled <= cursor_mode != 2'b01;
+	 
+	 
 
 DACRam DACRam(.clock_a(clk),
               .address_a(data_m_wr_en ? dac_wr_idx : dac_rd_idx),
@@ -197,6 +265,9 @@ DACRam DACRam(.clock_a(clk),
               .data_b(18'b0),
               .wren_b(1'b0),
               .q_b(vga_dac_rd));
+				  
+				  
+				  
 
 always_ff @(posedge clk) begin
     if (sel_dac_wr_idx) begin
@@ -229,6 +300,11 @@ always_ff @(posedge clk) begin
     end
 end
 
+
+
+
+
+
 always_ff @(posedge clk) begin
     if (data_m_wr_en & sel_value) begin
         case (index)
@@ -242,29 +318,63 @@ always_ff @(posedge clk) begin
     end
 end
 
+
+
+
+
 always_ff @(posedge clk) begin
     if (data_m_wr_en & sel_color)
         {sys_palette_sel, sys_bright_colors, sys_background_color} <=
             data_m_data_in[13:8];
 end
 
+
+
+
 always_ff @(posedge clk or posedge reset)
     if (reset) begin
-        sys_graphics_enabled <= 1'b0;
-        text_enabled <= 1'b0;
+	 
+        //sys_graphics_enabled <= 1'b0;
+        //text_enabled <= 1'b0;
+		  
+		  text_enabled <= 1'b1;
+		  
+		  display_enabled <= 1'b1;
+		  
     end else if (sel_mode && data_m_wr_en)
         {display_enabled, sys_graphics_enabled, text_enabled} <=
             {data_m_data_in[3], data_m_data_in[1], data_m_data_in[0]};
 
+// 3D8 Mode Port
+// 0 - 80/40 alpha mode
+// 1 - 1 320-wide, 0 all others
+// 2 - foreground color
+// 3 - video enabled
+// 4 - 640-wide graphics
+// 5 - blinking
+// 6 - zero unused
+// 7 - zero unused
+
+				
+				
+				
 always_ff @(posedge clk)
     if (sel_index & data_m_wr_en)
         active_index <= data_m_data_in[3:0];
 
+		  
+		  
 always_ff @(posedge clk)
     if (sel_amcr & data_m_wr_en)
         sys_amcr <= data_m_data_in[7:0];
 
+		  
+		  
+		  
+		  
+
 always_comb begin
+
     case (index)
     4'ha: index_value = {2'b0, cursor_mode, 1'b0, sys_cursor_scan_start};
     4'hb: index_value = {5'b0, sys_cursor_scan_end};
@@ -272,27 +382,37 @@ always_comb begin
     4'hf: index_value = sys_cursor_pos[7:0];
     default: index_value = 8'b0;
     endcase
+	 
 end
 
+
+
+
+
+
 always_ff @(posedge clk) begin
+
     data_m_data_out <= 16'b0;
 
     if (!data_m_wr_en) begin
+	 
         if (sel_index)
-            data_m_data_out[7:0] <= {4'b0, active_index};
+            data_m_data_out[7:0]  <= {4'b0, active_index};
+				
         if (sel_mode)
-            data_m_data_out[7:0] <= {4'b0, display_enabled, 1'b0,
+            data_m_data_out[7:0]  <= {4'b0, display_enabled, 1'b0,
                                      sys_graphics_enabled, text_enabled};
         if (sel_status)
-            data_m_data_out[7:0] <= status;
+            data_m_data_out[7:0]  <= status;
 
         if (sel_value)
             data_m_data_out[15:8] <= index_value;
+				
         if (sel_color)
             data_m_data_out[15:8] <= {2'b0, sys_palette_sel, sys_bright_colors,
                                       sys_background_color};
         if (sel_amcr)
-            data_m_data_out[7:0] <= sys_amcr;
+            data_m_data_out[7:0]  <= sys_amcr;
 
         if (sel_dac) begin
             if (dac_rd_offs == 2'b10)
@@ -302,6 +422,7 @@ always_ff @(posedge clk) begin
             if (dac_rd_offs == 2'b00)
                 data_m_data_out[15:8] <= {2'b0, sys_dac_rd[17:12]};
         end
+		  
     end
 end
 
