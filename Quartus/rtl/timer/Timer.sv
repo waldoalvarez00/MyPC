@@ -35,10 +35,7 @@ Timer2 is configured for audio or speaker-related timing, with its output connec
 
 Inputs and Output Explained
 
-input logic [1:1] data_m_addr
-
-This is a one-bit input signal named data_m_addr.
-Since the bit range is [1:1], it indicates that only one bit is used
+input logic [2:1] data_m_addr
 
 
 This signal is used to select between different functionalities or registers within the Timer module. 
@@ -55,7 +52,6 @@ output logic [15:0] data_m_data_out
 
 This is a 16-bit output bus named data_m_data_out.
 It is used to output data from the Timer module. This could be the current count of the timers or some status information.
-The 16-bit width matches the input bus, allowing for a consistent data interface size for both reading from and writing to the module.
 
 
 input logic [1:0] data_m_bytesel
@@ -63,21 +59,13 @@ input logic [1:0] data_m_bytesel
 This is a 2-bit input signal named data_m_bytesel.
 It is used as a byte-select or byte-enable signal.
 
-Usage in the Module
-In the Timer module, these signals are used to control data flow and module configuration. For example, data_m_addr is used in 
-conjunction with data_m_bytesel to control which part of the module is accessed and whether the access is for Timer0, Timer2, 
-or the control registers. data_m_data_in provides the data for these operations, and data_m_data_out is used to send data back 
-to the rest of the system, such as the current timer counts or status information.
-
-
-
 
 
 
 PIT Channels and Their Uses
 
 
-Channel 0: Used for system timing purposes, like generating interrupts for the system clock.
+Channel 0: Used for system timing purposes, generating interrupts for the system clock.
 Channel 1: Originally used in the PC for dynamic RAM refresh, but often not used or available in later models.
 Channel 2: Connected to the PC speaker, can be used for sound generation or as a general-purpose timer.
 
@@ -101,6 +89,7 @@ Bits 4-5: Select the access mode (latch count, low byte only, high byte only, lo
 Bits 1-3: Select the operating mode (e.g., rate generator, square wave generator).
 
 Bit 0: Select the binary (0) or BCD (1) counting mode.
+
 Set the Count Value: After configuring the mode and counter, you need to write the count value to 
 the counter's register. For modes where you set both the low byte and high byte (like the low 
 byte/high byte access mode), you write the low byte first, then the high byte.
@@ -121,7 +110,7 @@ module Timer(input logic clk,
 				 
              input logic cs, // Enabled when io and addr == 4Xh (40h - 43h)
 			 
-             input  logic  [1:1]  data_m_addr,
+             input  logic  [2:1]  data_m_addr,
 				 
              input  logic  [15:0] data_m_data_in,
              output logic  [15:0] data_m_data_out,
@@ -139,14 +128,14 @@ module Timer(input logic clk,
 
 wire pit_clk_sync;
 
-wire access_timer0 = cs & data_m_access & ~data_m_addr[1] & data_m_bytesel[0];
-wire access_timer2 = cs & data_m_access & data_m_addr[1] & data_m_bytesel[0];
+wire access_timer0 = cs & data_m_access & ~data_m_addr[1] & ~data_m_addr[2]; //data_m_bytesel[0];
+wire access_timer2 = cs & data_m_access &  data_m_addr[1] & ~data_m_addr[2]; //data_m_bytesel[0];
 
-wire access_ctrl = cs & data_m_access & data_m_addr[1] & data_m_bytesel[1];
+wire access_ctrl   = cs & data_m_access &  data_m_addr[1] &  data_m_addr[2]; //& data_m_bytesel[1];
 
 
 // verilator lint_off UNUSED
-wire [7:0] ctrl_wr_val = data_m_data_in[15:8];
+wire [7:0] ctrl_wr_val = data_m_data_in[7:0];
 // verilator lint_on UNUSED
 
 

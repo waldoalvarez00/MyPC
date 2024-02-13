@@ -28,7 +28,7 @@ control signals (reset, load, configure, latch_count, read_count, gate), data in
 Internal Variables
 
 Registers like last_pit_clk, count, reload, latched_count, rw, mode, reload_low, and others store the state of the timer.
-pit_clk_posedge and trigger are wires that detect edges of specific signals, important for triggering events in synchronous digital logic.
+pit_clk_posedge and trigger are wires that detect edges of specific signals.
 
 Functional Blocks
 
@@ -75,9 +75,11 @@ module TimerUnit(input logic clk,
                  input logic gate,
                  output logic out);
 
-wire pit_clk_posedge = pit_clk & ~last_pit_clk;
 reg last_pit_clk;
-reg [15:0] count, reload, latched_count;
+wire pit_clk_posedge = pit_clk & ~last_pit_clk;
+
+reg [16:0] latched_count;
+reg [16:0] reload, count;
 
 reg [1:0] rw;
 reg [1:0] mode;
@@ -100,11 +102,11 @@ begin
         out <= 1'b1;
 		  
     end else if (pit_clk_posedge && gate) begin
-        if (count == 16'b0 || count == 16'b1)
-            count <= reload[0] ? reload - 16'd1 : reload;
+        if (count == 17'b0 || count == 16'b1)
+            count <= reload[0] ? reload - 17'd1 : reload;
         else
             count <= count - 16'd1;
-        if (count == 16'd2)
+        if (count == 17'd2)
             out <= ~out;
     end
 end
@@ -116,16 +118,20 @@ endtask
 task count_square_wave;
 begin
     if (trigger) begin
+	 
         count <= reload - 1'b1;
         out <= 1'b1;
+		  
     end else begin
+	 
         if (pit_clk_posedge && gate)
-            count <= (count == 16'b0 ? reload : count) - 1'b1;
-    
-        if (count == 16'b1)
+            count <= (count == 17'b0 ? reload : count) - 1'b1;
+
+        if (count == 17'b1)
             out <= 1'b0;
         else
             out <= 1'b1;
+
     end
 end
 endtask
@@ -141,7 +147,7 @@ always_ff @(posedge clk or posedge reset) begin
 
     if (reset) begin
 	 
-        latched_count <= 16'b0;
+        latched_count <= 17'b0;
         access_low <= 1'b0;
         latched <= 2'b00;
 		  
@@ -194,20 +200,20 @@ always_ff @(posedge reset or posedge clk) begin
 
     if (reset) begin
 	 
-        reload <= 16'b0;
+        reload <= 17'b0;
         reload_low_stored <= 1'b0;
 		  
     end else if (configure) begin
 	 
-        reload <= 16'b0;
+        reload <= 17'b0;
         reload_low_stored <= 1'b0;
 		  
     end else if (load) begin
 	 
         if (rw == 2'b10) begin // High byte
-		  
+
             reload[15:8] <= reload_in;
-				
+
         end else if (rw == 2'b01) begin // Low Byte
 		  
             reload[7:0] <= reload_in;
@@ -216,19 +222,18 @@ always_ff @(posedge reset or posedge clk) begin
 		  
             if (reload_low_stored) begin
 				
-                // Check if both bytes are zero, if so, load maximum value
-                // This should be the behaviour according to 8253 documentation
-                // and some BIOSes are setting it to program the tick timer
-					 
+                					 
+					 // Before loading, check if reload is zero, and adjust the most significant bit accordingly.
                 if (reload_in == 8'b0 && reload_low == 8'b0) begin
-                    reload <= 16'hFFFF;
+                    // If reload is zero, set the MSB of the counter to 1 when loading.
+                    reload <= {1'b1, reload_in, reload_low};
+					//count  <= {1'b1, reload_in, reload_low};
                 end else begin
-                    reload <= {reload_in, reload_low};
+                    reload <= {1'b0, reload_in, reload_low};
+					//count  <= {1'b0, reload_in, reload_low};
                 end
-                reload_low_stored <= 1'b0;
 					 
-                //reload <= {reload_in, reload_low};
-                //reload_low_stored <= 1'b0;
+                reload_low_stored <= 1'b0;
 					 
 					 
             end else begin
@@ -246,7 +251,7 @@ end
 always_ff @(posedge reset or posedge clk) begin
     if (reset) begin
 	 
-        count <= 16'b0;
+        count <= 17'b0;
         out <= 1'b1;
 		  
     end else begin
