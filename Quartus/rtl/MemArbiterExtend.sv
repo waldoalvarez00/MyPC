@@ -146,7 +146,7 @@ module MemArbiterExtend(
 						  
                 end
 					 
-					 
+					 /*
                 WAIT_A: begin
                     
 						  begin
@@ -155,6 +155,7 @@ module MemArbiterExtend(
                     end
 						  
                 end
+					 */
 					 
 					 
                 SERVING_B: begin
@@ -171,10 +172,11 @@ module MemArbiterExtend(
 						  else grant_active <= 1'b1;
                 end
 					 
-					 
+					 /*
                 WAIT_B: begin
                        arb_state <= IDLE;
                 end
+					 */
 					 
 					 
                 default: arb_state <= IDLE;

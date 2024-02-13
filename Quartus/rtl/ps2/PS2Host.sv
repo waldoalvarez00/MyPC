@@ -19,6 +19,7 @@
 module PS2Host #(parameter clkf=50000000)
                 (input logic clk,
                  input logic reset,
+					  
                  // Host signals
                  output logic [7:0] rx,
                  output logic rx_valid,

@@ -24,13 +24,14 @@
 module Microcode(input logic clk,
                  input logic reset,
                  input logic nmi_pulse,
-                 input logic intr,
-                 output logic inta,
-                 output logic irq_to_mdr,
+                 input logic intr,                   // Interrupt received
+				 
+                 output logic inta,                  // Interrupt ACK
+                 output logic irq_to_mdr,            // Stores data from irq into MDR register
                  output logic start_interrupt,
                  output logic do_escape_fault,
                  output logic starting_instruction,
-                 input logic stall,
+                 input logic stall,                  // Makes the microcode stay at the same microinstruction
                  input logic divide_error,
                  input logic rm_is_reg,
                  input logic [2:0] modrm_reg,
@@ -48,18 +49,20 @@ module Microcode(input logic clk,
                  output logic multibit_shift,
                  output logic is_hlt,
                  output logic next_microinstruction,
+				 
+				 
                  // Microinstruction fields.
                  output logic [1:0] a_sel,
                  output logic [5:0] alu_op,
                  output logic [2:0] b_sel,
                  output logic ext_int_yield,
-                 output logic io,
+                 output logic io,                 // is an IO Port operation
                  output logic load_ip,
                  output logic mar_wr_sel,
-                 output logic mar_write,
-                 output logic mdr_write,
-                 output logic mem_read,
-                 output logic mem_write,
+                 output logic mar_write,          // Writes data to the MAR register
+                 output logic mdr_write,          // Writes Data to the MDR 
+                 output logic mem_read,           // Makes LoadStore read
+                 output logic mem_write,          // Makes LoadStore unit write
                  output logic next_instruction,
                  output logic ra_modrm_rm_reg,
                  output logic [2:0] ra_sel,
@@ -74,6 +77,8 @@ module Microcode(input logic clk,
                  output logic tmp_wr_sel,
                  output logic width,
                  output logic reg_wr_en,
+				 
+				 
                  // Fifo Read Port.
                  output logic fifo_rd_en,
                  // verilator lint_off UNUSED
