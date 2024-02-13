@@ -87,7 +87,10 @@ localparam [5:0]
   UNALIGNED_SECOND_BYTE_WRITE =  5'd12,
   COMPLETE_0 =  5'd13,
   WAIT_ACK_WRITE = 5'd14,
-  UNALIGNED_FIRST_BYTE_WRITE_8bit  = 5'd15;
+  UNALIGNED_FIRST_BYTE_WRITE_8bit  = 5'd15,
+  
+  IO_Read = 5'd16,
+  IO_Write = 5'd17;
 
  
 
@@ -116,9 +119,32 @@ assign busy = (mem_read | mem_write) & ~complete;
                 IDLE: begin
 					 
 					      if (write_mdr) mdr <= mdr_in;
-						  
-                    
-							if (unaligned) begin
+						   
+							
+							if(io) begin
+							
+							  // IO is simple, no need to pack bytes into words
+							  
+							  m_addr <= {3'b0, mar[15:0]};
+							  
+							  
+							  if (mem_read) begin
+							    current_state <= READ;
+							  end
+							  
+							  
+							  if (mem_write) begin
+							    current_state <= WRITE;
+							  end
+							  
+							  
+							end // IO End
+							else begin
+							
+							   // Memory are packed bytes into words
+								
+								
+								if (unaligned) begin
 						  
 						    if(is_8bit) begin
 							 
@@ -128,7 +154,7 @@ assign busy = (mem_read | mem_write) & ~complete;
 								    current_state <= UNALIGNED_FIRST_BYTE_READ_8Bit;
 									 complete <= 1'b0;
 									 
-									 m_addr <= io ? {3'b0, mar[15:0]} : {segment, 3'b0} + {3'b0, mar[15:1]};
+									 m_addr <= {segment, 3'b0} + {3'b0, mar[15:1]};
 									 
 							   end
 								
@@ -136,7 +162,7 @@ assign busy = (mem_read | mem_write) & ~complete;
 								    complete <= 1'b0;
 								    current_state <= UNALIGNED_FIRST_BYTE_WRITE_8bit;
 									 
-									 m_addr <= io ? {3'b0, mar[15:0]} : {segment, 3'b0} + {3'b0, mar_out[15:1]};
+									 m_addr <= {segment, 3'b0} + {3'b0, mar_out[15:1]};
 									 
 								end
 							
@@ -147,13 +173,13 @@ assign busy = (mem_read | mem_write) & ~complete;
 								
 							   if(mem_write) begin
 								 complete <= 1'b0;
-								 m_addr <= io ? {3'b0, mar[15:1]} : {segment, 3'b0} + {3'b0, mar[15:1]};
+								 m_addr <= {segment, 3'b0} + {3'b0, mar[15:1]};
 						       current_state <= UNALIGNED_FIRST_BYTE_WRITE;
 								 end
 								 
 						       if (mem_read) begin
 							    complete <= 1'b0;
-								 m_addr <= io ? {3'b0, mar[15:1]} : {segment, 3'b0} + {3'b0, mar[15:1]};
+								 m_addr <= {segment, 3'b0} + {3'b0, mar[15:1]};
 						       current_state <= UNALIGNED_FIRST_BYTE;
 								 end
 							
@@ -168,18 +194,30 @@ assign busy = (mem_read | mem_write) & ~complete;
 						     if (mem_read) begin
 							  complete <= 1'b0;
 							  current_state <= READ;
-							  m_addr <= io ? {3'b0, mar_out[15:0]} : {segment, 3'b0} + {3'b0, mar_out[15:1]};
+							  m_addr <= {segment, 3'b0} + {3'b0, mar_out[15:1]};
 							  end 
 							  
 							  if (mem_write) begin
 							  complete <= 1'b0;
 							  current_state <= WRITE;
-							  m_addr <= io ? {3'b0, mar_out[15:0]} : {segment, 3'b0} + {3'b0, mar_out[15:1]};
+							  m_addr <= {segment, 3'b0} + {3'b0, mar_out[15:1]};
 							  end
 							  
 						  end
+								
 							
-                end
+							end
+							
+							
+                    
+							
+							
+                end // IDLE END
+					 
+					 
+					 
+					 
+					 
 					 
 					 
                 READ: begin
