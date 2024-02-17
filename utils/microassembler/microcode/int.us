@@ -19,19 +19,36 @@
 .at 0xcc;
     b_sel IMMEDIATE, immediate 0xc, alu_op SELB, tmp_wr_en, jmp do_int;
 
+
+
+
+
 // The same as above, but this time it's a 8 bit interrupt number.
-.at 0xcd;
+
+.at 0xcd; // Sets the current address for the INTN instruction.
+
+    // Select B to be an immediate value, direct it through the ALU, select the MAR write source, perform a write to MAR, and jump to intN.
     b_sel IMMEDIATE, alu_op SELB, mar_wr_sel Q, mar_write, jmp intN;
+
 .auto_address;
 intN:
+
+    // First, AND the MAR with 0xFF
     a_sel MAR, b_sel IMMEDIATE, immediate 0xff, alu_op AND, mar_write,
         mar_wr_sel Q;
+
+	// then multiply MAR by 0x4 and jump to do_int for further processing.
     a_sel MAR, b_sel IMMEDIATE, immediate 0x4, alu_op MUL, tmp_wr_en,
         jmp do_int;
+
+
+
+
 
 // INTO: the same as int3, but conditional on OF being set.
 .at 0xce;
     alu_op GETFLAGS, mdr_write, jmp into;
+	
 .auto_address;
 into:
     b_sel IMMEDIATE, immediate 0x10, alu_op SELB, tmp_wr_en,
@@ -47,33 +64,84 @@ into_taken:
 // repetition.  Start by storing the flags + CS:IP to the stack, clear TF+IF
 // and then load the new CS:IP.  As the vectors are stored in segment 0, this
 // requires temporarily setting CS to 0 to read the final vector address.
+
 .at 0x12d;
 do_int:
     alu_op GETFLAGS, mdr_write, ra_sel SP, jmp do_int_main;
+	
+	
+	
+	
+	
 .auto_address;
 do_int_main:
+
+    // Subtract 2 from the stack pointer (SP) to make space for flags. 
+    // This operation prepares the stack for storing the flags register. 
+    // The segment_force ensures that the SS (stack segment) is used.
     a_sel RA, b_sel IMMEDIATE, immediate 0x2, alu_op SUB,
-        mar_write, mar_wr_sel Q, segment SS, segment_force;
+        mar_write, mar_wr_sel Q, segment SS, segment_force;   // SUB 2
+
+    // Write the flags (previously placed in the MDR) to the stack. This stores the current CPU flags before handling the interrupt.
     segment SS, segment_force, mem_write;
+
+    //Further subtract 2 from SP (now pointing to where flags were stored), preparing to store the Code Segment (CS) register.
     a_sel MAR, b_sel IMMEDIATE, immediate 0x2, alu_op SUB,
         mar_write, mar_wr_sel Q, segment_force, segment CS;
+		
+		
+
+    // Store the CS register to the stack. The CS value is selected and moved to the MDR for writing.
     b_sel SR, alu_op SELB, mdr_write, segment SS, segment_force;
+
+
+    // Commit the CS value to the stack. This confirms the storage of the CS register.
     segment SS, segment_force, mem_write;
+
+    // Subtract 2 from SP again to prepare for storing the Instruction Pointer (IP).
     a_sel MAR, b_sel IMMEDIATE, immediate 0x2, alu_op SUB,
         mar_write, mar_wr_sel Q;
+
+
+    // Store the IP register to the stack. The IP's current value is selected and moved to MDR for writing.
     a_sel IP, alu_op SELA, mdr_write, segment SS, segment_force;
+	
+	// Commit the IP value to the stack, completing the storage of the processor's state.
     segment SS, segment_force, mem_write;
+
+
+    // Update the MAR with the new SP value, preparing for further operations.
     a_sel MAR, alu_op SELA, rd_sel_source MICROCODE_RD_SEL,
         rd_sel SP;
+		
+    // Clear both the Interrupt Flag (IF) and Trap Flag (TF), disabling further interrupts and single-step mode for the ISR execution.
     b_sel IMMEDIATE, immediate 0x0, alu_op SETFLAGSB, update_flags IF TF;
+	
+	// Temporarily set the CS to 0, preparing to fetch the interrupt vector.
     b_sel IMMEDIATE, immediate 0x0, alu_op SELB, segment_force,
         segment CS, segment_wr_en;
+		
+	// Load the interrupt vector address into MAR from the temporary register, setting up to read the ISR address.
     b_sel TEMP, alu_op SELB, mar_wr_sel Q, mar_write, segment CS,
         segment_force;
+		
+	//Read the ISR segment from the interrupt vector table into MDR.
     segment_force, segment CS, mem_read;
+	
+	// Load the new IP for the ISR from MDR
     a_sel MDR, alu_op SELA, load_ip;
+
+    // Adjust MAR to point to the location of the ISR's CS value in the interrupt vector table.
     a_sel MAR, b_sel IMMEDIATE, immediate 0x2, alu_op ADD, mar_write,
         mar_wr_sel Q, segment CS, segment_force;
+
+    // Read the ISR's CS value into MDR.
     segment_force, segment CS, mem_read;
+
+
+
+
+    // Load the new CS value for the ISR from MDR and enable execution to continue at 
+	// the ISR's address, completing the interrupt setup.
     a_sel MDR, alu_op SELA, segment_force, segment CS,
         segment_wr_en, next_instruction;
