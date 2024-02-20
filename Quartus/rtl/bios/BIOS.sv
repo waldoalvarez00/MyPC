@@ -27,7 +27,7 @@ module BIOS #(parameter depth = 32)
               output logic [15:0] data_m_data_out,
               input logic [1:0] data_m_bytesel);
 
-wire wr_en = data_m_access & cs & data_m_wr_en;
+//wire wr_en = data_m_access & cs & data_m_wr_en;
 wire [15:0] q;
 assign data_m_data_out = data_m_ack ? q : 16'b0;
 
@@ -65,7 +65,7 @@ altsyncram	altsyncram_component(.address_a(data_m_addr[$clog2(depth):1]),
                                      .byteena_a(data_m_bytesel),
                                      .clock0(clk),
                                      .data_a(data_m_data_in),
-                                     .wren_a(wr_en),
+                                     .wren_a(/*wr_en*/ 1'b0),
                                      .q_a(q),
                                      .aclr0(1'b0),
                                      .aclr1(1'b0),
