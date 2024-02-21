@@ -61,7 +61,6 @@ module KF8259_Control_Logic (
 );
     import KF8259_Common_Package::num2bit;
     import KF8259_Common_Package::bit2num;
-	 import KF8259_Common_Package::bit2numirq;
 
     // State
     typedef enum {CMD_READY, WRITE_ICW2, WRITE_ICW3, WRITE_ICW4, WAIT_FOR_ICW24_W_ICW3, WAIT_FOR_ICW24_W_ICW4, WAIT_FOR_ICW24_W_READY} command_state_t;
