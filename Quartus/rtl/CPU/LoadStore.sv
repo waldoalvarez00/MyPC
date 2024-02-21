@@ -117,13 +117,12 @@ assign busy = (mem_read | mem_write) & ~complete;
 				
         end else begin
 		  
+		      if (write_mdr) mdr <= mdr_in;
+		  
             case (current_state)
 				
                 IDLE: begin
 					 
-					      if (write_mdr) mdr <= mdr_in;
-						   
-							
 							if(io) begin
 							
 							  // IO is simple, no need to pack bytes into words
