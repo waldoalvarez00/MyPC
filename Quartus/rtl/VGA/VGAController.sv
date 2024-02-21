@@ -28,18 +28,16 @@ module VGAController(input logic clk,
 					 
 
                      // VGA signals
-		             output logic vga_hsync,
-		             output logic vga_vsync,
-		             output logic [3:0] vga_r,
-		             output logic [3:0] vga_g,
-		             output logic [3:0] vga_b,
+		               output logic vga_hsync,
+		               output logic vga_vsync,
+		               output logic [3:0] vga_r,
+		               output logic [3:0] vga_g,
+		               output logic [3:0] vga_b,
 						 
+						   output logic H_BLANK,
+						   output logic V_BLANK,
 						 
-						 output logic H_BLANK,
-						 output logic V_BLANK,
-						 
-						 
-						 output logic ce_pix, // Added ce_pix output
+						   output logic ce_pix, // Added ce_pix output
 					 
                      input logic graphics_enabled,
                      input logic cursor_enabled,

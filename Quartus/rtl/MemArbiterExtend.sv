@@ -103,12 +103,14 @@ module MemArbiterExtend(
 						    if(mcga_m_access) begin
 							   arb_state <= SERVING_B;
 								servingA <= 1'b0;
+								grant_active <= 1'b1;
 								
 							 end
 							 else begin
 							   if (cpu_m_access) begin
 								  arb_state <= SERVING_A;
 								  servingA <= 1'b1;
+								  grant_active <= 1'b1;
 								  
 								end
 							 end
@@ -118,12 +120,14 @@ module MemArbiterExtend(
 						     if(cpu_m_access) begin
 							   arb_state <= SERVING_A;
 								servingA <= 1'b1;
+								grant_active <= 1'b1;
 								
 							 end
 							 else begin
 							   if (mcga_m_access) begin
 								  arb_state <= SERVING_B;
 								  servingA <= 1'b0;
+								  grant_active <= 1'b1;
 								  
 								end
 							 end
@@ -146,16 +150,6 @@ module MemArbiterExtend(
 						  
                 end
 					 
-					 /*
-                WAIT_A: begin
-                    
-						  begin
-                            arb_state <= IDLE; // Go to IDLE if no requests
-									 servingA <= 1'b0;
-                    end
-						  
-                end
-					 */
 					 
 					 
                 SERVING_B: begin
@@ -172,11 +166,7 @@ module MemArbiterExtend(
 						  else grant_active <= 1'b1;
                 end
 					 
-					 /*
-                WAIT_B: begin
-                       arb_state <= IDLE;
-                end
-					 */
+					 
 					 
 					 
                 default: arb_state <= IDLE;
