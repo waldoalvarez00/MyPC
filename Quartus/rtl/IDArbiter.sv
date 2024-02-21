@@ -41,7 +41,7 @@ module IDArbiter(
     // proper round-robin scheduling
 	 
     localparam [2:0] IDLE = 3'b000, SERVING_A = 3'b001, WAIT_A = 3'b010, 
-                     SERVING_B = 3'b011, WAIT_B = 3'b100, PRESERVE_A = 3'b101, PRESERVE_B = 3'b110;
+                     SERVING_B = 3'b011, WAIT_B = 3'b100;
 
     logic last_served_A;
 	 logic servingInstr;
@@ -114,13 +114,16 @@ module IDArbiter(
 					     if(last_served_A) begin
 						    // Give priority to B
 						    if(data_m_access) begin
-							   arb_state <= PRESERVE_B;
+							   //arb_state <= PRESERVE_B;
+								q_m_access <= 1'b1;
+						      arb_state <= SERVING_B; 
 								servingInstr <= 1'b0;
 								grant_active <= 1'b1;
 							 end
 							 else begin
 							   if (instr_m_access) begin
-								  arb_state <= PRESERVE_A;
+								  arb_state <= SERVING_A;
+								  q_m_access <= 1'b1;
 								  servingInstr <= 1'b1;
 								  grant_active <= 1'b1;
 								end
@@ -129,13 +132,16 @@ module IDArbiter(
 						  else begin
 						     // Give priority to A
 						     if(instr_m_access) begin
-							   arb_state <= PRESERVE_A;
+							   arb_state <= SERVING_A;
+								q_m_access <= 1'b1;
 								servingInstr <= 1'b1;
 								grant_active <= 1'b1;
 							 end
 							 else begin
 							   if (data_m_access) begin
-								  arb_state <= PRESERVE_B;
+								  //arb_state <= PRESERVE_B;
+								  q_m_access <= 1'b1;
+						        arb_state <= SERVING_B; 
 								  servingInstr <= 1'b0;
 								  grant_active <= 1'b1;
 								end
@@ -148,26 +154,7 @@ module IDArbiter(
 						  
                 end
 					 
-					 PRESERVE_A: begin
-					    // Adds one clock delay but kills a glitch
-						 // Check segment and address at LoadStore Unit
-						 // To eliminate this
-						 
-						 // Note currently eliminated!
-						 
-					   q_m_access <= 1'b1;
-						arb_state <= SERVING_A; 
-						
-					 end
 					 
-					 PRESERVE_B: begin
-					   // Adds one clock delay but kills a glitch
-						// Check segment and address at LoadStore Unit
-						// To eliminate this
-					   q_m_access <= 1'b1;
-						arb_state <= SERVING_B; 
-						
-					 end
 					 
                 SERVING_A: begin
 					     
@@ -210,8 +197,8 @@ module IDArbiter(
     end
 
     
-assign instr_m_ack = grant_active &  servingInstr & q_m_ack;
-assign data_m_ack  = grant_active & ~servingInstr & q_m_ack;
+assign instr_m_ack = grant_active &  servingInstr & q_m_ack & (arb_state != IDLE);
+assign data_m_ack  = grant_active & ~servingInstr & q_m_ack & (arb_state != IDLE);
     
 // Assign outputs and acks
 
