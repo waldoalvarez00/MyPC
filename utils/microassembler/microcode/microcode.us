@@ -28,11 +28,19 @@ divide_error:
     b_sel IMMEDIATE, immediate 0x0, alu_op SELB, tmp_wr_en, jmp do_int;
 
 // See 0xcc in int.us for more details, this is the same thing but for a
-// IRQ.
+// IRQ. Processes a hardware interrupt
+
 .at 0x12b;
-    // IRQ number to temp
+
+    // IRQ number to temp (multiplied by 4 to calculate vector addr)
+    // Just before the microcode sequencer jumps to this address,
+    // the unit creates a signal to move the irq addr into the MDR	
+
     a_sel MDR, b_sel IMMEDIATE, immediate 0x4, alu_op MUL, tmp_wr_en,
-        jmp do_int;
+        jmp do_int; // <-- int.us does all the saving of registers and new CS:IP load from IVT
+		
+
+
 
 // See 0xcc in int.us for more details, this is the same thing but for a
 // NMI.
@@ -150,11 +158,16 @@ dispatch_d0_d1:
     width WAUTO, ra_modrm_rm_reg, segment DS, jmp_rm_reg_mem SHRd0_d1_reg;
     width WAUTO, ra_modrm_rm_reg, segment DS, jmp_rm_reg_mem SHLd0_d1_reg;
     width WAUTO, ra_modrm_rm_reg, segment DS, jmp_rm_reg_mem SARd0_d1_reg;
+	
+	
 
 // Multiplexed shift single 8-bit by immediate
 .at 0xc0;
     width W8, mar_write, mar_wr_sel EA,
 	jmp_dispatch_reg dispatch_c0;
+	
+	
+	
 .auto_address;
 dispatch_c0:
     width W8, tmp_wr_en, alu_op SELB, b_sel IMMEDIATE,
@@ -173,6 +186,10 @@ dispatch_c0:
 	ra_modrm_rm_reg, segment DS, jmp_rm_reg_mem SHLc0_reg;
     width W8, tmp_wr_en, alu_op SELB, b_sel IMMEDIATE,
 	ra_modrm_rm_reg, segment DS, jmp_rm_reg_mem SARc0_reg;
+	
+	
+	
+	
 
 // Multiplexed shift single 16-bit by immediate
 .at 0xc1;
@@ -188,9 +205,15 @@ dispatch_c1:
     width W8, tmp_wr_en, alu_op SELB, b_sel IMMEDIATE, jmp SHLc1;
     width W8, tmp_wr_en, alu_op SELB, b_sel IMMEDIATE, jmp SARc1;
 
+
+
+
 // Multiplexed shift single 16-bit
 .at 0xd1;
     mar_write, mar_wr_sel EA, jmp_dispatch_reg dispatch_d0_d1;
+
+
+
 
 // Multiplexed shift multiple 8-bit
 .at 0xd2;

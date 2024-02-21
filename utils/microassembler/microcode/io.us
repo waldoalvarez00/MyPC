@@ -15,6 +15,10 @@
 // You should have received a copy of the GNU General Public License
 // along with s80x86.  If not, see <http://www.gnu.org/licenses/>.
 
+
+
+
+
 // out imm8, al
 .at 0xe6;
     width W8, b_sel IMMEDIATE, alu_op SELB, mar_wr_sel Q, mar_write,
@@ -29,6 +33,10 @@ oute6:
     a_sel RA, alu_op SELA, mdr_write;
     width WAUTO, io, mem_write, next_instruction;
 
+
+
+
+
 // out dx, al
 .at 0xee;
     width W8, ra_sel AL, jmp outee;
@@ -40,6 +48,10 @@ outee:
     a_sel RA, alu_op SELA, mdr_write, ra_sel DX;
     a_sel RA, alu_op SELA, mar_write, mar_wr_sel Q;
     width WAUTO, io, mem_write, next_instruction;
+
+
+
+
 
 // in al, immed8
 .at 0xe4;
@@ -55,6 +67,13 @@ ine4:
     a_sel MDR, alu_op SELA, rd_sel_source MICROCODE_RD_SEL,
         rd_sel AL, width WAUTO, next_instruction;
 
+
+
+
+
+
+
+
 // in dx, al
 .at 0xec;
     ra_sel DX, jmp inec;
@@ -65,8 +84,14 @@ ine4:
 inec:
     a_sel RA, alu_op SELA, mar_write, mar_wr_sel Q;
     width WAUTO, io, mem_read;
+	
     a_sel MDR, alu_op SELA, rd_sel_source MICROCODE_RD_SEL,
         rd_sel AL, width WAUTO, next_instruction;
+
+
+
+
+
 
 .at 0x6e;
     jmp outsb;
@@ -92,6 +117,11 @@ outsb_no_rep:
 outsb_done:
     next_instruction;
 
+
+
+
+
+
 .at 0x6f;
     jmp outsw;
 
@@ -115,6 +145,12 @@ outsw_no_rep:
     rb_cl, ext_int_yield, jmp outsw_rep_loop;
 outsw_done:
     next_instruction;
+	
+	
+	
+	
+	
+	
 
 .at 0x6c;
     jmp insb;
@@ -141,6 +177,13 @@ insb_no_rep:
     rb_cl, ext_int_yield, jmp insb_rep_loop;
 insb_done:
     next_instruction;
+
+
+
+
+
+
+
 
 .at 0x6d;
     jmp insw;

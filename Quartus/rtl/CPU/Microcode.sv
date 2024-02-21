@@ -223,20 +223,35 @@ assign modrm_start = addr == modrm_wait_address ||
 wire has_rep_prefix = cur_instruction.rep != REP_PREFIX_NONE;
 reg rep_complete;
 assign debug_stopped = addr == debug_wait_address;
+
 assign multibit_shift = cur_instruction.opcode == 8'hd2 ||
                         cur_instruction.opcode == 8'hd3 ||
                         cur_instruction.opcode == 8'hc0 ||
                         cur_instruction.opcode == 8'hc1;
+								
 assign do_escape_fault = cur_instruction.opcode[7:3] == 5'b11011 && next_addr == do_int_address;
 reg nmi_pending;
 reg ext_int_inhibit;
+
+
 wire take_nmi = (nmi_pending | nmi_pulse) & !ext_int_inhibit & !current.ext_int_inhibit;
 wire take_irq = intr & int_enabled & !ext_int_inhibit & !current.ext_int_inhibit;
+
+
 wire do_single_step = current.next_instruction & !ext_int_inhibit &
     trap_flag_set & current.next != debug_wait_address & !current.ext_int_inhibit;
+	 
+	 
+	 
 assign start_interrupt = next_addr == nmi_address ||
                          next_addr == irq_address;
+
+								 
+// moves IRQ to MDR								 
 assign irq_to_mdr = next_addr == irq_address;
+
+
+
 reg trap_flag_set;
 assign is_hlt = cur_instruction.opcode == 8'hf4;
 reg seized;
@@ -324,7 +339,7 @@ always_comb begin
     /*else if (debug_stopped && debug_run)
         next_addr = {{addr_bits - 9{1'b0}}, 1'b1, debug_addr};*/
     else if (stall)
-        next_addr = addr;
+        next_addr = addr; // freezes the Microcode until stall is deasserted
     else if (current.ext_int_yield && seizing)
         next_addr = debug_wait_address;
     else if (current.ext_int_yield && take_nmi)
@@ -381,6 +396,7 @@ endfunction
 
 int microcode_coverage[num_instructions];
 
+// counts how many times the microinstruction was executed
 always_ff @(posedge clk)
     microcode_coverage[addr] <= microcode_coverage[addr] + 1;
 
