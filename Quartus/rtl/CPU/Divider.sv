@@ -19,8 +19,243 @@
 
 // Non-restoring division
 
-// Wallace tree maybe?
 // Newton Raphson?
+
+
+/*
+
+
+module div_nonrestoring (a,b,start,clk,clrn,q,r,busy,ready,count);
+
+input [31:0] a; // dividend
+input [15:0] b; // divisor
+input start; // start
+input clk, clrn; // clk,reset
+output [31:0] q; // quotient
+output [15:0] r; // remainder
+output reg busy; // busy
+output reg ready; // ready
+output [4:0] count; // count
+
+reg [31:0] reg_q;
+reg [15:0] reg_r;
+reg [15:0] reg_b;
+reg [4:0] count;
+
+wire [16:0] sub_add = reg_r[15]? {reg_r,reg_q[31]} + {1’b0,reg_b} : // + b
+                                 {reg_r,reg_q[31]} - {1’b0,reg_b}; // - b
+
+assign q = reg_q;
+assign r = reg_r[15]? reg_r + reg_b : reg_r; // adjust r
+
+always @ (posedge clk or negedge clrn) begin
+  if (!clrn) begin
+  busy <= 0;
+  ready <= 0;
+  end else begin
+  if (start) begin
+  reg_q <= a; // load a
+  reg_b <= b; // load b
+  reg_r <= 0;
+  busy <= 1;
+  ready <= 0;
+  count <= 0;
+  end else if (busy) begin
+   reg_q <= {reg_q[30:0],̃sub_add[16]}; // << 1
+   reg_r <= sub_add[15:0];
+   count <= count + 5’b1; // count++
+   if (count == 5’h1f) begin // finish
+   busy <= 0;
+   ready <= 1; // q,r ready
+  end
+end
+end
+end
+endmodule
+
+
+
+
+
+
+module Divider_nonrestoring(
+    input logic clk,
+    input logic reset,
+    input logic start,
+    input logic is_8_bit,
+    input logic is_signed,
+    output logic busy,
+    output logic complete,
+    output logic error,
+    input logic [31:0] dividend,
+    input logic [15:0] divisor,
+    output logic [15:0] quotient,
+    output logic [15:0] remainder
+);
+
+reg [31:0] reg_q;
+reg [31:0] reg_r; // Extended to 32 bits to handle sign extension for signed division
+reg [31:0] reg_b; // Extended to 32 bits for alignment and signed operations
+reg [4:0] count;
+wire [32:0] sub_add; // Extended for potential carry or borrow
+
+// Adjusting the operation based on signed or unsigned mode
+assign sub_add = reg_r[31] ? {reg_r, reg_q[31]} + {1'b0, reg_b} : {reg_r, reg_q[31]} - {1'b0, reg_b};
+
+// Assign outputs, adjusting the remainder for signed division if necessary
+assign quotient = reg_q[31:16]; // Adjusted to provide the correct quotient part
+assign remainder = reg_r[15:0]; // Taking only the lower 16 bits as the remainder
+
+always @(posedge clk or negedge reset) begin
+    if (!reset) begin
+        busy <= 0;
+        complete <= 0;
+        reg_q <= 0;
+        reg_r <= 0;
+        count <= 0;
+        error <= 0;
+    end else if (start) begin
+        reg_q <= dividend; // Loading the dividend
+        reg_b <= is_8_bit ? {16'b0, divisor[7:0]} : {16'b0, divisor}; // Extending divisor based on mode
+        reg_r <= 0;
+        busy <= 1;
+        complete <= 0;
+        count <= 0;
+        error <= (divisor == 0); // Error if divisor is zero
+    end else if (busy) begin
+        reg_q <= {reg_q[30:0], ~sub_add[32]}; // Shift left and update sign
+        reg_r <= sub_add[31:0]; // Update remainder
+        count <= count + 1;
+        if (count == 5'h1F) begin // Finish condition
+            busy <= 0;
+            complete <= 1; // Indicate completion
+            if (is_signed && dividend[31]) begin
+                // Adjusting the quotient and remainder for negative dividends in signed mode
+                quotient <= -reg_q[31:16];
+                remainder <= -reg_r[15:0];
+            end
+        end
+    end
+end
+
+endmodule
+
+
+
+
+
+
+
+module goldschmidt (a,b,start,clk,clrn,q,busy,ready,count,yn);
+input [31:0] a; // dividend: .1xxx...x
+input [31:0] b; // divisor: .1xxx...x
+input start; // start
+input clk, clrn; // clock and reset
+output [31:0] q; // quotient: x.xxx...x
+output reg busy; // busy
+
+output reg ready; // ready
+output [2:0] count; // counter
+output [31:0] yn; // .11111...1
+reg [63:0] reg_a; // x.xxxx...x
+reg [63:0] reg_b; // 0.xxxx...x
+reg [2:0] count;
+wire [63:0] two_minus_yi = ̃reg_b + 1’b1; // 1.xxxx...x (2 - yi)
+wire [127:0] xi = reg_a * two_minus_yi; // 0x.xxx...x
+wire [127:0] yi = reg_b * two_minus_yi; // 0x.xxx...x
+assign q = reg_a[63:32] + |reg_a[31:29]; // rounding up
+assign yn = reg_b[62:31];
+always @ (posedge clk or negedge clrn) begin
+if (!clrn) begin
+busy <= 0;
+ready <= 0;
+end else begin
+if (start) begin
+reg_a <= {1’b0,a,31’b0}; // 0.1x...x0...0
+reg_b <= {1’b0,b,31’b0}; // 0.1x...x0...0
+busy <= 1;
+ready <= 0;
+count <= 0;
+end else begin
+reg_a <= xi[126:63]; // x.xxx...x
+reg_b <= yi[126:63]; // 0.xxx...x
+count <= count + 3’b1; // count++
+if (count == 3’h4) begin // finish
+busy <= 0;
+ready <= 1; // q is ready
+end
+end
+end
+end
+endmodule
+
+
+module Divider_goldschmidt(
+    input logic clk,
+    input logic reset,
+    input logic start,
+    input logic is_8_bit,
+    input logic is_signed,
+    output logic busy,
+    output logic complete,
+    output logic error,
+    input logic [31:0] dividend,
+    input logic [15:0] divisor,
+    output logic [15:0] quotient,
+    output logic [15:0] remainder
+);
+
+reg [63:0] reg_a, reg_b; // Extended registers for division operation
+reg [31:0] a, b; // Adjusted dividend and divisor based on mode
+wire [63:0] two_minus_yi;
+wire [127:0] xi, yi;
+reg [2:0] count;
+assign two_minus_yi = ~reg_b + 1'b1;
+assign xi = reg_a * two_minus_yi;
+assign yi = reg_b * two_minus_yi;
+
+// Outputs
+assign quotient = reg_a[63:48] + |reg_a[47:46]; // Rounding up for quotient
+assign remainder = reg_a[47:32]; // Capturing remainder
+assign complete = (count == 3'h4); // Indicate completion after certain cycles
+assign error = (divisor == 0); // Error if divisor is zero
+
+always @(posedge clk or negedge reset) begin
+    if (!reset) begin
+        busy <= 0;
+        complete <= 0;
+        count <= 0;
+        error <= 0;
+    end else if (start) begin
+        // Adjust inputs based on is_8_bit and is_signed flags
+        if (is_8_bit) begin
+            a = is_signed ? {24'b0, dividend[7:0]} : {24'b0, dividend[7:0]};
+            b = is_signed ? {48'b0, divisor[7:0]} : {48'b0, divisor[7:0]};
+        end else begin
+            a = is_signed ? {16'b0, dividend[15:0]} : {16'b0, dividend[15:0]};
+            b = is_signed ? {48'b0, divisor[15:0]} : {48'b0, divisor[15:0]};
+        end
+        reg_a <= {1'b0, a, 31'b0}; // Adjusted based on input size
+        reg_b <= {1'b0, b, 31'b0};
+        busy <= 1;
+        complete <= 0;
+        count <= 0;
+        error <= (divisor == 0);
+    end else if (busy) begin
+        reg_a <= xi[126:63]; // Update reg_a with the new approximation
+        reg_b <= yi[126:63]; // Update reg_b with the new approximation
+        count <= count + 3'b1; // Increment counter
+        if (count == 3'h4) begin
+            busy <= 0;
+            complete <= 1; // Indicate division complete
+        end
+    end
+end
+
+endmodule
+
+
+*/
 
 `default_nettype none
 module Divider(input logic clk,
