@@ -60,6 +60,7 @@ package KF8259_Common_Package;
             default: num2bit = 8'b00000000;
         endcase
     endfunction
+	 
 
 
 /*
@@ -94,6 +95,9 @@ endfunction
 
 */
 
+
+	 
+
     function logic [2:0] bit2num (input [7:0] source);
         if      (source[0] == 1'b1) bit2num = 3'b000;
         else if (source[1] == 1'b1) bit2num = 3'b001;
@@ -105,6 +109,8 @@ endfunction
         else if (source[7] == 1'b1) bit2num = 3'b111;
         else                        bit2num = 3'b111;
     endfunction
+	 
+	 
 
 endpackage
 

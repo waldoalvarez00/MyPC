@@ -22,9 +22,9 @@ module KF8259_Control_Logic (
     input   logic           interrupt_acknowledge_n,
     output  logic           interrupt_to_cpu,
 	
-	// Adapted to the simpler way of reading of Jamie CPU
-	input   wire             interrupt_acknowledge_simple,
-	output  logic   [7:0]    simpleirq,
+	 // Adapted to the simpler way of reading of Jamie CPU
+    input   wire            interrupt_acknowledge_simple,
+    output  logic   [7:0]   simpleirq,
 
     // Internal bus
     input   logic   [7:0]   internal_data_bus,
@@ -61,6 +61,7 @@ module KF8259_Control_Logic (
 );
     import KF8259_Common_Package::num2bit;
     import KF8259_Common_Package::bit2num;
+	 import KF8259_Common_Package::bit2numirq;
 
     // State
     typedef enum {CMD_READY, WRITE_ICW2, WRITE_ICW3, WRITE_ICW4, WAIT_FOR_ICW24_W_ICW3, WAIT_FOR_ICW24_W_ICW4, WAIT_FOR_ICW24_W_READY} command_state_t;
@@ -604,15 +605,16 @@ module KF8259_Control_Logic (
     always_ff @(posedge reset or posedge clock) begin
         if (reset) begin
             interrupt_to_cpu <= 1'b0;
-			simpleirq[7:0] <= 8'b00000000;
-		end
+            simpleirq[7:0] <= 8'b00000000;
+        end
+		  else if (end_of_acknowledge_sequence == 1'b1) begin
+            interrupt_to_cpu <= 1'b0;
+		  end
         else if (interrupt != 8'b00000000) begin
             interrupt_to_cpu <= 1'b1;
-			simpleirq[2:0] <= bit2num(interrupt);
-			simpleirq[7:3] <= interrupt_vector_address[10:6];
-		end
-        else if (end_of_acknowledge_sequence == 1'b1)
-            interrupt_to_cpu <= 1'b0;
+            simpleirq[2:0] <= bit2num(interrupt);
+            simpleirq[7:3] <= interrupt_vector_address[10:6];
+        end
         else if (end_of_poll_command == 1'b1)
             interrupt_to_cpu <= 1'b0;
     end
