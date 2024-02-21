@@ -181,7 +181,7 @@ module emu
 assign ADC_BUS  = 'Z;
 assign USER_OUT = '1;
 
-assign {UART_RTS, UART_DTR} = 0;
+
 
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 
@@ -220,38 +220,87 @@ assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
  localparam integer BLINK_DURATION = 25_000_000; // 1 second at 25MHz
  localparam integer PAUSE_DURATION = 25_000_000; // 1 second pause
 
+ //////////////////////////////////////////////////////////////////
+    // Status Bit Map:
+    //              Upper                          Lower
+    // 0         1         2         3          4         5         6
+    // 01234567890123456789012345678901 23456789012345678901234567890123
+    // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
+    // XXXXX XXXXXXXXXXXXXXXXXXXXXXXXXX XXXXXXXX      xx
+	 
 `include "build_id.v" 
 localparam CONF_STR = {
-	"MyPC;;",
-	"-;",
-	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
-	"O[2],TV Mode,NTSC,PAL;",
-	"O[4:3],Noise,White,Red,Green,Blue;",
-	"-;",
-	"P1,Test Page 1;",
-	"P1-;",
-	"P1-, -= Options in page 1 =-;",
-	"P1-;",
-	"P1O[5],Option 1-1,Off,On;",
-	"d0P1F1,BIN;",
-	"H0P1O[10],Option 1-2,Off,On;",
-	"-;",
-	"P2,Test Page 2;",
-	"P2-;",
-	"P2-, -= Options in page 2 =-;",
-	"P2-;",
-	"P2S0,DSK;",
-	"P2O[7:6],Option 2,1,2,3,4;",
-	"-;",
-	"-;",
-	"T[0],Reset;",
-	"R[0],Reset and close OSD;",
-	"v,0;", // [optional] config version 0-99. 
-	        // If CONF_STR options are changed in incompatible way, then change version number too,
-			  // so all options will get default values on first start.
-	"V,v",`BUILD_DATE 
-};
+		"PCXT;UART115200:115200;",
+		"S0,IMGIMAVFD,Floppy A:;",
+		"S1,IMGIMAVFD,Floppy B:;",
+		"OJK,Write Protect,None,A:,B:,A: & B:;",
+		"-;",
+		"S2,VHD,IDE 0-0;",
+		"S3,VHD,IDE 0-1;",
+		"OLM,2nd SD card,Disable,IDE 0-0,IDE 0-1;",
+		"-;",
+		"OHI,CPU Speed,4.77MHz,7.16MHz,9.54MHz,PC/AT 3.5MHz;",
+		"-;",
+		"P1,System & BIOS;",
+		"P1-;",
+		"P1O3,Model,IBM PCXT,Tandy 1000;",
+		"P1-;",
+		"P1oC,PCXT CGA Graphics,Yes,No;",
+		"P1oD,PCXT Hercules Graphics,Yes,No;",
+		"P1O4,PCXT 1st Video,CGA,Hercules;",
+		"P1-;",
+		"P1O7,Boot Splash Screen,Yes,No;",
+		"P1-;",
+		"P1FC0,ROM,PCXT BIOS:;",
+		"P1FC1,ROM,Tandy BIOS:;",
+		"P1-;",
+		"P1FC2,ROM,EC00 BIOS:;",
+		"P1-;",
+		"P1OUV,BIOS Writable,None,EC00,PCXT/Tandy,All;",
+		"P1-;",	
+		"P2,Audio & Video;",
+		"P2-;",
+		"P2OA,C/MS Audio,Enabled,Disabled;",
+		"P2oAB,OPL2,Adlib 388h,SB FM 388h/228h, Disabled;",
+		"P2o01,Speaker Volume,1,2,3,4;",
+		"P2o23,Tandy Volume,1,2,3,4;",
+		"P2o45,Audio Boost,No,2x,4x;",
+		"P2o67,Stereo Mix,none,25%,50%,100%;",
+		"P2-;",
+		"P2O12,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%;",
+		"P2O89,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
+		"P2OT,Border,No,Yes;",
+		"P2o8,Composite video,Off,On;",
+		"P2OEG,Display,Full Color,Green,Amber,B&W,Red,Blue,Fuchsia,Purple;",
+		"P2-;",
+		"P3,Hardware;",
+		"P3-;",
+		"P3OB,Lo-tech 2MB EMS,Enabled,Disabled;",
+		"P3OCD,EMS Frame,C000,D000,E000;",
+		"P3-;",
+		"P3o9,A000 UMB,Enabled,Disabled;",
+		"P3-;",
+		"P3ONO,Joystick 1, Analog, Digital, Disabled;",
+		"P3OPQ,Joystick 2, Analog, Digital, Disabled;",
+		"P3OR,Sync Joy to CPU Speed,No,Yes;",
+		"P3OS,Swap Joysticks,No,Yes;",
+		"P3oEF,RAM Type,Auto,SDRAM,DDR3;",
+		"P3-;",	
+		"-;",
+		"R0,Reset & apply settings;",
+		"J,Fire 1,Fire 2;",
+		"V,v",`BUILD_DATE
+	};
 
+	
+wire  [7:0] VGA_R_AUX1;
+wire  [7:0] VGA_G_AUX1;
+wire  [7:0] VGA_B_AUX1;
+
+wire  [7:0] VGA_R_AUX2;
+wire  [7:0] VGA_G_AUX2;
+wire  [7:0] VGA_B_AUX2;
+	
 wire forced_scandoubler;
 wire   [1:0] buttons;
 wire [127:0] status;
@@ -271,12 +320,14 @@ wire wps2_mouse_clk_in;
 wire wps2_mouse_data_in;
 
 
+wire [15:0] sdram_sz;
 
-hps_io #(.CONF_STR(CONF_STR), .PS2DIV(2000), .PS2WE(1)) hps_io
+
+hps_io #(.CONF_STR(CONF_STR), .PS2DIV(10), .PS2WE(1), .WIDE(1)) hps_io
 (
 	.clk_sys(sys_clk),
 	.HPS_BUS(HPS_BUS),
-	.EXT_BUS(),
+	//.EXT_BUS(EXT_BUS),
 	.gamma_bus(),
 
 	.forced_scandoubler(forced_scandoubler),
@@ -293,12 +344,14 @@ hps_io #(.CONF_STR(CONF_STR), .PS2DIV(2000), .PS2WE(1)) hps_io
 	// ps2 keyboard emulation
 	.ps2_kbd_clk_out(wps2_kbd_clk_2),
 	.ps2_kbd_data_out(wps2_kbd_data_2),
-	.ps2_kbd_clk_in(wps2_kbd_clk_1),
-	.ps2_kbd_data_in(wps2_kbd_data_1),
+	
+	.ps2_kbd_clk_in(/*wps2_kbd_clk_1*/ 1'b1),
+	.ps2_kbd_data_in(/*wps2_kbd_data_1*/ 1'b1),
 
 	//input       [2:0] ps2_kbd_led_status,
 	//input       [2:0] ps2_kbd_led_use,
 
+	.sdram_sz(sdram_sz),
 	.ps2_mouse_clk_out(wps2_mouse_clk_in),
 	.ps2_mouse_data_out(wps2_mouse_data_in),
 	.ps2_mouse_clk_in(wps2_mouse_clk_out),
@@ -321,6 +374,7 @@ pll pll
 	.outclk_2(pit_clk),
 	// outclk_3 - used for signaltap II 150 MHz
 	.outclk_4(clk_mem), // 120 MHz
+	.outclk_5(clk_uart),
 	.locked(/*plock*/)
 );
 
@@ -334,6 +388,15 @@ wire xreset = RESET; // | status[0] | buttons[1];
 wire VSync;
 wire HSync;
 
+
+
+wire VSync_AUX1;
+wire HSync_AUX1;
+wire VGA_DE_AUX1;
+
+wire VSync_AUX2;
+wire HSync_AUX2;
+wire VGA_DE_AUX2;
 
 
 
@@ -386,12 +449,14 @@ wire reset_n;
 wire pll_locked;
 
 
-
-wire vga_reg_access;
+wire cga_reg_access;
+wire mcga_reg_access;
 wire vga_reg_ack;
 wire [15:0] vga_reg_data;
+wire [15:0] cga_reg_data;
 
-wire vga_access;
+wire mcga_access;
+wire cga_mem_access;
 wire vga_ack;
 wire [15:0] vga_data;
 
@@ -415,12 +480,14 @@ wire debug_wr_en;
 
 wire [15:0] io_data = sdram_config_data |
     uart_data |
+	 uart2_data |
     spi_data |
     timer_data |
     irq_control_data |
     pic_data |
 
     vga_reg_data |
+	 cga_reg_data |
 
 
     ps2_kbd_data |
@@ -430,6 +497,8 @@ wire [15:0] io_data = sdram_config_data |
 
     leds_data |
     bios_control_data;
+	 
+	 
 wire [15:0] mem_data;
 
 // Data bus
@@ -504,8 +573,13 @@ wire ps2_mouse_intr;
 
 
 wire uart_access;
-wire uart_ack;
+wire uart2_access;
+
+wire uart1_ack;
+wire uart2_ack;
+
 wire [15:0] uart_data;
+wire [15:0] uart2_data;
 
 wire [7:0] ppiout;
 
@@ -523,9 +597,10 @@ wire irq_control_ack;
 wire [15:0] irq_control_data;
 wire pic_access;
 wire pic_ack;
+wire cga_ack;
 wire [15:0] pic_data;
 
-wire [7:0] irqs = {ps2_mouse_intr, 5'b0, ps2_kbd_intr, timer_intr} | {1'b0, intr_test};
+wire [7:0] irqs = {1'b0, 1'b0 /* fdd */, 1'b0, uart1_interrupt, uart2_interrupt, 1'b0, ps2_kbd_intr, timer_intr} | {1'b0, intr_test};
 
 // Timer
 wire pit_clk;
@@ -541,11 +616,13 @@ wire ppi_ack;
 
 wire io_ack = sdram_config_ack |
               default_io_ack |
-              uart_ack |
+              uart1_ack |
+				  uart2_ack |
               leds_ack |
               spi_ack |
               irq_control_ack |
               pic_ack |
+				  cga_ack |
               timer_ack |
               vga_reg_ack |
               ps2_kbd_ack |
@@ -586,8 +663,12 @@ end
 
 
 // Avoids the CPU locking waiting for non existent IO
-always_ff @(posedge sys_clk)
+always_ff @(posedge sys_clk) begin
+
     default_io_ack <= default_io_access;
+	 //data_m_data_out <= 0;
+	 
+end
 
 	 
 	 
@@ -647,14 +728,16 @@ AddressDecoderIO AddressDecoderIO(
     .sdram_config_access(sdram_config_access),
     .default_io_access(default_io_access),
     .uart_access(uart_access),
+	 .uart2_access(uart2_access),
     .spi_access(spi_access),
     .irq_control_access(irq_control_access),
     .pic_access(pic_access),
     .timer_access(timer_access),
     .bios_control_access(bios_control_access),
-    .vga_reg_access(vga_reg_access),
-    .ps2_kbd_access(ps2_kbd_access),
+    .mcga_reg_access(mcga_reg_access),
+    //.ps2_kbd_access(ps2_kbd_access),
     .ps2_mouse_access(ps2_mouse_access),
+	 .cga_reg_access(cga_reg_access),
 	 .ppi_control_access(ppi_control_access)
 	 
 );
@@ -725,23 +808,30 @@ end
 // proper decoding, no glitches, no delay
 
 always_comb begin
+
     // Reset defaults
     sdram_access = 1'b0;
-    bios_access = 1'b0;
-    vga_access = 1'b0;
+    bios_access  = 1'b0;
+    mcga_access  = 1'b0;
+	 cga_mem_access   = 1'b0;
 
     if (q_m_access) begin
 	    if(bios_enabled) begin
           casez (q_m_addr[19:14])
               6'b111111: bios_access = 1'b1;
-              6'b101110, 6'b1011??: vga_access = 1'b1;
+              //6'b101110, 6'b1010??: mcga_access = 1'b1; take me back
+				  //6'b110000, 6'b1010??: mcga_access = 1'b1; // Different non standar address C000
+				  6'b101110: cga_mem_access = 1'b1;
               default:   sdram_access = 1'b1;
           endcase
 		  end else begin
 		    casez (q_m_addr[19:14])
 			     // BIOS Turns into RAM
-              6'b101110: vga_access   = 1'b1;
-				  6'b1011??: vga_access   = 1'b1;
+				  
+              //6'b101110: mcga_access   = 1'b1; take me back
+				  //6'b110000: mcga_access   = 1'b1; // Different non standar address C000
+				  //6'b1010??: mcga_access   = 1'b1; // A000
+				  6'b101110: cga_mem_access = 1'b1;    // B800
               default:   sdram_access = 1'b1;
         endcase
 		  end
@@ -1027,63 +1117,112 @@ BIOSControlRegister BIOSControlRegister(.clk(sys_clk),
                                         .*);
 
 
-													 
-													 
-// CPU can read this port to check if SDRAM was initialized
 
-/*
-
-we don't need this anymore (can load exactly the same BIOS binary in emulator)
-
-SDRAMConfigRegister SDRAMConfigRegister(.clk(sys_clk),
-                                        .cs(sdram_config_access),
-                                        .data_m_ack(sdram_config_ack),
-                                        .data_m_data_out(sdram_config_data),
-                                        .config_done(sdram_config_done),
-                                        .*);
-												
-*/									
 								
    //input         UART_CTS,
 	//output        UART_RTS,
 	//output        UART_DTR,
 	//input         UART_DSR,
 
-	
+wire uart1_tx;
+wire rts_n;
+
+MSMouseWrapper #(
+    .CLKFREQ(30_000_000)  // Set the clock frequency to 30 MHz
+) MSMouseWrapper_inst (
+    .clk(sys_clk),
+    .ps2dta_in (wps2_mouse_data_in), // Connect PS/2 data input
+    .ps2clk_in (wps2_mouse_clk_in),  // Connect PS/2 clock input
+    .ps2dta_out(wps2_mouse_data_out),// Connect PS/2 data output
+    .ps2clk_out(wps2_mouse_clk_out), // Connect PS/2 clock output
+    .rts(~rts_n),                    // Connect ready-to-send signal
+    .rd(uart1_tx)                    // Connect read signal
+);
+
+wire clk_uart;
+
+
+// Instantiate the uart module
+uart uart_1 (
+    .clk(sys_clk),
+    .reset(post_sdram_reset),
+
+    .address(data_m_addr[3:1]),            // UART address, 3 bits
+	 .ack(uart1_ack),
+    .write(data_m_wr_en & data_m_access), // Write enable signal
+    .writedata(data_m_data_out[7:0]),     // Data to write, 8 bits
+    .read(~data_m_wr_en & data_m_access),                 // Read enable signal
+    .readdata(uart_data[7:0]),            // Data read, 8 bits
+    .cs(uart_access),                     // Chip select for UART
+
+    .br_clk(clk_uart),                    // Baud rate clock
+    .rx(uart1_tx),                        // UART receive signal
+    .tx(),                                // UART transmit signal
+	 
+	 
+		  
+    .cts_n(0),                        // Clear to send, active low
+    .dcd_n(0),                        // Data carrier detect, active low
+    .dsr_n(0),                        // Data set ready, active low
+    .ri_n (1),                        // Ring indicator, active low
+	 
+    .rts_n(rts_n),                    // Request to send, active low
+    .br_out(),                        // Baud rate output (optional, for external use)
+    .dtr_n(),                         // Data terminal ready, active low
+
+    .irq(uart1_interrupt)                   // Interrupt request output
+);
+
+wire uart2_tx, uart2_rts_n, uart2_dtr_n;
+
+assign UART_TXD = uart2_tx;
+assign UART_RTS = uart2_rts_n;
+assign UART_DTR = uart2_dtr_n;
+
+wire uart2_rx  = UART_RXD;
+wire uart2_cts_n = UART_CTS;
+wire uart2_dsr_n = UART_DSR;
+wire uart2_dcd_n = UART_DTR;
+
+wire uart1_interrupt;
+wire uart2_interrupt;
+
+uart uart_2 (
+    .clk(sys_clk),
+    .reset(post_sdram_reset),
+
+    .address(data_m_addr[3:1]),           // UART address, 3 bits
+    .write(data_m_wr_en & data_m_access), // Write enable signal
+    .writedata(data_m_data_out[7:0]),     // Data to write, 8 bits
+    .read(~data_m_wr_en & data_m_access), // Read enable signal
+    .readdata(uart2_data[7:0]),           // Data read, 8 bits
+    .cs(uart2_access),                    // Chip select for UART
+
+	 .ack(uart2_ack),
+    .br_clk(clk_uart),                    // Baud rate clock
+    
+	 
+	 .rx                (uart2_rx),
+    .tx                (uart2_tx),
+	 
+    .cts_n             (uart2_cts_n),     // Clear to send, active low
+    .dcd_n             (uart2_dcd_n),
+    .dsr_n             (uart2_dsr_n),
+    .rts_n             (uart2_rts_n),     // Request to send, active low
+    .dtr_n             (uart2_dtr_n),     // Data terminal ready, active low
+		  
+    
+    
+    .ri_n (1),                            // Ring indicator, active low
+	 
+    
+    .br_out(),                            // Baud rate output (optional, for external use)
+    
+
+    .irq(uart2_interrupt)                 // Interrupt request output
+);
+
 													 
-UartPorts #(.clk_freq(30000000))
-          UartPorts(.clk(sys_clk),
-                    .rx(UART_RXD),
-                    .tx(UART_TXD),
-                    .cs(uart_access),
-                    .data_m_ack(uart_ack),
-                    .data_m_data_out(uart_data),
-                    .data_m_data_in(data_m_data_out),
-						  .reset(post_sdram_reset),
-						  
-                   
-                   
-                   .data_m_bytesel(data_m_bytesel),
-                   .data_m_wr_en(data_m_wr_en),
-                   .data_m_access(data_m_access));
-
-						 
-
-										
-/*
-
-SPIPorts SPIPorts(.clk(sys_clk),
-                  .cs(spi_access),
-                  .data_m_ack(spi_ack),
-                  .data_m_data_out(spi_data),
-                  .data_m_data_in(data_m_data_out),
-                  .data_m_addr(data_m_addr[1]),
-                  .miso(spi_miso),
-                  .mosi(spi_mosi),
-                  .sclk(spi_sclk),
-                  .ncs(spi_ncs),
-                  .*);
-*/
 
 						
 /*
@@ -1174,6 +1313,7 @@ KF8259 PIC8259(
 					 
 					 .data_bus_io(),
 					 .simpleirq(irq),
+					 .interrupt_to_cpu(intr),
 
 					 //.cascade_out(),
 					 //.cascade_io(),
@@ -1184,21 +1324,6 @@ KF8259 PIC8259(
 					 .interrupt_acknowledge_simple(inta)
 
               );
-									 
-
-PIC PIC(.clk(sys_clk),
-        .reset(post_sdram_reset),
-        .cs(pic_access),
-        //.data_m_ack(pic_ack),
-		  .data_m_ack(),
-        .data_m_data_out(),
-		  //.data_m_data_out(pic_data),
-        .data_m_data_in(data_m_data_out),
-        .intr_in(irqs),
-		  .addr(data_m_addr[1]),
-		  .irq(),
-        .*);
-
 
 
 Timer Timer(.clk(sys_clk),
@@ -1253,7 +1378,7 @@ MemArbiterExtend CPUVGAArbiter(.clk(sys_clk),
                          .cpu_m_addr(cpu_fb_addr),
                          .cpu_m_data_in(vga_data),
                          .cpu_m_data_out(data_m_data_out),
-                         .cpu_m_access(vga_access),
+                         .cpu_m_access(mcga_access),
                          .cpu_m_ack(vga_ack),
                          .cpu_m_wr_en(q_m_wr_en),
                          .cpu_m_bytesel(q_m_bytesel),
@@ -1290,24 +1415,83 @@ MemArbiterExtend CPUVGAArbiter(.clk(sys_clk),
 	wire vga_bw;
 	wire vga_gw;
 	
+	
+
+	
+cgacard CGAVideoAdapter(
+
+                   .clock(sys_clk),
+                   .reset(post_sdram_reset),
+
+						 .clk_vga_cga(vga_clk),
+
+                   // VGA signals
+		             .vga_hsync(HSync_AUX1),
+		             .vga_vsync(VSync_AUX1),
+		             .vga_r(VGA_R_AUX1[7:3]),
+		             .vga_g(VGA_G_AUX1[7:3]),
+		             .vga_b(VGA_B_AUX1[7:3]),
+						 
+						 
+						 .H_BLANK(),
+						 .V_BLANK(),
+						 
+						 .de_o_cga(VGA_DE_AUX1),
+						 
+						 .std_hsyncwidth(),
+						 
+						 
+						 //output logic ce_pix,
+						 
+						 // Bus
+                   .memaccess(cga_mem_access),
+						 .regaccess(cga_reg_access),
+                   .data_m_addr(data_m_addr),
+                   .data_m_data_in(data_m_data_out),
+                   .data_m_data_out(cga_reg_data),
+                   .data_m_bytesel(data_m_bytesel),
+                   .data_m_wr_en(data_m_wr_en),
+                   .data_m_ack(cga_ack)
+						 
+                       );
+							  
+							  
 									
 VGAController VGAController(.clk(vga_clk),
                             .reset(post_sdram_reset),
                             
-									 //.vga_r(vga_rw),
-                            //.vga_g(vga_gw),
-                            //.vga_b(vga_bw),
+								
 									 
-									 .vga_r(VGA_R[7:5]), // Map the 3 lower bits of vga_r to the 3 highest bits of VGA_R
-                            .vga_g(VGA_G[7:5]), // Map the 3 lower bits of vga_g to the 3 highest bits of VGA_G
-                            .vga_b(VGA_B[7:5]), // Map the 3 lower bits of vga_b to the 3 highest bits of VGA_B
+									 .vga_r(VGA_R_AUX2[7:5]), // Map the 3 lower bits of vga_r to the 3 highest bits of VGA_R
+                            .vga_g(VGA_G_AUX2[7:5]), // Map the 3 lower bits of vga_g to the 3 highest bits of VGA_G
+                            .vga_b(VGA_B_AUX2[7:5]), // Map the 3 lower bits of vga_b to the 3 highest bits of VGA_B
+									 .DE(VGA_DE_AUX2),
+									 .vga_hsync(HSync_AUX2),
+		                      .vga_vsync(VSync_AUX2),
 									 
-									 .vga_hsync(HSync),
-		                      .vga_vsync(VSync),
+									 //.vga_r(), // Map the 3 lower bits of vga_r to the 3 highest bits of VGA_R
+                            //.vga_g(), // Map the 3 lower bits of vga_g to the 3 highest bits of VGA_G
+                            //.vga_b(), // Map the 3 lower bits of vga_b to the 3 highest bits of VGA_B
+									 
+									 //.DE(),
+									 //.vga_hsync(),
+		                      //.vga_vsync(),
+									 
+									 
 									 .H_BLANK(),
 									 .V_BLANK(),
 									 .ce_pix(),
-									 .DE(VGA_DE),
+									 
+									 
+									 .vga_dac_idx(vga_dac_idx),
+									 .vga_dac_rd(vga_dac_rd),
+									 .cursor_pos(cursor_pos),
+									 .cursor_scan_start(cursor_scan_start),
+						          .cursor_scan_end(cursor_scan_end),
+						          .vga_256_color(vga_256_color),
+									 .bright_colors(bright_colors),
+									 .palette_sel(palette_sel),
+									 .background_color(background_color),
                             .*);
 									 
 
@@ -1319,18 +1503,94 @@ VGAController VGAController(.clk(vga_clk),
 
 VGARegisters VGARegisters(.clk(sys_clk),
                           .reset(post_sdram_reset),
-                          .cs(vga_reg_access),
+                          .cs(mcga_reg_access),
                           .data_m_ack(vga_reg_ack),
                           .data_m_data_out(vga_reg_data),
                           .data_m_data_in(data_m_data_out),
 								  .vga_vsync(VSync),
 								  .vga_hsync(HSync),
+								  .cursor_pos(cursor_pos),
+								  .cursor_scan_start(cursor_scan_start),
+								  .cursor_scan_end(cursor_scan_end),
+								  .vga_256_color(vga_256_color),
+								  .bright_colors(bright_colors),
+								  .palette_sel(palette_sel),
+								  .background_color(background_color),
+								  
+								  
                           .*);
 
-								  
+logic   [7:0]   keycode_buf;
+logic   [7:0]   keycode;
 
+wire    clear_keycode = port_b_out[7];
+wire    ps2_reset_n   = port_b_out[6];
 
-PS2KeyboardController #(.clkf(50000000))
+logic   lock_recv_clock;
+
+wire swap_video;
+KFPS2KB u_KFPS2KB 
+    (
+        // Bus
+        .clock                      (sys_clk),
+        .peripheral_clock           (sys_clk),
+        .reset                      (post_sdram_reset),
+
+        // PS/2 I/O
+        .device_clock               (wps2_kbd_clk_2 /*| lock_recv_clock*/),
+        .device_data                (wps2_kbd_data_2),
+
+        // I/O
+        .irq                        (ps2_kbd_intr),
+        .keycode                    (keycode_buf),
+        .clear_keycode              (clear_keycode),
+		  
+        .pause_core                 (),
+        .swap_video                 (swap_video),
+        .video_output               (),
+        .tandy_video                ()
+    );
+
+	 
+	 
+	 
+    assign  keycode = ps2_reset_n ? keycode_buf : 8'h80;
+	 logic   prev_ps2_reset_n;
+
+	 always_ff @(posedge sys_clk or posedge post_sdram_reset)
+    begin
+        if (post_sdram_reset)
+            prev_ps2_reset_n <= 1'b0;
+        else
+            prev_ps2_reset_n <= ps2_reset_n;
+    end
+	 
+	 
+	 
+    // Sends Keyboard reset to PS2
+	 // Still needs proper connection
+    KFPS2KB_Send_Data u_KFPS2KB_Send_Data 
+    (
+        // Bus
+        .clock                      (sys_clk),
+        .peripheral_clock           (sys_clk),
+        .reset                      (post_sdram_reset),
+
+        // PS/2 I/O
+        .device_clock               (wps2_kbd_clk_2),
+        .device_clock_out           (wps2_kbd_clk_1),
+        .device_data_out            (wps2_kbd_data_1),
+		  
+        .sending_data_flag          (lock_recv_clock),
+
+        // I/O
+        .send_request               (~prev_ps2_reset_n & ps2_reset_n),
+        .send_data                  (8'hFF)
+    );
+
+	 
+/*	 
+PS2KeyboardController #(.clkf(30000000))
 		      PS2KeyboardController(
 				
                    .clk(sys_clk),
@@ -1349,29 +1609,18 @@ PS2KeyboardController #(.clkf(50000000))
                    .ps2_dat_in(wps2_kbd_data_2),
                    .ps2_dat_out(wps2_kbd_data_1),
 						 
+						 
 					    .*);
 
 				
 	
+*/
 
-PS2MouseController #(.clkf(50000000))
-		   PS2MouseController(.clk(sys_clk),
-			                             .reset(post_sdram_reset),
-                                      .cs(ps2_mouse_access),
-                                      .data_m_ack(ps2_mouse_ack),
-                                      .data_m_data_out(ps2_mouse_data),
-                                      .data_m_data_in(data_m_data_out),
-                                      .ps2_intr(ps2_mouse_intr),
+
+
 												  
-                                      //.ps2_clk(ps2_clk_b),
-                                      //.ps2_dat(ps2_dat_b),
-												  
-												  .ps2_clk_in(wps2_mouse_clk_in),
-					                       .ps2_clk_out(wps2_mouse_clk_out),
-					                       .ps2_dat_in(wps2_mouse_data_in),
-					                       .ps2_dat_out(wps2_mouse_data_out),
-									
-                                      .*);
+
+
 
 
 												  
@@ -1384,10 +1633,30 @@ PoweronReset PoweronReset(.*);
 //assign CE_PIXEL = ce_pix;
 
 //assign VGA_DE = ~(H_BLANK | V_BLANK);
-assign VGA_HS = HSync;
-assign VGA_VS = VSync;
+
+
+assign VGA_HS = swap_video? HSync_AUX2 : HSync_AUX1;
+assign VGA_VS = swap_video? VSync_AUX2 : VSync_AUX1;
 assign CLK_VIDEO = vga_clk;
 assign CE_PIXEL = 1;
+assign VGA_R  =  swap_video ? VGA_R_AUX2   : VGA_R_AUX1;
+assign VGA_G  =  swap_video ? VGA_G_AUX2   : VGA_G_AUX1;
+assign VGA_B  =  swap_video ? VGA_B_AUX2   : VGA_B_AUX1;
+assign VGA_DE  =  swap_video ? VGA_DE_AUX2 : VGA_DE_AUX1;
+
+
+/*
+
+assign VGA_R_AUX  =  swap_video & ~tandy_mode ? VGA_R_hgc  : VGA_R_cga;
+    assign VGA_G_AUX  =  swap_video & ~tandy_mode ? VGA_G_hgc  : VGA_G_cga;
+    assign VGA_B_AUX  =  swap_video & ~tandy_mode ? VGA_B_hgc  : VGA_B_cga;
+    assign VGA_HS =  swap_video & ~tandy_mode ? VGA_HS_hgc : VGA_HS_cga;
+    assign VGA_VS =  swap_video & ~tandy_mode ? VGA_VS_hgc : VGA_VS_cga;
+    assign VGA_DE =  swap_video & ~tandy_mode ? VGA_DE_hgc : VGA_DE_cga;
+    assign gamma_bus =  swap_video & ~tandy_mode ? gamma_bus_hgc : gamma_bus_cga;
+    assign CE_PIXEL  =  swap_video & ~tandy_mode ? CE_PIXEL_hgc : CE_PIXEL_cga;
+	 
+	 */
 
 
 /*

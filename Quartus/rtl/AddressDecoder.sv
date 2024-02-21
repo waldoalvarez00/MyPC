@@ -14,16 +14,20 @@ module AddressDecoderIO(
                     output reg leds_access,
                     output reg sdram_config_access,
                     output reg default_io_access,
-                    output reg uart_access,
+						  output reg uart_access,
+                    output reg uart2_access,
                     output reg spi_access,
                     output reg irq_control_access,
                     output reg pic_access,
                     output reg timer_access,
                     output reg bios_control_access,
                     output reg vga_reg_access,
-                    output reg ps2_kbd_access,
+                    //output reg ps2_kbd_access,
                     output reg ps2_mouse_access,
+						  output reg cga_reg_access,
+						  output reg mcga_reg_access,
                     output reg ppi_control_access
+						  
 						  
                     );
 						  
@@ -65,10 +69,12 @@ always_comb begin
     pic_access = 1'b0;
     timer_access = 1'b0;
     bios_control_access = 1'b0;
-    vga_reg_access = 1'b0;
-    ps2_kbd_access = 1'b0;
+    mcga_reg_access = 1'b0;
+    //ps2_kbd_access = 1'b0;
     ps2_mouse_access = 1'b0;
 	 ppi_control_access = 1'b0;
+	 cga_reg_access =  1'b0;
+	 uart2_access = 1'b0;
 	 
 	 // 000-00F  8237 DMA controller
 	 // 010-01F  8237 DMA Controller (PS/2 model 60 & 80), reserved (AT)
@@ -94,9 +100,21 @@ always_comb begin
 
     // Determine access type based on conditions
     if (d_io && data_m_access) begin
-
-        if (data_m_addr[16:7] == 10'b0000_0011_11)  begin // 3CXh = 3C0 -> 3DF
-            vga_reg_access = 1'b1;
+	 
+	 // UART Chip Select
+        if ({data_m_addr[16:4], 3'd0} == 16'h03F8) begin
+            uart_access = 1'b1;
+        end
+        // UART2 Chip Select
+        else if ({data_m_addr[16:4], 3'd0} == 16'h02F8) begin
+            uart2_access = 1'b1;
+        end
+        //if (data_m_addr[16:7] == 10'b0000_0011_11)  begin // 3CXh = 3C0 -> 3DF
+		  else if (data_m_addr[16:7] == 10'b0000_0010_11)  begin   // 2CXh = 2C0 -> 2DF Moved to non Standar
+            mcga_reg_access = 1'b1;
+        end else
+		  if (data_m_addr[16:7] == 10'b0000_0011_11)  begin   // 3CXh = 3C0 CGA Access
+            cga_reg_access = 1'b1;
         end
         else if (data_m_addr[16:1] == 16'b1111_1111_1111_1110) begin // FFFE
             leds_access = 1'b1;
@@ -128,13 +146,21 @@ always_comb begin
         else if (data_m_addr[16:1] == 15'b1111_1111_1110_000) begin // FFD0h
             ps2_mouse_access = 1'b1;
         end
+		  
+		  else if (data_m_addr[16:3] == 14'b0000_0000_0110_00) begin
+		      ppi_control_access = 1'b1;
+		  end
         
-		  else if (data_m_addr[16:3] == 14'b0000_0000_0110_00) begin  // 62h 63h
+		  /*else if (data_m_addr[16:3] == 14'b0000_0000_0110_00) begin  // 62h 63h
 		      if (data_m_addr[16:1] == 15'b0000_0000_0110_000)        // 60h 61h
               ps2_kbd_access = 1'b1;
 				else
               ppi_control_access = 1'b1;
-        end
+        end*/
+		  
+		  
+		  
+	 
         else begin
             default_io_access = 1'b1;
         end
