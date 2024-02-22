@@ -478,10 +478,11 @@ wire [15:0] debug_wr_val;
 wire [15:0] debug_val;
 wire debug_wr_en;
 
+/*
 wire [15:0] io_data = sdram_config_data |
     uart_data |
 	 uart2_data |
-    spi_data |
+    //spi_data |
     timer_data |
     irq_control_data |
     pic_data |
@@ -490,14 +491,46 @@ wire [15:0] io_data = sdram_config_data |
 	 cga_reg_data |
 
 
-    ps2_kbd_data |
+    //ps2_kbd_data |
     ps2_mouse_data |
 	 
 	 ppiout |
 
     leds_data |
     bios_control_data;
-	 
+*/
+
+// Multiplexer
+
+wire [15:0] io_data;
+
+always @(*) begin
+    if (leds_access) 
+        io_data = leds_data;
+    else if (uart_access) 
+        io_data = uart_data;
+    else if (uart2_access) 
+        io_data = uart2_data;
+    else if (irq_control_access) 
+        io_data = irq_control_data;
+    else if (pic_access) 
+        io_data = pic_data;
+    else if (timer_access) 
+        io_data = timer_data;
+    else if (bios_control_access) 
+        io_data = bios_control_data;
+    else if (mcga_reg_access) 
+        io_data = vga_reg_data;
+    else if (ps2_mouse_access) 
+        io_data = ps2_mouse_data;
+    else if (cga_reg_access) 
+        io_data = cga_reg_data;
+    else if (ppi_control_access) 
+        io_data = ppiout;
+    else 
+        io_data = 16'b0; // Default case to avoid latches
+end
+ 
 	 
 wire [15:0] mem_data;
 
@@ -558,7 +591,8 @@ wire [15:0] bios_control_data;
 wire sdram_config_access;
 wire sdram_config_ack;
 wire sdram_config_done;
-wire [15:0] sdram_config_data;
+
+//wire [15:0] sdram_config_data;
 
 
 wire ps2_kbd_access;
@@ -619,13 +653,13 @@ wire io_ack = sdram_config_ack |
               uart1_ack |
 				  uart2_ack |
               leds_ack |
-              spi_ack |
+              //spi_ack |
               irq_control_ack |
               pic_ack |
 				  cga_ack |
               timer_ack |
               vga_reg_ack |
-              ps2_kbd_ack |
+              //ps2_kbd_ack |
               ps2_mouse_ack |
 				  ppi_ack |
               bios_control_ack;
