@@ -32,7 +32,7 @@ module KF8255 (
     output  logic   [7:0]   port_c_out,
     output  logic   [7:0]   port_c_io,
 	
-	output  wire            ack
+    output  wire            ack
 );
 
     //
@@ -56,7 +56,7 @@ module KF8255 (
         .write_enable           (write_enable),
         .address                (address),
         .data_bus_in            (data_bus_in),
-		.ack                    (ack),
+        .ack                    (ack),
 
         // Control Signals
         .internal_data_bus      (internal_data_bus),

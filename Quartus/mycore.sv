@@ -702,7 +702,7 @@ KF8255 uF8255 (
 	
 
     // I/O
-    //.[7:0]   port_a_in(),
+    .port_a_in(keycode),
     //.[7:0]   port_a_out(),
     //.port_a_io(),
 

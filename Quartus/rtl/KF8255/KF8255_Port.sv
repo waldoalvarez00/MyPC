@@ -59,8 +59,8 @@ module KF8255_Port (
             port_out <= 8'b00000000;
         else if (write_port)
             port_out <= internal_data_bus;
-        else
-            port_out <= port_out;
+        /*else
+            port_out <= port_out;*/
     end
 
 
