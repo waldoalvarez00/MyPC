@@ -27,7 +27,7 @@ module KF8255_Control_Logic (
     output  logic           read_port_b,
     output  logic           read_port_c,
 	
-	output  logic           ack
+	 output  logic           ack
 );
 
 
@@ -38,7 +38,7 @@ module KF8255_Control_Logic (
     logic           write_flag;
     logic   [2:0]   stable_address;
 	
-	logic           prev_chip_select;
+	 logic           prev_chip_select;
     logic           operation_initiated;
 
 
@@ -48,18 +48,18 @@ module KF8255_Control_Logic (
     always_ff @(posedge reset or posedge clock) begin
         if (reset) begin
             internal_data_bus <= 8'b00000000;
-			prev_write_enable <= 1'b0;
+			   prev_write_enable <= 1'b0;
         end else begin
 		
-		  if (write_enable & chip_select)
-            internal_data_bus <= data_bus_in;
+		    if (write_enable & chip_select)
+              internal_data_bus <= data_bus_in;
 			
-		  if (chip_select)
-            prev_write_enable <= 1'b0;
-		  else
-            prev_write_enable <= write_enable;
+		    if (!chip_select)
+              prev_write_enable <= 1'b0;
+		    else
+              prev_write_enable <= write_enable;
 		
-		  // Track chip_select transitions
+		    // Track chip_select transitions
           prev_chip_select <= chip_select;
 
           // Detect operation initiation
@@ -80,7 +80,7 @@ module KF8255_Control_Logic (
 
     
 	
-    assign write_flag = ~prev_write_enable & write_enable;
+    assign write_flag = prev_write_enable & ~write_enable;
 
     always_ff @(posedge reset or posedge clock) begin
         if (reset)
