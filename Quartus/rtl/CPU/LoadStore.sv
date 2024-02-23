@@ -92,7 +92,9 @@ localparam [5:0]
   UNALIGNED_FIRST_BYTE_WRITE_8bit  = 5'd15,
   
   IO_Read = 5'd16,
-  IO_Write = 5'd17;
+  IO_Write = 5'd17,
+ 
+  WAIT_ACK_8BITS_UNAL = 5'd18;
 
  
 
@@ -235,10 +237,25 @@ assign busy = (mem_read | mem_write) & ~complete;
                     m_bytesel <= 2'b10;
 						  m_access <= 1'b1;
 						  
-						  current_state <= WAIT_ACK;
+						  current_state <= WAIT_ACK_8BITS_UNAL;
 						  
                 end
 					 
+					 
+					 WAIT_ACK_8BITS_UNAL: begin
+					 
+					   if (m_ack) begin
+						    current_state <= COMPLETEOP;
+							 complete <= 1'b1;
+							 m_access <= 1'b0;
+							 m_wr_en  <= 1'b0;
+							 
+							 mdr[7:0] <= m_data_in[15:8];
+							 // Stops noise on the BUS
+							 m_addr <= 19'd0; 
+						    m_data_out <= 16'd0;
+						  end
+					 end
 					 
 					 
 					 UNALIGNED_FIRST_BYTE: begin
@@ -372,7 +389,7 @@ assign busy = (mem_read | mem_write) & ~complete;
 							 
 							 mdr[15:8] <= m_data_in[7:0];
 							 // Stops noise on the BUS
-							 m_addr <= 19'd0; 
+							 m_addr <= 19'd0;
 						    m_data_out <= 16'd0;
 						  end
 					 end
