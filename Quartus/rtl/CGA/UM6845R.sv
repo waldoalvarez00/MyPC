@@ -71,6 +71,9 @@ assign hblank = ~hde;
 assign vblank = ~vde;
 assign line_reset = hcc_last;
 
+
+
+
 reg [7:0] R0_h_total = H_TOTAL;
 reg [7:0] R1_h_displayed = H_DISP;
 reg [7:0] R2_h_sync_pos = H_SYNCPOS;
@@ -90,6 +93,8 @@ reg [5:0] R12_start_addr_h = 6'd0;
 reg [7:0] R13_start_addr_l = 8'd0;
 reg [5:0] R14_cursor_h = 6'd0;
 reg [7:0] R15_cursor_l = 8'd0;
+
+
 
 reg [4:0] addr;
 always @(*) begin
