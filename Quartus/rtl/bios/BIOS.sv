@@ -29,27 +29,20 @@ module BIOS #(parameter depth = 32)
 
 //wire wr_en = data_m_access & cs & data_m_wr_en;
 wire [15:0] q;
-assign data_m_data_out = data_m_ack ? q : 16'b0;
+				  
+assign data_m_data_out = cs & data_m_access ? q : 16'b0;
 
-
-
-
-logic [1:0] ack_counter;
+logic condition_met, condition_met_d; // Signals to detect rising edge of the condition
 
 always_ff @(posedge clk) begin
-    if (!cs || !data_m_access) begin
-        // Reset ack and counter when cs or data_m_access is not asserted
-        data_m_ack <= 0;
-        ack_counter <= 0;
-    end else if (ack_counter < 1) begin
-        // Assert ack and increment counter for 2 clock cycles
-        data_m_ack <= 1;
-        ack_counter <= ack_counter + 1;
-    end else begin
-        // De-assert ack after 2 clock cycles
-        data_m_ack <= 0;
-    end
+    // Capture condition in current and previous clock cycles
+    condition_met <= cs & data_m_access;
+    condition_met_d <= condition_met;
+    
+    // Assert ack only in the cycle following the condition becoming true
+    data_m_ack <= condition_met & ~condition_met_d;
 end
+
 
 
 

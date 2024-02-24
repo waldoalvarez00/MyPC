@@ -91,6 +91,7 @@ always @(posedge clk or posedge rst) begin
                 end else begin
                     mem_we <= 0;
                     mem_en <= 0;
+                    ack <= 0;
                 end
             end
 				
@@ -112,7 +113,7 @@ always @(posedge clk or posedge rst) begin
                     end else begin
                         mem_we <= 0; // Disable write after processing
                         mem_en <= 0; // Disable memory access after operation
-                        state <= IDLE;
+                        state <= COMPLETE;
                         
                         bus_ack <= 1; // Complete operation for the bus
                     end
