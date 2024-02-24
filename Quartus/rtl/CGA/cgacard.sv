@@ -24,8 +24,7 @@ module cgacard(
 						 
 						 //output logic ce_pix,
 						 
-						 // Bus
-                   input  wire  memaccess,
+						 // IO Bus
 						 input  wire  regaccess,
                    input  logic [19:1] data_m_addr,
                    input  logic [15:0] data_m_data_in,
@@ -33,13 +32,23 @@ module cgacard(
                    input  logic [1:0] data_m_bytesel,
                    input  logic data_m_wr_en,
 						 
-                   output logic data_m_ack
+                   output logic data_m_ack,
+						 
+						 
+						 // Mem Bus
+						 input  wire  memaccess,
+                   input  logic [19:1] imem_m_addr,
+                   input  logic [15:0] imem_m_data_in,
+                   output logic [15:0] imem_m_data_out,
+                   input  logic [1:0] imem_m_bytesel,
+                   input  logic imem_m_wr_en,
+						 
+                   output logic mem_m_ack
 						 
 						 
 						 );
 						 
-						 
-    wire memack;
+
 
 	 wire [4:0] clkdiv;
     wire[3:0] video_cga;
@@ -58,7 +67,7 @@ module cgacard(
         .blue(vga_b)
     );
 	 
-	 assign data_m_ack = regack | memack;
+	 assign data_m_ack = regack;
 	 
 	 wire regack;
 	 
@@ -126,12 +135,12 @@ module cgacard(
 	 .clk(clock),                    // Clock input
     .rst(reset),                    // Asynchronous reset, active high
 	 .en(memaccess),                 // Enable signal for the module
-    .we(data_m_wr_en & memaccess),                   // Write enable signal
-    .data_in(data_m_data_in),       // 16-bit data input for writing to memory
+    .we(imem_m_wr_en & memaccess),                   // Write enable signal
+    .data_in(imem_m_data_in),       // 16-bit data input for writing to memory
     .data_out(vram_data_out),       // 16-bit data output from reading memory
-    .addr(data_m_addr[14:1]),       // Address input for memory operations
-    .bytesel(data_m_bytesel),       // 2-bit Byte select signal
-	 .bus_ack(memack),
+    .addr(imem_m_addr[14:1]),       // Address input for memory operations
+    .bytesel(imem_m_bytesel),       // 2-bit Byte select signal
+	 .bus_ack(mem_m_ack),
 	 
     .mem_addr(mem_addr),            // Output address for memory
     .mem_data_in(mem_data_in),      // 8-bit data input from memory (for reads)

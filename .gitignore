@@ -1,3 +1,4 @@
 
 *.bak
 Quartus/serv_req_info.txt
+utils/bios/pcxtbios-iles.bin

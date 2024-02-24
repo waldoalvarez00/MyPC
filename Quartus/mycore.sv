@@ -459,6 +459,7 @@ wire mcga_access;
 wire cga_mem_access;
 wire vga_ack;
 wire [15:0] vga_data;
+wire [15:0] cga_data;
 
 
 
@@ -553,15 +554,15 @@ wire instr_m_ack;
 wire [19:1] q_m_addr;
 wire [15:0] q_m_data_out;
 wire [15:0] q_m_data_in = sdram_data |
-
     vga_data |
-
+	 cga_data |
     bios_data;
 	 
 	 
 	 
 wire q_m_ack = cache_ack |
     vga_ack |
+	 cga_mem_ack |
     bios_ack;
 	 
 	 
@@ -908,7 +909,6 @@ IDArbiter IDArbiter(.clk(sys_clk),
                      .data_m_data_out(data_m_data_out),
                      .data_m_access(data_m_access & ~d_io),
                      .data_m_ack(data_mem_ack),
-							//.data_m_ack(extendw),
                      .data_m_wr_en(data_m_wr_en),
                      .data_m_bytesel(data_m_bytesel),
 							
@@ -962,7 +962,7 @@ MemArbiterExtend CacheVGAArbiter(
     .cpu_m_addr(q_m_addr),
     .cpu_m_data_in(sdram_data),
     .cpu_m_data_out(q_m_data_out),
-    .cpu_m_access(/*q_m_access &*/ sdram_access), // q_m_access seems an attempt to eliminate a glitch in sdram_access
+    .cpu_m_access(q_m_access & sdram_access),
     .cpu_m_ack(cache_ack),
     .cpu_m_wr_en(q_m_wr_en),
     .cpu_m_bytesel(q_m_bytesel),
@@ -1450,7 +1450,7 @@ MemArbiterExtend CPUVGAArbiter(.clk(sys_clk),
 	wire vga_gw;
 	
 	
-
+wire cga_mem_ack;
 	
 cgacard CGAVideoAdapter(
 
@@ -1478,14 +1478,30 @@ cgacard CGAVideoAdapter(
 						 //output logic ce_pix,
 						 
 						 // Bus
-                   .memaccess(cga_mem_access),
+                   
 						 .regaccess(cga_reg_access),
                    .data_m_addr(data_m_addr),
                    .data_m_data_in(data_m_data_out),
                    .data_m_data_out(cga_reg_data),
                    .data_m_bytesel(data_m_bytesel),
                    .data_m_wr_en(data_m_wr_en),
-                   .data_m_ack(cga_ack)
+                   .data_m_ack(cga_ack),
+						 
+						 
+						 
+						 .memaccess(q_m_access & cga_mem_access),
+						 .imem_m_addr(q_m_addr),
+                   .imem_m_data_in(q_m_data_out),
+                   .imem_m_data_out(cga_data),
+                   .imem_m_bytesel(q_m_bytesel),
+                   .imem_m_wr_en(q_m_wr_en),
+                   .mem_m_ack(cga_mem_ack)
+						 
+						 
+
+     
+    
+    
 						 
                        );
 							  
