@@ -29,7 +29,7 @@ module cgacard(
                    input  logic [19:1] data_m_addr,
                    input  logic [15:0] data_m_data_in,
                    output logic [15:0] data_m_data_out,
-                   input  logic [1:0] data_m_bytesel,
+                   input  logic [1:0]  data_m_bytesel,
                    input  logic data_m_wr_en,
 						 
                    output logic data_m_ack,
@@ -40,7 +40,7 @@ module cgacard(
                    input  logic [19:1] imem_m_addr,
                    input  logic [15:0] imem_m_data_in,
                    output logic [15:0] imem_m_data_out,
-                   input  logic [1:0] imem_m_bytesel,
+                   input  logic [1:0]  imem_m_bytesel,
                    input  logic imem_m_wr_en,
 						 
                    output logic mem_m_ack
@@ -135,19 +135,19 @@ module cgacard(
 	 .clk(clock),                    // Clock input
     .rst(reset),                    // Asynchronous reset, active high
 	 .en(memaccess),                 // Enable signal for the module
-    .we(imem_m_wr_en & memaccess),                   // Write enable signal
+    .we(imem_m_wr_en & memaccess),  // Write enable signal
     .data_in(imem_m_data_in),       // 16-bit data input for writing to memory
     .data_out(vram_data_out),       // 16-bit data output from reading memory
     .addr(imem_m_addr[14:1]),       // Address input for memory operations
     .bytesel(imem_m_bytesel),       // 2-bit Byte select signal
-	 .bus_ack(mem_m_ack),
+	 .bus_ack(mem_m_ack),            // Acknowledgment signal for operation completion
 	 
     .mem_addr(mem_addr),            // Output address for memory
     .mem_data_in(mem_data_in),      // 8-bit data input from memory (for reads)
     .mem_data_out(mem_data_out),    // 8-bit data output to memory (for writes)
 	 .mem_we(mem_we),
 	 .mem_en(mem_en),
-    .ack()                    // Acknowledgment signal for operation completion
+                       
 	 
 	 );
 	 
@@ -170,7 +170,11 @@ module cgacard(
 		  
 		  
     );
-	 
+
+assign imem_m_data_out = memaccess? vram_data_out : 16'h0000;
+assign data_m_data_out = regaccess? {8'h00, CGA_CRTC_DOUT} : 16'h0000;
+
+/*	 
 always @(*) begin
     if (memaccess) begin
         // Assuming you want to output CGA_VRAM_DOUT during memory accesses
@@ -186,9 +190,7 @@ always @(*) begin
     end
 end
 
-// Rest of your module...
-
-						 
+*/
 						 
 						 
 endmodule

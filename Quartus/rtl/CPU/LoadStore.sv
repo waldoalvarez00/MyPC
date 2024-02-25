@@ -14,7 +14,7 @@
 //  more details.
 //
 //  You should have received a copy of the GNU General Public License along
-//  with this program; if not, write to the Free Software Foundation, Inc.,
+//  with this program; if not, WRITE_ALIGNED to the Free Software Foundation, Inc.,
 //  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 //
 //============================================================================
@@ -51,15 +51,15 @@ module LoadStore(input clk,
 					  
 					  
                  // Control
-                 input io, // R/W to a port
+                 input  io, // R/W to a port
 					  
                  
-					  input mem_read,  // microcode order
-					  input mem_write, // microcode order
+					  input  wire mem_read,  // microcode order
+					  input  wire mem_write, // microcode order
 					  
-                 input logic is_8bit, // 8 bit operation, otherwise 16 bits
-                 input logic wr_en,   // same as mem_write
-                 output logic busy    // causes stall in microcode unit
+                 input  logic is_8bit,  // 8 bit operation, otherwise 16 bits
+                 input  logic wr_en,    // same as mem_write
+                 output logic busy      // causes stall in microcode unit
 					  
 					  
 					  //input [1:0] wr_sel, maybe can be used to detect segment changes and do the address calculation
@@ -71,30 +71,32 @@ module LoadStore(input clk,
 					  
 logic [5:0] current_state;
 					  
-// State Definitions (1 bit could be eliminated)
+// State Definitions
 
 localparam [5:0]
   IDLE = 5'd0,
-  UNALIGNED_FIRST_BYTE_READ_8Bit = 5'd1,
-  READ = 5'd2,
-  WRITE = 5'd3,
+  READ_ALIGNED_UNALIGNED_8BIT_START = 5'd1,
+  READ_ALIGNED = 5'd2,
+  WRITE_ALIGNED = 5'd3,
   UNALIGNED_FIRST_BYTE = 5'd4,
   UNALIGNED_SECOND_BYTE = 5'd5,
-  COMPLETEOP = 5'd6,
-  WAIT_ACK_READ = 5'd7,
-  WAIT_ACK = 5'd8,
-  WAIT_ACK_0 = 5'd9,
-  UNALIGNED_FIRST_BYTE_WRITE  = 5'd10,
-  WAIT_ACK_0_WRITE =  5'd11,
-  UNALIGNED_SECOND_BYTE_WRITE =  5'd12,
-  COMPLETE_0 =  5'd13,
-  WAIT_ACK_WRITE = 5'd14,
-  UNALIGNED_FIRST_BYTE_WRITE_8bit  = 5'd15,
+  READ_WRITE_COMPLETE = 5'd6,
+  WAIT_ACK_READ_ALIGNED = 5'd7,
+  WAIT_UNALIGNED_READ_ACK_END = 5'd8,
+  WAIT_UNALIGNED_READ_ACK_START = 5'd9,
+  UNALIGNED_FIRST_BYTE_WRITE_ALIGNED  = 5'd10,
+  WAIT_UNALIGNED_WRITE_ACK_START =  5'd11,
+  UNALIGNED_SECOND_BYTE_WRITE_ALIGNED =  5'd12,
+  FINALIZE_OPERATION =  5'd13,
+  WAIT_ACK_WRITE_ALIGNED = 5'd14,
+  UNALIGNED_FIRST_BYTE_WRITE_ALIGNED_8bit  = 5'd15,
   
-  IO_Read = 5'd16,
-  IO_Write = 5'd17,
- 
-  WAIT_ACK_8BITS_UNAL = 5'd18;
+  IO_READ_ALIGNED = 5'd16,
+  IO_WRITE_ALIGNED = 5'd17,
+   
+  WAIT_UNALIGNED_8BIT_READ_ACK = 5'd18,
+  WAIT_ACK_WRITE_ALIGNED16 = 5'd19,
+  IO_WAIT_ACK_READ_ALIGNED = 5'd20;
 
  
 
@@ -133,12 +135,12 @@ assign busy = (mem_read | mem_write) & ~complete;
 							  
 							  
 							  if (mem_read) begin
-							    current_state <= READ;
+							    current_state <= IO_READ_ALIGNED;
 							  end
 							  
 							  
 							  if (mem_write) begin
-							    current_state <= WRITE;
+							    current_state <= IO_WRITE_ALIGNED;
 							  end
 							  
 							  
@@ -155,7 +157,7 @@ assign busy = (mem_read | mem_write) & ~complete;
 							       // 8 bits unaligned
 								
 						          if (mem_read) begin
-								       current_state <= UNALIGNED_FIRST_BYTE_READ_8Bit;
+								       current_state <= READ_ALIGNED_UNALIGNED_8BIT_START;
 									    complete <= 1'b0;
 									    m_addr <= {segment, 3'b0} + {3'b0, mar[15:1]};
 									 
@@ -163,7 +165,7 @@ assign busy = (mem_read | mem_write) & ~complete;
 								
 					    	       if (mem_write) begin
 								        complete <= 1'b0;
-								        current_state <= UNALIGNED_FIRST_BYTE_WRITE_8bit;
+								        current_state <= UNALIGNED_FIRST_BYTE_WRITE_ALIGNED_8bit;
 									     m_addr <= {segment, 3'b0} + {3'b0, mar[15:1]};
 								    end
 							
@@ -175,7 +177,7 @@ assign busy = (mem_read | mem_write) & ~complete;
 							      if(mem_write) begin
 								     complete <= 1'b0;
 								     m_addr <= {segment, 3'b0} + {3'b0, mar[15:1]};
-						           current_state <= UNALIGNED_FIRST_BYTE_WRITE;
+						           current_state <= UNALIGNED_FIRST_BYTE_WRITE_ALIGNED;
 								   end
 								 
 						         if (mem_read) begin
@@ -194,13 +196,13 @@ assign busy = (mem_read | mem_write) & ~complete;
 							  
 						     if (mem_read) begin
 							    complete <= 1'b0;
-							    current_state <= READ;
+							    current_state <= READ_ALIGNED;
 							    m_addr <= {segment, 3'b0} + {3'b0, mar[15:1]};
 							  end 
 							  
 							  if (mem_write) begin
 							    complete <= 1'b0;
-							    current_state <= WRITE;
+							    current_state <= WRITE_ALIGNED;
 							    m_addr <= {segment, 3'b0} + {3'b0, mar[15:1]};
 							  end
 							  
@@ -217,35 +219,58 @@ assign busy = (mem_read | mem_write) & ~complete;
 					 
 					 
 					 
+					 IO_READ_ALIGNED: begin
+					 
+					     m_access <= 1'b1;
+                    m_wr_en <= 1'b0;
+                    m_bytesel <= is_8bit ? 2'b01 : 2'b11;
+						  current_state <= IO_WAIT_ACK_READ_ALIGNED;
+					 end
+					 
+					 IO_WAIT_ACK_READ_ALIGNED: begin
+					 
+					   if (m_ack) begin
+						    mdr <= is_8bit ? {8'b0, m_data_in[7:0]} : m_data_in;
+						    current_state <= READ_WRITE_COMPLETE;
+							 complete <= 1'b1;
+							 
+							 m_access <= 1'b0;
+							 m_wr_en  <= 1'b0;
+							 
+							 // Stops noise on the BUS
+							 m_addr <= 19'd0; 
+						  
+					   end
+					 
+				    end
 					 
 					 
 					 
-					 
-                READ: begin
+                READ_ALIGNED: begin
 					 
                     m_access <= 1'b1;
                     m_wr_en <= 1'b0;
                     m_bytesel <= is_8bit ? 2'b01 : 2'b11;
-						  current_state <= WAIT_ACK_READ;
+						  current_state <= WAIT_ACK_READ_ALIGNED;
 						  
                 end
 					 
 					 
-					 UNALIGNED_FIRST_BYTE_READ_8Bit: begin
+					 READ_ALIGNED_UNALIGNED_8BIT_START: begin
 					 
                     m_wr_en <= 1'b0;
                     m_bytesel <= 2'b10;
 						  m_access <= 1'b1;
 						  
-						  current_state <= WAIT_ACK_8BITS_UNAL;
+						  current_state <= WAIT_UNALIGNED_8BIT_READ_ACK;
 						  
                 end
 					 
 					 
-					 WAIT_ACK_8BITS_UNAL: begin
+					 WAIT_UNALIGNED_8BIT_READ_ACK: begin
 					 
 					   if (m_ack) begin
-						    current_state <= COMPLETEOP;
+						    current_state <= READ_WRITE_COMPLETE;
 							 complete <= 1'b1;
 							 m_access <= 1'b0;
 							 m_wr_en  <= 1'b0;
@@ -264,11 +289,11 @@ assign busy = (mem_read | mem_write) & ~complete;
                     m_bytesel <= 2'b10;
 						  m_access <= 1'b1;
 						  
-						  current_state <= WAIT_ACK_0;
+						  current_state <= WAIT_UNALIGNED_READ_ACK_START;
 						  
                 end
 					 
-					 UNALIGNED_FIRST_BYTE_WRITE_8bit: begin
+					 UNALIGNED_FIRST_BYTE_WRITE_ALIGNED_8bit: begin
 					 
                     m_wr_en <= 1'b1;
 						  m_access <= 1'b1;
@@ -276,12 +301,12 @@ assign busy = (mem_read | mem_write) & ~complete;
                     m_bytesel <= 2'b10;
 						  
 						  m_data_out <= {mdr[7:0], 8'b0}; // Unaligned and first byte
-						  current_state <= WAIT_ACK_WRITE;
+						  current_state <= WAIT_ACK_WRITE_ALIGNED;
 						  
                 end
 					 
 					 
-					 UNALIGNED_FIRST_BYTE_WRITE: begin
+					 UNALIGNED_FIRST_BYTE_WRITE_ALIGNED: begin
 					 
                     m_wr_en <= 1'b1;
 						  m_access <= 1'b1;
@@ -289,15 +314,15 @@ assign busy = (mem_read | mem_write) & ~complete;
                     m_bytesel <= 2'b10;
 						  
 						  m_data_out <= {mdr[7:0], 8'b0}; // Unaligned and first byte
-						  current_state <= WAIT_ACK_0_WRITE;
+						  current_state <= WAIT_UNALIGNED_WRITE_ACK_START;
 						  
                 end
 					 
 					 
-					 WAIT_ACK_0_WRITE: begin
+					 WAIT_UNALIGNED_WRITE_ACK_START: begin
 					 
 					   if (m_ack) begin
-						    current_state <= UNALIGNED_SECOND_BYTE_WRITE;
+						    current_state <= UNALIGNED_SECOND_BYTE_WRITE_ALIGNED;
 							 m_addr <= m_addr + 1'b1;
 							 m_access <= 1'b0;
 							 m_wr_en <= 1'b0;
@@ -306,22 +331,22 @@ assign busy = (mem_read | mem_write) & ~complete;
 					 
 					 
 					 
-                UNALIGNED_SECOND_BYTE_WRITE: begin
+                UNALIGNED_SECOND_BYTE_WRITE_ALIGNED: begin
 					 
                     m_access <= 1'b1;
                     m_wr_en <= 1'b1;
                     m_bytesel <= 2'b01;
 						  m_data_out <= {8'b0, mdr[15:8]}; // Unaligned and second byte
-						  current_state <= WAIT_ACK_WRITE;
+						  current_state <= WAIT_ACK_WRITE_ALIGNED;
                     
                 end
 					 
 					 
 					 
-					 WAIT_ACK_WRITE: begin
+					 WAIT_ACK_WRITE_ALIGNED: begin
 					 
 					   if (m_ack) begin
-						    current_state <= COMPLETEOP;
+						    current_state <= READ_WRITE_COMPLETE;
 							 complete <= 1'b1;
 							 m_access <= 1'b0;
 							 m_wr_en <= 1'b0;
@@ -331,16 +356,40 @@ assign busy = (mem_read | mem_write) & ~complete;
 					 end
 					 
 					 
-
 					 
-                WRITE: begin
+					 IO_WRITE_ALIGNED: begin
                     m_access <= 1'b1;
                     m_wr_en <= 1'b1;
                     m_bytesel <= is_8bit ? 2'b01 : 2'b11;
 						  m_data_out <= mdr;
-						  current_state <= WAIT_ACK;
+						  current_state <= WAIT_ACK_WRITE_ALIGNED16;
                 end
 
+					 
+                WRITE_ALIGNED: begin
+                    m_access <= 1'b1;
+                    m_wr_en <= 1'b1;
+                    m_bytesel <= is_8bit ? 2'b01 : 2'b11;
+						  m_data_out <= mdr;
+						  current_state <= WAIT_ACK_WRITE_ALIGNED16;
+                end
+					 
+					 
+					 WAIT_ACK_WRITE_ALIGNED16: begin
+					 
+					   if (m_ack) begin
+						    current_state <= READ_WRITE_COMPLETE;
+							 complete <= 1'b1;
+							 m_access <= 1'b0;
+							 m_wr_en  <= 1'b0;
+							 
+							 // Stops noise on the BUS
+							 m_addr <= 19'd0;
+						    m_data_out <= 16'd0;
+						  end
+					 end
+
+					 
 
 					 
                 UNALIGNED_FIRST_BYTE: begin
@@ -350,13 +399,13 @@ assign busy = (mem_read | mem_write) & ~complete;
                     m_bytesel <= 2'b10;
 						  m_access <= 1'b1;
 						  
-						  current_state <= WAIT_ACK_0;
+						  current_state <= WAIT_UNALIGNED_READ_ACK_START;
 						  
                 end
 					 
 					 
 					 
-					 WAIT_ACK_0: begin
+					 WAIT_UNALIGNED_READ_ACK_START: begin
 					 
 					   if (m_ack) begin
 						    current_state <= UNALIGNED_SECOND_BYTE;
@@ -373,16 +422,16 @@ assign busy = (mem_read | mem_write) & ~complete;
                     m_access <= 1'b1;
                     m_wr_en  <= 1'b0;
                     m_bytesel <= 2'b01;
-						  current_state <= WAIT_ACK;
+						  current_state <= WAIT_UNALIGNED_READ_ACK_END;
                     
                 end
 					 
 					 
 					 
-					 WAIT_ACK: begin
+					 WAIT_UNALIGNED_READ_ACK_END: begin
 					 
 					   if (m_ack) begin
-						    current_state <= COMPLETEOP;
+						    current_state <= READ_WRITE_COMPLETE;
 							 complete <= 1'b1;
 							 m_access <= 1'b0;
 							 m_wr_en  <= 1'b0;
@@ -397,11 +446,11 @@ assign busy = (mem_read | mem_write) & ~complete;
 					 
 					
 					 
-					 WAIT_ACK_READ: begin
+					 WAIT_ACK_READ_ALIGNED: begin
 					 
 					   if (m_ack) begin
 						    mdr <= is_8bit ? {8'b0, m_data_in[7:0]} : m_data_in;
-						    current_state <= COMPLETEOP;
+						    current_state <= READ_WRITE_COMPLETE;
 							 complete <= 1'b1;
 							 
 							 m_access <= 1'b0;
@@ -415,18 +464,18 @@ assign busy = (mem_read | mem_write) & ~complete;
 				    end
 					 
 					 
-                COMPLETEOP: begin
+                READ_WRITE_COMPLETE: begin
                     //complete <= 1'b0; // triggers busy for 1 clk (small glitch)
 						  m_access <= 1'b0;
 						  m_wr_en  <= 1'b0;
-                    current_state <= COMPLETE_0;
+                    current_state <= FINALIZE_OPERATION;
 						  
 						  m_addr <= 19'd0;
 						  m_data_out <= 16'd0;
                 end
 					 
 					 
-					 COMPLETE_0: begin
+					 FINALIZE_OPERATION: begin
 					     // To remove this wait state we need to change microcode unit
                     complete <= 1'b0;
                     current_state <= IDLE;
@@ -441,17 +490,7 @@ assign busy = (mem_read | mem_write) & ~complete;
 	 
 	 
 	 
-	 
-	 
-    //always_comb begin
-	 
-	     // this takes so long that is taking more that a single clock and creating spurious address on the bus 
-	 
-        //m_addr = io ? {3'b0, mar[15:1]} + {18'b0, second_byte} : {segment, 3'b0} + {3'b0, mar[15:1]} + {18'b0, second_byte};
-		  
-    //end
-	 
-	 
+
 	 
 	 
 

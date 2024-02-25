@@ -1,6 +1,7 @@
 module busConverter #(
     parameter AW = 14 // Address Width for the memory
 )(
+    output logic[3:0] outstate,
     input wire clk,                  // Clock input
     input wire rst,                  // Asynchronous reset, active high
     input wire en,                   // Enable signal for the module
@@ -14,22 +15,27 @@ module busConverter #(
     output reg [7:0] mem_data_out,   // 8-bit data output to memory (for writes)
     output reg mem_we,               // Write enable signal for the memory
     output reg mem_en,               // Access enable signal for the memory
-    output reg ack,                  // Acknowledgment signal for 8-bit bus operation completion
     output reg bus_ack               // Acknowledgment signal for 16-bit bus operation completion
 );
 
 reg [3:0] state; // State for managing read/write operations
 
 // Define states
-localparam IDLE = 4'b0000,
-           PROCESS_LOW_BYTE = 4'b0001,
-           PROCESS_HIGH_BYTE = 4'b0010,
-			  PROCESS_HIGH_BYTEW1 = 4'b0100,
-           PROCESS_LOW_BYTEW = 4'b0101,
-			  PROCESS_LOW_BYTE_WAIT = 4'b0111,
-			  COMPLETE = 4'b1001,
-			  PROCESS_HIGH_BYTE_WAIT = 4'b1000,
-           PROCESS_HIGH_BYTEW = 4'b0110;
+localparam IDLE =                   4'b0000,
+           PROCESS_LOW_BYTE =       4'b0001, // 1
+           PROCESS_HIGH_BYTE =      4'b0010, // 2
+			  PROCESS_HIGH_BYTEW1 =    4'b0011, // 3
+           PROCESS_LOW_BYTEW =      4'b0100, // 4
+			  PROCESS_HIGH_BYTEW =     4'b0101, // 5
+			  PROCESS_LOW_BYTE_WAIT =  4'b0110, // 6
+			  COMPLETE =               4'b0111, // 7
+			  PROCESS_HIGH_BYTE_WAIT = 4'b1000, // 8
+			  WAIT_1 = 4'b1001, // 9
+			  WAIT_2 = 4'b1010, // A
+			  WAIT_3 = 4'b1100, // C
+			  WAIT_4 = 4'b1101, // D
+			  WAIT_5 = 4'b1110, // E
+			  WAIT_6 = 4'b1111; // F
 
 // Memory address is directly mapped from input for simplicity
 //assign mem_addr = addr[AW-1:0];
@@ -42,12 +48,14 @@ always @(posedge clk or posedge rst) begin
         mem_data_out <= 0;
         mem_we <= 0;
         mem_en <= 0;
-        ack <= 0;
         bus_ack <= 0;
         state <= IDLE;
 		  
 		  
     end else begin
+	 
+	     outstate <= state;
+		  
         case (state)
             IDLE: begin
                 if (en) begin
@@ -61,7 +69,7 @@ always @(posedge clk or posedge rst) begin
                         if (bytesel[0]) begin
                             mem_data_out <= data_in[7:0]; // Prepare low byte for write
 									 mem_addr <= {addr, 1'b0};
-                            state <= PROCESS_LOW_BYTEW;
+                            state <= WAIT_1;
                         end
 								else if (bytesel[1]) begin
                             mem_data_out <= data_in[15:8]; // Prepare high byte for write if low byte is not selected
@@ -87,17 +95,28 @@ always @(posedge clk or posedge rst) begin
 								
 								
                     end
-                    ack <= 0; // Clear ack during operation
+                    bus_ack <= 0; // Clear ack during operation
+						  
                 end else begin
+					 
                     mem_we <= 0;
                     mem_en <= 0;
-                    ack <= 0;
+                    bus_ack <= 0;
+						  
                 end
             end
 				
 				
 				
+				WAIT_1: begin
+				  state <= WAIT_2;
+				end
 				
+				WAIT_2: begin
+				  state <= PROCESS_LOW_BYTEW;
+				  mem_we <= 0;
+              mem_en <= 0;
+				end
 				
 				
 				
@@ -106,9 +125,11 @@ always @(posedge clk or posedge rst) begin
                     // next byte
                     if (bytesel[1]) begin
 						  
+						      mem_we <= 1; // Disable write after processing
+                        mem_en <= 1; // Disable memory access after operation
                         mem_data_out <= data_in[15:8];
 								mem_addr <= {addr, 1'b1};
-                        state <= PROCESS_HIGH_BYTEW1;
+                        state <= WAIT_3;
 								
                     end else begin
                         mem_we <= 0; // Disable write after processing
@@ -122,7 +143,16 @@ always @(posedge clk or posedge rst) begin
 					 
 				end
 				
+				WAIT_3: begin
+				  state <= WAIT_4;
+				  
+				end
 				
+				WAIT_4: begin
+				  state <= PROCESS_HIGH_BYTEW1;
+				  mem_we <= 0;
+              mem_en <= 0;
+				end
 				
 				
 				PROCESS_LOW_BYTE_WAIT: begin
@@ -153,7 +183,6 @@ always @(posedge clk or posedge rst) begin
 						  
 						    state <= COMPLETE;
                       mem_en <= 0; // Disable memory access after operation
-                      ack <= 1; // Complete if only reading low byte
                       bus_ack <= 1; // Complete operation for the bus
 						  
 						  end
@@ -171,17 +200,29 @@ always @(posedge clk or posedge rst) begin
 				
 				
 				PROCESS_HIGH_BYTEW1: begin
+				
+				
+				
                 
                     // High byte write operation completed
                     mem_we <= 0; // Disable write after processing
                     mem_en <= 0; // Disable memory access after operation
                     state <= COMPLETE;
-                    
                     bus_ack <= 1; // Complete operation for the bus
                 
 				
 				end
 				
+				
+				WAIT_5: begin
+				  state <= WAIT_6;
+				end
+				
+				WAIT_6: begin
+				  state <= PROCESS_HIGH_BYTEW;
+				  mem_we <= 0;
+              mem_en <= 0;
+				end
 				
 				
 				
@@ -197,7 +238,6 @@ always @(posedge clk or posedge rst) begin
                     mem_we <= 0; // Disable write after processing
                     mem_en <= 0; // Disable memory access after operation
                     state <= COMPLETE;
-                    ack <= 1; // Write operation complete for high byte
                     bus_ack <= 1; // Complete operation for the bus
                 
             end
@@ -237,3 +277,4 @@ always @(posedge clk or posedge rst) begin
 end
 
 endmodule
+

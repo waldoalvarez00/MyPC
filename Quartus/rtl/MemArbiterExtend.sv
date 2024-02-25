@@ -66,7 +66,7 @@ module MemArbiterExtend(
 	 logic last_served_A;
 	 logic servingA;
     logic [2:0] arb_state;
-	 logic [2:0] current_state;
+	 //logic [2:0] current_state;
 	 
     
     // Extended state machine with explicit wait for ack to be raised
@@ -92,7 +92,7 @@ module MemArbiterExtend(
 				servingA <= 1'b1;
         end else begin
 		  
-		      current_state <= arb_state; // Assign the state to output
+		      //current_state <= arb_state; // Assign the state to output
 				
             case (arb_state)
 				

@@ -506,6 +506,7 @@ wire [15:0] io_data = sdram_config_data |
 wire [15:0] io_data;
 
 always @(*) begin
+//always_comb begin
     if (leds_access) 
         io_data = leds_data;
     else if (uart_access) 
@@ -529,7 +530,7 @@ always @(*) begin
     else if (ppi_control_access) 
         io_data = ppiout;
     else 
-        io_data = 16'b0; // Default case to avoid latches
+        io_data = 16'b0;
 end
  
 	 
@@ -553,12 +554,16 @@ wire instr_m_ack;
 // Multiplexed I/D bus.
 wire [19:1] q_m_addr;
 wire [15:0] q_m_data_out;
+
+
+
 wire [15:0] q_m_data_in = sdram_data |
     vga_data |
 	 cga_data |
     bios_data;
 	 
 	 
+
 	 
 wire q_m_ack = cache_ack |
     vga_ack |
@@ -1258,21 +1263,11 @@ uart uart_2 (
 
 													 
 
-						
-/*
-`ifndef verilator
-SysPLL	SysPLL(.refclk(clk),
-	       .rst(1'b0),
-               .locked(pll_locked),
-               .*);
-`endif // verilator
-
-*/
 
 		  
 Core u80186(
     .clk(sys_clk),
-    .reset(post_sdram_reset), // Replace with actual reset signal name
+    .reset(post_sdram_reset),
 
     // Interrupts
     .nmi(nmi),
@@ -1639,45 +1634,6 @@ KFPS2KB u_KFPS2KB
     );
 
 	 
-/*	 
-PS2KeyboardController #(.clkf(30000000))
-		      PS2KeyboardController(
-				
-                   .clk(sys_clk),
-				       .reset(post_sdram_reset),
-
-					    .cs(ps2_kbd_access),
-					    .data_m_ack(ps2_kbd_ack),
-					    .data_m_data_out(ps2_kbd_data),
-					    .data_m_data_in(data_m_data_out),
-                   .ps2_intr(ps2_kbd_intr),
-                   .speaker_gate_en(`SPEAKER_GATE_EN_OUT),
-                   .speaker_data(`SPEAKER_DATA),
-														  
-                   .ps2_clk_in(wps2_kbd_clk_2),
-					    .ps2_clk_out(wps2_kbd_clk_1),
-                   .ps2_dat_in(wps2_kbd_data_2),
-                   .ps2_dat_out(wps2_kbd_data_1),
-						 
-						 
-					    .*);
-
-				
-	
-*/
-
-
-
-												  
-
-
-
-
-												  
-												  
-/*
-PoweronReset PoweronReset(.*);
-*/
 
 
 //assign CE_PIXEL = ce_pix;
