@@ -17,8 +17,8 @@
 `define TRANSFER_MODE_CASCADE   (2'b11)
 
 module KF8237_Timing_And_Control (
-    input   logic           clock,
-    input   logic           reset,
+    input   wire            clock,
+    input   wire            reset,
 
     // Internal Bus
     input   logic   [7:0]   internal_data_bus,

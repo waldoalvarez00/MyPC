@@ -7,8 +7,8 @@
 
 module KF8237_Bus_Control_Logic (
     // Bus
-    input   logic           clock,
-    input   logic           reset,
+    input   wire            clock,
+    input   wire            reset,
 
     input   logic           chip_select_n,
     input   logic           io_read_n_in,
@@ -20,6 +20,7 @@ module KF8237_Bus_Control_Logic (
 
     // Internal Bus
     output  logic   [7:0]   internal_data_bus,
+
     // -- write
     output  logic           write_command_register,
     output  logic           write_mode_register,
@@ -28,11 +29,13 @@ module KF8237_Bus_Control_Logic (
     output  logic           write_mask_register,
     output  logic   [3:0]   write_base_and_current_address,
     output  logic   [3:0]   write_base_and_current_word_count,
+
     // -- software command
     output  logic           clear_byte_pointer,
     output  logic           set_byte_pointer,
     output  logic           master_clear,
     output  logic           clear_mask_register,
+
     // -- read
     output  logic           read_temporary_register,
     output  logic           read_status_register,
@@ -51,7 +54,7 @@ module KF8237_Bus_Control_Logic (
     //
     // Write Control
     //
-    always_ff @(negedge clock, posedge reset) begin
+    always_ff @(posedge clock or posedge reset) begin
         if (reset)
             internal_data_bus <= 8'b00000000;
         else if (~io_write_n_in & ~chip_select_n)
@@ -60,7 +63,7 @@ module KF8237_Bus_Control_Logic (
             internal_data_bus <= internal_data_bus;
     end
 
-    always_ff @(negedge clock, posedge reset) begin
+    always_ff @(posedge clock or posedge reset) begin
         if (reset)
             prev_write_enable_n <= 1'b1;
         else if (chip_select_n)
@@ -70,7 +73,7 @@ module KF8237_Bus_Control_Logic (
     end
     assign write_flag = ~prev_write_enable_n & io_write_n_in;
 
-    always_ff @(negedge clock, posedge reset) begin
+    always_ff @(posedge clock or posedge reset) begin
         if (reset)
             stable_address <= 4'b0000;
         else

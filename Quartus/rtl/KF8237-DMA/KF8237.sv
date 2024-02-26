@@ -8,31 +8,51 @@
 // https://www.lo-tech.co.uk/wiki/8237_DMA_Controller
 
 module KF8237 (
-    input   logic           clock,
-    input   logic           reset,
+
+    input   wire            clock,
+    input   wire            reset,
     input   logic           chip_select_n,
+
+    input   logic   [3:0]   address_in,
+
     input   logic           ready,
-    input   logic           hold_acknowledge,
-    input   logic   [3:0]   dma_request,
+    input   logic           hold_acknowledge,       //  CPU granted BUS
+	 
+    input   logic   [3:0]   dma_request,            //  4-bit logic input vector representing 
+	                                                 //  DMA request signals
+
     input   logic   [7:0]   data_bus_in,
+
+    output  logic   [15:0]  address_out,
     output  logic   [7:0]   data_bus_out,
+    output  logic           memory_read_n,
+    output  logic           memory_write_n,
+
     input   logic           io_read_n_in,
     output  logic           io_read_n_out,
     output  logic           io_read_n_io,
     input   logic           io_write_n_in,
     output  logic           io_write_n_out,
     output  logic           io_write_n_io,
+	 
     input   logic           end_of_process_n_in,
     output  logic           end_of_process_n_out,
-    input   logic   [3:0]   address_in,
-    output  logic   [15:0]  address_out,
+    
+    
     output  logic           output_highst_address,
-    output  logic           hold_request,
+    output  logic           hold_request,            //  Request bus from CPU
     output  logic   [3:0]   dma_acknowledge,
-    output  logic           address_enable,
-    output  logic           address_strobe,
-    output  logic           memory_read_n,
-    output  logic           memory_write_n
+    output  logic           address_enable,          //  activate the address bus
+	 
+	 
+	 
+	 // signal acts as a trigger or pulse that indicates when the address present on the address bus 
+	 // should be captured or latched by the target device (e.g., memory or I/O device). 
+	 // This signal helps in timing the exact moment when the address is stable and 
+	 // should be read by the receiving device.
+    output  logic           address_strobe
+
+    
 );
 
     //
@@ -57,6 +77,7 @@ module KF8237 (
     logic   [3:0]   read_current_word_count;
 
     KF8237_Bus_Control_Logic u_Bus_Control_Logic (
+	 
         // Bus
         .clock                              (clock),
         .reset                              (reset),
@@ -71,6 +92,7 @@ module KF8237 (
 
         // Internal Bus
         .internal_data_bus                  (internal_data_bus),
+		  
         // -- write
         .write_command_register             (write_command_register),
         .write_mode_register                (write_mode_register),
@@ -79,11 +101,13 @@ module KF8237 (
         .write_mask_register                (write_mask_register),
         .write_base_and_current_address     (write_base_and_current_address),
         .write_base_and_current_word_count  (write_base_and_current_word_count),
+		  
         // -- software command
         .clear_byte_pointer                 (clear_byte_pointer),
         .set_byte_pointer                   (set_byte_pointer),
         .master_clear                       (master_clear),
         .clear_mask_register                (clear_mask_register),
+		  
         // -- read
         .read_temporary_register            (read_temporary_register),
         .read_status_register               (read_status_register),
@@ -103,16 +127,20 @@ module KF8237 (
     logic   [3:0]   dma_acknowledge_internal;
 
     KF8237_Priority_Encoder u_Priority_Encoder (
+	 
         .clock                              (clock),
         .reset                              (reset),
+		  
 
         // Internal Bus
         .internal_data_bus                  (internal_data_bus),
+		  
         // -- write
         .write_command_register             (write_command_register),
         .write_request_register             (write_request_register),
         .set_or_reset_mask_register         (set_or_reset_mask_register),
         .write_mask_register                (write_mask_register),
+		  
         // -- software command
         .master_clear                       (master_clear),
         .clear_mask_register                (clear_mask_register),
@@ -127,6 +155,7 @@ module KF8237 (
 
         // External signals
         .dma_request                        (dma_request)
+		  
     );
 
 
@@ -143,19 +172,25 @@ module KF8237 (
     logic           underflow;
 
     KF8237_Address_And_Count_Registers u_Address_And_Count_Registers (
+	 
         .clock                              (clock),
         .reset                              (reset),
 
         // Internal Bus
         .internal_data_bus                  (internal_data_bus),
         .read_address_or_count              (read_address_or_count),
+		  
+		  
         // -- write
         .write_base_and_current_address     (write_base_and_current_address),
         .write_base_and_current_word_count  (write_base_and_current_word_count),
+		  
+		  
         // -- software command
         .clear_byte_pointer                 (clear_byte_pointer),
         .set_byte_pointer                   (set_byte_pointer),
         .master_clear                       (master_clear),
+		  
         // -- read
         .read_current_address               (read_current_address),
         .read_current_word_count            (read_current_word_count),
@@ -169,6 +204,7 @@ module KF8237 (
         .update_high_address                (update_high_address),
         .underflow                          (underflow),
         .transfer_address                   (address_out)
+		  
     );
 
 
@@ -185,11 +221,14 @@ module KF8237 (
 
         // Internal Bus
         .internal_data_bus                  (internal_data_bus),
+		  
         // -- write
         .write_command_register             (write_command_register),
         .write_mode_register                (write_mode_register),
+		  
         // -- read
         .read_status_register               (read_status_register),
+		  
         // -- software command
         .master_clear                       (master_clear),
 

@@ -1,0 +1,6 @@
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) KF8237.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) KF8237_Timing_And_Control.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) KF8237_Priority_Encoder.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) KF8237_Common_Package.svh ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) KF8237_Bus_Control_Logic.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) KF8237_Address_And_Count_Registers.sv ]
