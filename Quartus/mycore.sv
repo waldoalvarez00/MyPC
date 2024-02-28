@@ -443,9 +443,9 @@ assign speaker_out = speaker_timer_out & speaker_data;
 
 /*`endif*/
 
-wire poweron_reset;
+//wire poweron_reset;
 wire sys_clk;
-wire reset_n;
+//wire reset_n;
 wire pll_locked;
 
 
@@ -558,17 +558,17 @@ wire [15:0] q_m_data_out;
 
 
 wire [15:0] q_m_data_in = sdram_data |
-    vga_data |
-	 cga_data |
-    bios_data;
+            vga_data                 |
+	         cga_data                 |
+            bios_data;
 	 
 	 
 
 	 
-wire q_m_ack = cache_ack |
-    vga_ack |
-	 cga_mem_ack |
-    bios_ack;
+wire q_m_ack = cache_ack   |
+               vga_ack     |
+	            cga_mem_ack |
+               bios_ack;
 	 
 	 
 wire q_m_access;
@@ -621,10 +621,11 @@ wire uart2_ack;
 wire [15:0] uart_data;
 wire [15:0] uart2_data;
 
-wire [7:0] ppiout;
+wire [7:0]  ppiout;
 
 wire spi_access;
 wire spi_ack;
+
 wire [15:0] spi_data;
 
 wire nmi;
@@ -655,19 +656,17 @@ wire default_io_ack;
 wire ppi_ack;
 
 wire io_ack = sdram_config_ack |
-              default_io_ack |
-              uart1_ack |
-				  uart2_ack |
-              leds_ack |
-              //spi_ack |
-              irq_control_ack |
-              pic_ack |
-				  cga_ack |
-              timer_ack |
-              vga_reg_ack |
-              //ps2_kbd_ack |
-              ps2_mouse_ack |
-				  ppi_ack |
+              default_io_ack   |
+              uart1_ack        |
+				  uart2_ack        |
+              leds_ack         |
+              irq_control_ack  |
+              pic_ack          |
+				  cga_ack          |
+              timer_ack        |
+              vga_reg_ack      |
+              ps2_mouse_ack    |
+				  ppi_ack          |
               bios_control_ack;
 				  
 				  
@@ -679,7 +678,7 @@ always @(posedge sys_clk or posedge xreset) begin
         post_sdram_reset <= 1'b1;
     end else if (sdram_config_done) begin
         // Once SDRAM configuration is done, clear the post SDRAM reset signal
-        post_sdram_reset <= 1'b0;
+        post_sdram_reset <= 1'b0 | status[0];
     end
 end
 
@@ -721,6 +720,10 @@ assign  port_c_in[3:0] = port_b_out[3] ? sw[7:4] : sw[3:0];
 
 wire ppi_control_access;
 
+
+
+
+
 // PPI
 
 KF8255 uF8255 (
@@ -756,7 +759,7 @@ KF8255 uF8255 (
 );
 
 
-// Cleaner RTL	 
+// Cleaner RTL
 AddressDecoderIO AddressDecoderIO(
 
     .d_io(d_io),
@@ -775,7 +778,6 @@ AddressDecoderIO AddressDecoderIO(
     .timer_access(timer_access),
     .bios_control_access(bios_control_access),
     .mcga_reg_access(mcga_reg_access),
-    //.ps2_kbd_access(ps2_kbd_access),
     .ps2_mouse_access(ps2_mouse_access),
 	 .cga_reg_access(cga_reg_access),
 	 .ppi_control_access(ppi_control_access)
@@ -1435,10 +1437,7 @@ MemArbiterExtend CPUVGAArbiter(.clk(sys_clk),
 
 
 	
-	
-	//wire H_BLANK;
-	//wire V_BLANK;
-	//wire ce_pix;
+
 	
 	wire vga_rw;
 	wire vga_bw;
@@ -1491,12 +1490,7 @@ cgacard CGAVideoAdapter(
                    .imem_m_bytesel(q_m_bytesel),
                    .imem_m_wr_en(q_m_wr_en),
                    .mem_m_ack(cga_mem_ack)
-						 
-						 
 
-     
-    
-    
 						 
                        );
 							  

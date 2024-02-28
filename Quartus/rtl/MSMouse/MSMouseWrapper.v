@@ -34,6 +34,10 @@ https://www.avrfreaks.net/sites/default/files/PS2%20Keyboard.pdf
 
 */
 //////////////////////////////////////////////////////////////////////////////////
+
+
+// This module transforms PS2 Mouse into serial to connect to the UART Port
+
 module MSMouseWrapper
 	#(parameter CLKFREQ=50_000_000)
 	(input wire clk,
