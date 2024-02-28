@@ -122,8 +122,7 @@ module KFPS2KB_Shift_Register #(
             receiving_time <= 16'h0000;
         else if ((p_clock_posedge) && (over_receiving_time == 1'b0))
             receiving_time <= receiving_time + 16'h0001;
-        else
-            receiving_time <= receiving_time;
+        
     end
 
     assign over_receiving_time = (receiving_time >= over_time) ? 1'b1 : 1'b0;
@@ -172,8 +171,7 @@ module KFPS2KB_Shift_Register #(
             register <= 8'h00;
         else if ((state == STOPBIT) && (device_clock_edge))
             register <= shift_register[7:0];
-        else
-            register <= register;
+        
     end
 
 
