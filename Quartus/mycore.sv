@@ -621,10 +621,7 @@ wire [15:0] uart2_data;
 
 wire [7:0]  ppiout;
 
-wire spi_access;
-wire spi_ack;
 
-wire [15:0] spi_data;
 
 wire nmi;
 wire [6:0] intr_test;
@@ -809,7 +806,6 @@ AddressDecoderIO AddressDecoderIO(
     .default_io_access(default_io_access),
     .uart_access(uart_access),
 	 .uart2_access(uart2_access),
-    .spi_access(spi_access),
     .irq_control_access(irq_control_access),
     .pic_access(pic_access),
     .timer_access(timer_access),
