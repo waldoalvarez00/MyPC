@@ -87,8 +87,8 @@ module KF8237_Address_And_Count_Registers (
                  byte_pointer <= 1'b0;
              else
                  byte_pointer <= 1'b1;
-        else
-            byte_pointer <= byte_pointer;
+        /*else
+            byte_pointer <= byte_pointer;*/
     end
 
     //

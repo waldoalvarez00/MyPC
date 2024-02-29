@@ -5,14 +5,18 @@
 // Written by Kitune-san
 //
 
+`default_nettype none
+
 module KF8237_Bus_Control_Logic (
     // Bus
     input   wire            clock,
     input   wire            reset,
+	 
+	 output  reg             bus_ack,
 
-    input   logic           chip_select_n,
-    input   logic           io_read_n_in,
-    input   logic           io_write_n_in,
+    input   logic           chip_select,
+    input   logic           io_read_in,
+    input   logic           io_write_in,
     input   logic   [3:0]   address_in,
     input   logic   [7:0]   data_bus_in,
 
@@ -46,10 +50,25 @@ module KF8237_Bus_Control_Logic (
     //
     // Internal Signals
     //
-    logic           prev_write_enable_n;
+    logic           prev_write_enable;
     logic           write_flag;
     logic   [3:0]   stable_address;
     logic           read_flag;
+	 
+	 // Acknowledge logic
+    always_ff @(posedge clock or posedge reset) begin
+        if (reset) begin
+            bus_ack <= 1'b0;
+        end else begin
+            // Assert `bus_ack` when a read or write operation is initiated
+            if ((io_write_in | io_read_in) & chip_select) begin
+                bus_ack <= 1'b1;
+            end else begin
+                // Reset `bus_ack` in the next clock cycle to indicate completion
+                bus_ack <= 1'b0;
+            end
+        end
+    end
 
     //
     // Write Control
@@ -57,21 +76,21 @@ module KF8237_Bus_Control_Logic (
     always_ff @(posedge clock or posedge reset) begin
         if (reset)
             internal_data_bus <= 8'b00000000;
-        else if (~io_write_n_in & ~chip_select_n)
+        else if (io_write_in & chip_select)
             internal_data_bus <= data_bus_in;
-        else
-            internal_data_bus <= internal_data_bus;
+        
     end
 
     always_ff @(posedge clock or posedge reset) begin
         if (reset)
-            prev_write_enable_n <= 1'b1;
-        else if (chip_select_n)
-            prev_write_enable_n <= 1'b1;
+            prev_write_enable <= 1'b0;
+        else if (!chip_select)
+            prev_write_enable <= 1'b0;
         else
-            prev_write_enable_n <= io_write_n_in | lock_bus_control;
+            prev_write_enable <= io_write_in | lock_bus_control;
     end
-    assign write_flag = ~prev_write_enable_n & io_write_n_in;
+	 
+    assign write_flag = prev_write_enable & io_write_in;
 
     always_ff @(posedge clock or posedge reset) begin
         if (reset)
@@ -81,30 +100,32 @@ module KF8237_Bus_Control_Logic (
     end
 
     // Generate write request flags
-    assign  write_command_register                  = write_flag & (stable_address == 4'b1000);
-    assign  write_mode_register                     = write_flag & (stable_address == 4'b1011);
-    assign  write_request_register                  = write_flag & (stable_address == 4'b1001);
-    assign  set_or_reset_mask_register              = write_flag & (stable_address == 4'b1010);
-    assign  write_mask_register                     = write_flag & (stable_address == 4'b1111);
-    assign  write_base_and_current_address[0]       = write_flag & (stable_address == 4'b0000);
-    assign  write_base_and_current_address[1]       = write_flag & (stable_address == 4'b0010);
-    assign  write_base_and_current_address[2]       = write_flag & (stable_address == 4'b0100);
-    assign  write_base_and_current_address[3]       = write_flag & (stable_address == 4'b0110);
-    assign  write_base_and_current_word_count[0]    = write_flag & (stable_address == 4'b0001);
-    assign  write_base_and_current_word_count[1]    = write_flag & (stable_address == 4'b0011);
-    assign  write_base_and_current_word_count[2]    = write_flag & (stable_address == 4'b0101);
-    assign  write_base_and_current_word_count[3]    = write_flag & (stable_address == 4'b0111);
+    assign  write_command_register                  = write_flag & (stable_address == 4'b1000); // 8
+    assign  write_mode_register                     = write_flag & (stable_address == 4'b1011); // B
+    assign  write_request_register                  = write_flag & (stable_address == 4'b1001); // 9
+    assign  set_or_reset_mask_register              = write_flag & (stable_address == 4'b1010); // A
+    assign  write_mask_register                     = write_flag & (stable_address == 4'b1111); // F
+	 
+    assign  write_base_and_current_address[0]       = write_flag & (stable_address == 4'b0000); // 0
+    assign  write_base_and_current_address[1]       = write_flag & (stable_address == 4'b0010); // 2
+    assign  write_base_and_current_address[2]       = write_flag & (stable_address == 4'b0100); // 4
+    assign  write_base_and_current_address[3]       = write_flag & (stable_address == 4'b0110); // 6
+	 
+    assign  write_base_and_current_word_count[0]    = write_flag & (stable_address == 4'b0001); // 1
+    assign  write_base_and_current_word_count[1]    = write_flag & (stable_address == 4'b0011); // 3
+    assign  write_base_and_current_word_count[2]    = write_flag & (stable_address == 4'b0101); // 5
+    assign  write_base_and_current_word_count[3]    = write_flag & (stable_address == 4'b0111); // 7
 
     // Generate software command
-    assign  clear_byte_pointer                      = write_flag & (stable_address == 4'b1100);
-    assign  set_byte_pointer                        = read_flag  & (stable_address == 4'b1100);
-    assign  master_clear                            = write_flag & (stable_address == 4'b1101);
-    assign  clear_mask_register                     = write_flag & (stable_address == 4'b1110);
+    assign  clear_byte_pointer                      = write_flag & (stable_address == 4'b1100); // C
+    assign  set_byte_pointer                        = read_flag  & (stable_address == 4'b1100); // C
+    assign  master_clear                            = write_flag & (stable_address == 4'b1101); // D
+    assign  clear_mask_register                     = write_flag & (stable_address == 4'b1110); // E
 
     //
     // Read Control
     //
-    assign  read_flag = ~io_read_n_in & ~chip_select_n & ~lock_bus_control;
+    assign  read_flag = io_read_in & chip_select & lock_bus_control;
 
     // Generate read request flags
     assign  read_temporary_register                 = read_flag & (address_in == 4'b1101);

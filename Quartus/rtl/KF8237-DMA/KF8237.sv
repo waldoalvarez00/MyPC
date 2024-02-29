@@ -7,11 +7,14 @@
 
 // https://www.lo-tech.co.uk/wiki/8237_DMA_Controller
 
+`default_nettype none
+
 module KF8237 (
 
     input   wire            clock,
     input   wire            reset,
-    input   logic           chip_select_n,
+	 
+    input   logic           chip_select,
 
     input   logic   [3:0]   address_in,
 
@@ -24,19 +27,29 @@ module KF8237 (
     input   logic   [7:0]   data_bus_in,
 
     output  logic   [15:0]  address_out,
+	 
+	 
     output  logic   [7:0]   data_bus_out,
-    output  logic           memory_read_n,
-    output  logic           memory_write_n,
+	 
+	 
+	 output  logic   [1:0]   m_bytesel,
+	 
+	 output  wire            bus_ack,
+	 
+	 
+    output  logic           memory_read,
+    output  logic           memory_write,
 
-    input   logic           io_read_n_in,
+    input   logic           io_read_in,
     output  logic           io_read_n_out,
     output  logic           io_read_n_io,
-    input   logic           io_write_n_in,
-    output  logic           io_write_n_out,
+	 
+    input   logic           io_write_in,
+    output  logic           io_write_out,
     output  logic           io_write_n_io,
 	 
-    input   logic           end_of_process_n_in,
-    output  logic           end_of_process_n_out,
+    input   logic           end_of_process_in,
+    output  logic           end_of_process_out,
     
     
     output  logic           output_highst_address,
@@ -81,10 +94,13 @@ module KF8237 (
         // Bus
         .clock                              (clock),
         .reset                              (reset),
+		  
+		  .bus_ack                            (bus_ack),
 
-        .chip_select_n                      (chip_select_n),
-        .io_read_n_in                       (io_read_n_in),
-        .io_write_n_in                      (io_write_n_in),
+        .chip_select                        (chip_select),
+        .io_read_in                         (io_read_in),   // Request to do io read on the chip
+        .io_write_in                        (io_write_in),  // Request to do io write on the chip
+		  
         .address_in                         (address_in),
         .data_bus_in                        (data_bus_in),
 
@@ -203,7 +219,7 @@ module KF8237 (
         .next_word                          (next_word),
         .update_high_address                (update_high_address),
         .underflow                          (underflow),
-        .transfer_address                   (address_out)
+        .transfer_address                   (address_out) // Modify shl + bytesel for memory and normal for IO
 		  
     );
 
@@ -258,15 +274,15 @@ module KF8237 (
         .address_enable                     (address_enable),
         .address_strobe                     (address_strobe),
         .output_highst_address              (output_highst_address),
-        .memory_read_n                      (memory_read_n),
-        .memory_write_n                     (memory_write_n),
-        .io_read_n_out                      (io_read_n_out),
-        .io_read_n_io                       (io_read_n_io),
-        .io_write_n_out                     (io_write_n_out),
+        .memory_read                        (memory_read),
+        .memory_write                       (memory_write),
+        .io_read_out                        (io_read_n_out),
+        .io_read_io                         (io_read_n_io),
+        .io_write_out                       (io_write_out),
         .io_write_n_io                      (io_write_n_io),
         .ready                              (ready),
-        .end_of_process_n_in                (end_of_process_n_in),
-        .end_of_process_n_out               (end_of_process_n_out)
+        .end_of_process_in                  (end_of_process_in),
+        .end_of_process_out                 (end_of_process_out)
     );
 
 
