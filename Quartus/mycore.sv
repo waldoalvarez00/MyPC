@@ -636,7 +636,7 @@ wire pic_ack;
 wire cga_reg_ack;
 wire [15:0] pic_data;
 
-wire [7:0] irqs = {1'b0, 1'b0 /* fdd */, 1'b0, uart1_interrupt, uart2_interrupt, 1'b0, ps2_kbd_intr, timer_intr} | {1'b0, intr_test};
+wire [7:0] irqs = {1'b0, /* fdd */ fdd_interrupt, 1'b0, uart1_interrupt, uart2_interrupt, 1'b0, ps2_kbd_intr, timer_intr} | {1'b0, intr_test};
 
 // Timer
 wire pit_clk;
@@ -1732,6 +1732,47 @@ always @(posedge clk_sys) act_cnt <= act_cnt + 1'd1;
 assign LED_USER    = act_cnt[26]  ? act_cnt[25:18]  > act_cnt[7:0]  : act_cnt[25:18]  <= act_cnt[7:0];
 
 */
+
+wire fdd_interrupt;
+
+floppy floppy 
+    (
+        .clk                        (sys_clk),
+        .reset                      (post_sdram_reset),
+
+        //dma
+        .dma_req                    (/*fdd_dma_req_wire*/),
+        .dma_ack                    (/*fdd_dma_rw_ack*/),
+        .dma_tc                     (/*fdd_dma_tc & fdd_dma_rw_ack*/),
+        .dma_readdata               (/*write_to_fdd*/),
+        .dma_writedata              (/*fdd_dma_readdata*/),
+
+        //irq
+        .irq                        (fdd_interrupt),
+
+        //io buf
+        .io_address                 (/*fdd_io_address*/),
+        .io_read                    (/*fdd_io_read*/),
+        .io_readdata                (/*fdd_readdata_wire*/),
+        .io_write                   (/*fdd_io_write*/),
+        .io_writedata               (/*write_to_fdd*/),
+
+        //        .fdd0_inserted              (),
+
+        .mgmt_address               (/*mgmt_address[3:0]*/),
+        .mgmt_fddn                  (/*mgmt_address[7]*/),
+        .mgmt_write                 (/*mgmt_write & mgmt_fdd_cs*/),
+        .mgmt_writedata             (/*mgmt_writedata*/),
+        .mgmt_read                  (/*mgmt_read  & mgmt_fdd_cs*/),
+        .mgmt_readdata              (/*mgmt_fdd_readdata*/),
+
+        .wp                         (/*floppy_wp*/),
+
+        .clock_rate                 (/*clk_select[1] == 1'b0 ? clk_rate :
+                                     clk_select[0] == 1'b0 ? {1'b0, clk_rate[27:1]} : {2'b00, clk_rate[27:2]}*/),
+
+        .request                    (/*fdd_request*/)
+    );
 
 
 wire leds_status;

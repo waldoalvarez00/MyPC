@@ -178,7 +178,7 @@ always @(posedge clk or posedge reset) begin
 end
 
 reg datareg_ready;
-always @(posedge clk or posedge reset) begin
+always @(posedge clk or posedge reset or posedge sw_reset) begin
 	if(reset | sw_reset)                                                        datareg_ready <= 1'b1;
 
 	else if(cmd_read_write_ok_at_start)                                         datareg_ready <= 1'b0;
@@ -206,7 +206,7 @@ always @(posedge clk or posedge reset) begin
 end
 
 reg [2:0] ndma_irq_to;
-always @(posedge clk or posedge reset) begin
+always @(posedge clk) begin
 	if(ndma_read | ndma_write | ~execute_ndma) ndma_irq_to <= 0;
 	else if(~&ndma_irq_to)                     ndma_irq_to <= ndma_irq_to + 1'd1;
 end
@@ -229,7 +229,7 @@ end
 
 reg transfer_to_cpu;
 
-always @(posedge clk or posedge reset) begin
+always @(posedge clk or posedge reset or posedge sw_reset) begin
 	if(reset | sw_reset)                                         transfer_to_cpu <= 1'b0;
 	else if(command_first && ~enter_result_phase)                transfer_to_cpu <= 1'b0;
 	else if(execute_ndma && state == S_WAIT_FOR_EMPTY_READ_FIFO) transfer_to_cpu <= 1'b1;
@@ -239,7 +239,7 @@ end
 
 reg busy;
 
-always @(posedge clk or posedge reset) begin
+always @(posedge clk or posedge reset or posedge sw_reset) begin
 	if(reset | sw_reset)                                         busy <= 1'b0;
 	else if(command_first)                                       busy <= 1'b1;
 	else if(cmd_recalibrate_start)                               busy <= 1'b0;
@@ -265,7 +265,7 @@ always @(posedge clk or posedge reset) begin
 end
 
 reg [3:0] in_seek_mode;
-always @(posedge clk or posedge reset) begin
+always @(posedge clk or posedge reset or posedge sw_reset) begin
 	if(reset | sw_reset)           in_seek_mode <= 4'b0000;
 	else if(cmd_recalibrate_start) in_seek_mode <= 4'b0001 << io_writedata[0];
 	else if(cmd_seek_start)        in_seek_mode <= 4'b0001 << command[0];
@@ -310,7 +310,7 @@ always @(posedge clk or posedge reset) begin
 end
 
 reg [7:0] pending_command;
-always @(posedge clk or posedge reset) begin
+always @(posedge clk or posedge reset or posedge sw_reset) begin
 	if(reset | sw_reset)                pending_command <= 8'h00;
 	else if(cmd_read_write_ok_at_start) pending_command <= command[63:56];
 	else if(cmd_read_id_ok_at_start)    pending_command <= 8'h0A;
@@ -458,7 +458,7 @@ end
 
 //------------------------------------------------------------------------------ cmd: sense interrupt status
 
-always @(posedge clk  or posedge reset) begin
+always @(posedge clk  or posedge reset or posedge sw_reset) begin
 	reg old_enable;
 
 	old_enable <= enable;
@@ -618,7 +618,7 @@ wire cmd_format_finish = cmd_format_in_progress && (
 //------------------------------------------------------------------------------ reply
 
 reg [3:0] reply_left;
-always @(posedge clk or posedge reset) begin
+always @(posedge clk or posedge reset or posedge sw_reset) begin
 	if(reset | sw_reset)                                                         reply_left <= 4'd0;
 	else if(cmd_invalid_start)                                                   reply_left <= 4'd1;
 	else if(cmd_read_write_start   && cmd_read_write_incorrect_head_at_start)    reply_left <= 4'd7;
@@ -637,7 +637,7 @@ always @(posedge clk or posedge reset) begin
 end
 
 reg [79:0] reply;
-always @(posedge clk or posedge reset) begin
+always @(posedge clk or posedge reset or posedge sw_reset) begin
 	if(reset | sw_reset)                                                      reply <= 80'd0;
 	else if(cmd_invalid_start)                                                reply <= { reply[79:8], 8'h80 };
 	else if(delay_last_cycle && cmd_recalibrate_in_progress)                  reply <= { reply[79:8], 8'h20 | { 6'd0, selected_drive } | ((~motor_enable[selected_drive[0]])? 8'h50 : 8'h00) };
@@ -770,7 +770,7 @@ wire increment_only_sector = sector[selected_drive[0]] < eot[selected_drive[0]] 
 wire increment_cylinder    = ~increment_only_sector && (~cmd_read_write_multitrack || head[selected_drive[0]] == 1'b1);
 
 (* ramstyle = "logic" *) reg [7:0] cylinder[2];
-always @(posedge clk or posedge reset) begin
+always @(posedge clk or posedge reset or posedge sw_reset) begin
 	if(reset | sw_reset)                                                                                                 begin cylinder[0] <= 8'd0; cylinder[1] <= 8'd0; end
 	else if(cmd_read_write_start && (cmd_read_write_incorrect_sector_at_start || cmd_write_and_writeprotected_at_start)) cylinder[selected_drive[0]] <= command[47:40];
 	else if(cmd_read_write_ok_at_start)                                                                                  cylinder[selected_drive[0]] <= command[47:40];
@@ -781,7 +781,7 @@ always @(posedge clk or posedge reset) begin
 end
 
 reg head[2];
-always @(posedge clk or posedge reset) begin
+always @(posedge clk or posedge reset or posedge sw_reset) begin
 	if(reset | sw_reset)                                                                                                 begin head[0] <= 1'd0; head[1] <= 1'd0; end
 	else if(cmd_read_write_start && (cmd_read_write_incorrect_sector_at_start || cmd_write_and_writeprotected_at_start)) head[selected_drive[0]] <= command[32];
 	else if(cmd_format_track_start && cmd_format_writeprotected_at_start)                                                head[selected_drive[0]] <= command[26];
@@ -794,7 +794,8 @@ always @(posedge clk or posedge reset) begin
 end
 
 (* ramstyle = "logic" *) reg [7:0] sector[2];
-always @(posedge clk or posedge reset) begin
+
+always @(posedge clk or posedge reset or posedge sw_reset) begin
 	if(reset | sw_reset)                                                                                                 begin sector[0] <= 8'd1; sector[1] <= 8'd1; end
 	else if(cmd_read_write_start && (cmd_read_write_incorrect_sector_at_start || cmd_write_and_writeprotected_at_start)) sector[selected_drive[0]] <= command[31:24];
 	else if(cmd_read_write_ok_at_start)                                                                                  sector[selected_drive[0]] <= command[31:24];
@@ -804,7 +805,8 @@ always @(posedge clk or posedge reset) begin
 end
 
 (* ramstyle = "logic" *) reg [7:0] eot[2];
-always @(posedge clk or posedge reset) begin
+
+always @(posedge clk or posedge reset or posedge sw_reset) begin
 	if(reset | sw_reset)                 begin eot[0] <= 8'd0; eot[1] <= 8'd0; end
 	else if(cmd_read_write_ok_at_start)  eot[selected_drive[0]] <= (command[15:8] == 8'd0)? media_sectors_per_track[selected_drive[0]] : command[15:8];
 end
@@ -876,7 +878,7 @@ simple_fifo #(
 
 fifo_to_floppy_inst (
 	.clk        (clk),
-	.reset      (reset),
+	.rst        (reset),
 
 	.sclr       (state == S_IDLE),
 
