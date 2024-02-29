@@ -239,15 +239,13 @@ localparam CONF_STR = {
 		"S3,VHD,IDE 0-1;",
 		"OLM,2nd SD card,Disable,IDE 0-0,IDE 0-1;",
 		"-;",
-		"OHI,CPU Speed,4.77MHz,7.16MHz,9.54MHz,PC/AT 3.5MHz;",
-		"-;",
 		"P1,System & BIOS;",
 		"P1-;",
 		"P1O3,Model,IBM PCXT,Tandy 1000;",
 		"P1-;",
 		"P1oC,PCXT CGA Graphics,Yes,No;",
-		"P1oD,PCXT Hercules Graphics,Yes,No;",
-		"P1O4,PCXT 1st Video,CGA,Hercules;",
+		"P1oD,PCXT MCGA Graphics,Yes,No;",
+		"P1O4,PCXT 1st Video,CGA,MCGA;",
 		"P1-;",
 		"P1O7,Boot Splash Screen,Yes,No;",
 		"P1-;",
@@ -638,7 +636,7 @@ wire irq_control_ack;
 wire [15:0] irq_control_data;
 wire pic_access;
 wire pic_ack;
-wire cga_ack;
+wire cga_reg_ack;
 wire [15:0] pic_data;
 
 wire [7:0] irqs = {1'b0, 1'b0 /* fdd */, 1'b0, uart1_interrupt, uart2_interrupt, 1'b0, ps2_kbd_intr, timer_intr} | {1'b0, intr_test};
@@ -655,6 +653,7 @@ wire default_io_ack;
 
 wire ppi_ack;
 
+/*
 wire io_ack = sdram_config_ack |
               default_io_ack   |
               uart1_ack        |
@@ -662,12 +661,50 @@ wire io_ack = sdram_config_ack |
               leds_ack         |
               irq_control_ack  |
               pic_ack          |
-				  cga_ack          |
+              cga_reg_ack      |
               timer_ack        |
               vga_reg_ack      |
               ps2_mouse_ack    |
-				  ppi_ack          |
+              ppi_ack          |
+              dma_ack          |
               bios_control_ack;
+	*/			  
+				  
+wire io_ack;
+
+always @(*) begin
+    if (sdram_config_access) 
+        io_ack = sdram_config_ack;
+    else if (default_io_access) 
+        io_ack = default_io_ack;
+    else if (uart_access) 
+        io_ack = uart1_ack;
+    else if (uart2_access) 
+        io_ack = uart2_ack;
+    else if (leds_access) 
+        io_ack = leds_ack;
+    else if (irq_control_access) 
+        io_ack = irq_control_ack;
+    else if (pic_access) 
+        io_ack = pic_ack;
+    else if (cga_reg_access)
+        io_ack = cga_reg_ack;
+    else if (timer_access) 
+        io_ack = timer_ack;
+    else if (mcga_reg_access)
+        io_ack = vga_reg_ack;
+    else if (ps2_mouse_access) 
+        io_ack = ps2_mouse_ack;
+    else if (ppi_control_access)
+        io_ack = ppi_ack;
+    else if (dma_chip_select | dma_page_chip_select)
+        io_ack = dma_ack;
+    else if (bios_control_access) 
+        io_ack = bios_control_ack;
+    else 
+        io_ack = 1'b0;
+end
+
 				  
 				  
 reg post_sdram_reset; // delayed reset after SDRAM is configured
@@ -780,6 +817,8 @@ AddressDecoderIO AddressDecoderIO(
     .mcga_reg_access(mcga_reg_access),
     .ps2_mouse_access(ps2_mouse_access),
 	 .cga_reg_access(cga_reg_access),
+	 .dma_page_chip_select(dma_page_chip_select),
+	 .dma_chip_select(dma_chip_select),
 	 .ppi_control_access(ppi_control_access)
 	 
 );
@@ -1356,6 +1395,32 @@ KF8259 PIC8259(
 
               );
 
+wire dma_ack;
+				  
+wire dma_chip_select;
+wire dma_page_chip_select;
+					  
+DMAUnit uDMAUnit(
+
+            .clk(sys_clk),
+            .reset(post_sdram_reset),
+				
+				.dma_chip_select(dma_chip_select),
+				.dma_page_chip_select(dma_page_chip_select),
+
+				// CPU BUS (input)
+				
+				.cpu_ack(dma_ack),
+				.m_cpu_data_in(data_m_data_out),
+				.m_cpu_addr_in(data_m_addr),
+				.m_cpu_access(data_m_access),
+            .m_cpu_wr_en(data_m_wr_en),
+				
+				// Data BUS
+				
+				
+
+);
 
 Timer Timer(.clk(sys_clk),
             .reset(post_sdram_reset),
@@ -1479,7 +1544,7 @@ cgacard CGAVideoAdapter(
                    .data_m_data_out(cga_reg_data),
                    .data_m_bytesel(data_m_bytesel),
                    .data_m_wr_en(data_m_wr_en),
-                   .data_m_ack(cga_ack),
+                   .data_m_ack(cga_reg_ack),
 						 
 						 
 						 
@@ -1558,6 +1623,12 @@ VGARegisters VGARegisters(.clk(sys_clk),
 								  
 								  
                           .*);
+								  
+								  
+								  
+								  
+								  
+// ---- Keyboard
 
 logic   [7:0]   keycode_buf;
 logic   [7:0]   keycode;
