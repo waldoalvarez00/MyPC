@@ -18,13 +18,13 @@
 
 
 `default_nettype none
-module Core(input logic clk,
-            input logic reset,
+module Core(input wire  clk,
+            input wire  reset,
 			
             // Interrupts
-            input logic nmi,
-            input logic intr,
-            input logic [7:0] irq,
+            input wire  nmi,
+            input wire  intr,
+            input wire  [7:0] irq,
             output logic inta,
 			
             // Instruction bus
