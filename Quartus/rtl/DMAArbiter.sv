@@ -29,6 +29,7 @@ module DMAArbiter(input logic clk,
                   output logic a_m_ack,
                   input logic a_m_wr_en,
                   input logic [1:0] a_m_bytesel,
+                  input logic ioa,
 				  
 				  
                   // Data bus
@@ -39,6 +40,7 @@ module DMAArbiter(input logic clk,
                   output logic b_m_ack,
                   input logic b_m_wr_en,
                   input logic [1:0] b_m_bytesel,
+                  input logic iob,
 				  
 				  
                   // Output bus
@@ -49,6 +51,7 @@ module DMAArbiter(input logic clk,
                   input logic q_m_ack,
                   output logic q_m_wr_en,
                   output logic [1:0] q_m_bytesel,
+                  output logic ioq,
                   output logic q_b);
 						
 
@@ -63,6 +66,9 @@ assign q_m_addr = q_b ? b_m_addr : a_m_addr;
 assign q_m_data_out = q_b ? b_m_data_out : a_m_data_out;
 assign q_m_access = ~q_m_ack & (b_m_access | a_m_access);
 assign q_m_wr_en = q_b ? b_m_wr_en : a_m_wr_en;
+
+assign ioq = q_b ? iob : ioa;
+
 assign q_m_bytesel = q_b ? b_m_bytesel : a_m_bytesel;
 
 assign a_m_data_in = grant_active & ~grant_to_b ? q_m_data_in : 16'b0;
