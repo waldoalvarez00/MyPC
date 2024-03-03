@@ -104,6 +104,8 @@ always_comb begin
 	 // 2A2-2A3  MSM58321RS clock
 
     // Determine access type based on conditions
+	 
+	 // wire    floppy0_chip_select   = ((({address[15:2], 2'd0} == 16'h03F0) || ({address[15:1], 1'd0} == 16'h03F4) || ({address[15:0]} == 16'h03F7)));
     if (d_io && data_m_access) begin
 	 
 	     if (data_m_addr[16:2] == 15'b0000_0000_0010_000) begin // 20h -> 21h (PIC)
