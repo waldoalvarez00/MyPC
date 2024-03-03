@@ -27,7 +27,9 @@ module DMAUnit ( input  wire clk,
                  input  wire dma_page_chip_select,
 					  
 					  input  wire   [3:0]   dma_device_request,
-					  output  logic [3:0]   dma_acknowledge,     // Notify device DMA was completed
+					  output logic [3:0]   dma_acknowledge,     // Notify device DMA was completed
+					  
+					  
 	
                  // BUS from CPU
                  input  wire [19:1] m_cpu_addr_in,

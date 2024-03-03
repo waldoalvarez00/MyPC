@@ -477,29 +477,9 @@ wire [15:0] debug_wr_val;
 wire [15:0] debug_val;
 wire debug_wr_en;
 
-/*
-wire [15:0] io_data = sdram_config_data |
-    uart_data |
-	 uart2_data |
-    //spi_data |
-    timer_data |
-    irq_control_data |
-    pic_data |
-
-    vga_reg_data |
-	 cga_reg_data |
 
 
-    //ps2_kbd_data |
-    ps2_mouse_data |
-	 
-	 ppiout |
-
-    leds_data |
-    bios_control_data;
-*/
-
-// Multiplexer
+// DeMultiplexer
 
 wire [15:0] io_data;
 
@@ -589,7 +569,7 @@ wire [15:0] bios_data;
 
 wire bios_control_access;
 wire bios_control_ack;
-wire bios_enabled;
+
 wire [15:0] bios_control_data;
 
 wire sdram_config_access;
@@ -650,23 +630,10 @@ wire default_io_ack;
 
 wire ppi_ack;
 
-/*
-wire io_ack = sdram_config_ack |
-              default_io_ack   |
-              uart1_ack        |
-				  uart2_ack        |
-              leds_ack         |
-              irq_control_ack  |
-              pic_ack          |
-              cga_reg_ack      |
-              timer_ack        |
-              vga_reg_ack      |
-              ps2_mouse_ack    |
-              ppi_ack          |
-              dma_ack          |
-              bios_control_ack;
-	*/			  
-				  
+
+
+// Ack demultiplexing (kills noise in ack)
+
 wire io_ack;
 
 always @(*) begin
@@ -822,64 +789,11 @@ AddressDecoderIO AddressDecoderIO(
 
 
 
-/*
-
-// original
-
-always_comb begin
-    sdram_access = 1'b0;
-    bios_access = 1'b0;
-
-    vga_access = 1'b0;
-
-
-    if (q_m_access) begin
-        unique casez ({bios_enabled, q_m_addr, 1'b0})
-        {1'b1, 20'b1111_11??_????_????_????}: bios_access = 1'b1;
-
-        {1'b?, 20'b1011_10??_????_????_????}: vga_access = 1'b1;
-        {1'b?, 20'b1010_????_????_????_????}: vga_access = 1'b1;
-
-        default: sdram_access = 1'b1;
-        endcase
-    end
-end
-
-*/
 
 
 
 
 
-/*
-
-
-
-always_comb begin
-    // Default assignments
-    sdram_access = 1'b0;
-    bios_access = 1'b0;
-    vga_access = 1'b0;
-
-    // Determine access type based on conditions
-    if (q_m_access) begin
-        // Check for BIOS access
-        if (bios_enabled && q_m_addr[19:14] == 8'b1111_11) begin
-            bios_access = 1'b1;
-        end
-        // Check for VGA access
-        else if (q_m_addr[19:14] == 6'b1011_10 || q_m_addr[19:16] == 4'b1010) begin
-            vga_access = 1'b1;
-        end
-        // Default to SDRAM access
-        else begin
-            sdram_access = 1'b1;
-        end
-    end
-    
-end
-
-*/
 
 
 // proper decoding, no glitches, no delay
@@ -893,39 +807,19 @@ always_comb begin
 	 cga_mem_access   = 1'b0;
 
     if (q_m_access) begin
-	    if(bios_enabled) begin
           casez (q_m_addr[19:14])
               6'b111111: bios_access = 1'b1;
               //6'b101110, 6'b1010??: mcga_access = 1'b1; take me back
-				  //6'b110000, 6'b1010??: mcga_access = 1'b1; // Different non standar address C000
+				  6'b110000, 6'b1010??: mcga_access = 1'b1; // Different non standar address C000
 				  6'b101110: cga_mem_access = 1'b1;
               default:   sdram_access = 1'b1;
           endcase
-		  end else begin
-		    casez (q_m_addr[19:14])
-			     // BIOS Turns into RAM
-				  
-              //6'b101110: mcga_access   = 1'b1; take me back
-				  //6'b110000: mcga_access   = 1'b1; // Different non standar address C000
-				  //6'b1010??: mcga_access   = 1'b1; // A000
-				  6'b101110: cga_mem_access = 1'b1;    // B800
-              default:   sdram_access = 1'b1;
-        endcase
-		  end
+		  
+		  
     end
 end
 
 wire data_mem_ack;
-
-
-/*
-BitSync         ResetSync(.clk(sys_clk),
-                          .reset(1'b0),
-                          .d(rst_in_n),
-                          .q(reset_n));
-
-*/
-
 
 
 
@@ -1184,14 +1078,6 @@ BIOS #(.depth(8192))
           .data_m_data_in(q_m_data_out),
           .data_m_wr_en(q_m_wr_en));
 
-BIOSControlRegister BIOSControlRegister(.clk(sys_clk),
-                                        .reset(post_sdram_reset),
-                                        .cs(bios_control_access),
-                                        .data_m_ack(bios_control_ack),
-                                        .data_m_data_out(bios_control_data),
-                                        .bios_enabled(bios_enabled),
-                                        .*);
-
 
 
 								
@@ -1300,6 +1186,14 @@ uart uart_2 (
 
 													 
 
+TriggerAfterNHigh #(
+    .N(20)  // Set the N parameter for this instance
+) triggerGenerator (
+    .clk(sys_clk),           // Connect parent clk to TriggerAfterNHigh clk
+    .rst(post_sdram_reset),           // Connect parent rst to TriggerAfterNHigh rst
+    .signal_in(data_m_access), // Connect parent signal_in to TriggerAfterNHigh signal_in
+    .trigger()    // Connect TriggerAfterNHigh trigger to parent trigger
+);
 
 		  
 Core u80186(
@@ -1395,6 +1289,8 @@ wire dma_ack;
 				  
 wire dma_chip_select;
 wire dma_page_chip_select;
+
+wire fdd_dma_req;
 					  
 DMAUnit uDMAUnit(
 
@@ -1415,8 +1311,55 @@ DMAUnit uDMAUnit(
 				// Data BUS
 				
 				
+				// DMA Signals
+				
+				.dma_device_request({1'b0, fdd_dma_req, 1'b0, 1'b0}) // only floppy for now
+				
 
 );
+
+
+wire fdd_interrupt;
+
+floppy floppy 
+    (
+        .clk                        (sys_clk),
+        .reset                      (post_sdram_reset),
+
+        //dma
+        .dma_req                    (fdd_dma_req),
+        .dma_ack                    (/*fdd_dma_rw_ack*/),
+        .dma_tc                     (/*fdd_dma_tc & fdd_dma_rw_ack*/),
+        .dma_readdata               (/*write_to_fdd*/),
+        .dma_writedata              (/*fdd_dma_readdata*/),
+
+        //irq
+        .irq                        (fdd_interrupt),
+
+        //io buf
+        .io_address                 (/*fdd_io_address*/),
+        .io_read                    (/*fdd_io_read*/),
+        .io_readdata                (/*fdd_readdata_wire*/),
+        .io_write                   (/*fdd_io_write*/),
+        .io_writedata               (/*write_to_fdd*/),
+
+        //        .fdd0_inserted              (),
+
+        .mgmt_address               (/*mgmt_address[3:0]*/),
+        .mgmt_fddn                  (/*mgmt_address[7]*/),
+        .mgmt_write                 (/*mgmt_write & mgmt_fdd_cs*/),
+        .mgmt_writedata             (/*mgmt_writedata*/),
+        .mgmt_read                  (/*mgmt_read  & mgmt_fdd_cs*/),
+        .mgmt_readdata              (/*mgmt_fdd_readdata*/),
+
+        .wp                         (/*floppy_wp*/),
+
+        .clock_rate                 (/*clk_select[1] == 1'b0 ? clk_rate :
+                                     clk_select[0] == 1'b0 ? {1'b0, clk_rate[27:1]} : {2'b00, clk_rate[27:2]}*/),
+
+        .request                    (/*fdd_request*/)
+    );
+	 
 
 Timer Timer(.clk(sys_clk),
             .reset(post_sdram_reset),
@@ -1733,46 +1676,7 @@ assign LED_USER    = act_cnt[26]  ? act_cnt[25:18]  > act_cnt[7:0]  : act_cnt[25
 
 */
 
-wire fdd_interrupt;
 
-floppy floppy 
-    (
-        .clk                        (sys_clk),
-        .reset                      (post_sdram_reset),
-
-        //dma
-        .dma_req                    (/*fdd_dma_req_wire*/),
-        .dma_ack                    (/*fdd_dma_rw_ack*/),
-        .dma_tc                     (/*fdd_dma_tc & fdd_dma_rw_ack*/),
-        .dma_readdata               (/*write_to_fdd*/),
-        .dma_writedata              (/*fdd_dma_readdata*/),
-
-        //irq
-        .irq                        (fdd_interrupt),
-
-        //io buf
-        .io_address                 (/*fdd_io_address*/),
-        .io_read                    (/*fdd_io_read*/),
-        .io_readdata                (/*fdd_readdata_wire*/),
-        .io_write                   (/*fdd_io_write*/),
-        .io_writedata               (/*write_to_fdd*/),
-
-        //        .fdd0_inserted              (),
-
-        .mgmt_address               (/*mgmt_address[3:0]*/),
-        .mgmt_fddn                  (/*mgmt_address[7]*/),
-        .mgmt_write                 (/*mgmt_write & mgmt_fdd_cs*/),
-        .mgmt_writedata             (/*mgmt_writedata*/),
-        .mgmt_read                  (/*mgmt_read  & mgmt_fdd_cs*/),
-        .mgmt_readdata              (/*mgmt_fdd_readdata*/),
-
-        .wp                         (/*floppy_wp*/),
-
-        .clock_rate                 (/*clk_select[1] == 1'b0 ? clk_rate :
-                                     clk_select[0] == 1'b0 ? {1'b0, clk_rate[27:1]} : {2'b00, clk_rate[27:2]}*/),
-
-        .request                    (/*fdd_request*/)
-    );
 
 
 wire leds_status;

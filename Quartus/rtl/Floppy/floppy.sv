@@ -34,8 +34,8 @@ module floppy
 
 	//dma
 	output            dma_req,
-	input             dma_ack,
-	input             dma_tc,
+	input             dma_ack, // Acknowledgment from the DMA controller.
+	input             dma_tc,  //  Indicates the terminal count from the DMA controller.
 	input       [7:0] dma_readdata,
 	output      [7:0] dma_writedata,
 
@@ -44,10 +44,14 @@ module floppy
 
 	//io buf
 	input       [2:0] io_address,
-	input             io_read,
+	
+	input             io_read, // a read operation is requested.
 	output reg  [7:0] io_readdata,
+	
 	input             io_write,
 	input       [7:0] io_writedata,
+	
+	output logic      bus_ack,
 
 	output            fdd0_inserted,
 	//management
@@ -459,6 +463,7 @@ end
 //------------------------------------------------------------------------------ cmd: sense interrupt status
 
 always @(posedge clk  or posedge reset or posedge sw_reset) begin
+
 	reg old_enable;
 
 	old_enable <= enable;
@@ -469,6 +474,8 @@ always @(posedge clk  or posedge reset or posedge sw_reset) begin
 	else if(ndma_irq | raise_interrupt)                  irq <= 1'b1;
 	else if(io_read && io_address == 3'd5 && ~ndma_read) irq <= 1'b0;
 end
+
+
 
 reg [2:0] reset_sensei;
 always @(posedge clk or posedge reset) begin
