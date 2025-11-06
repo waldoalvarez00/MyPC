@@ -60,7 +60,7 @@ Input Status Registers: Ports 0x3C2 (Input Status #0) and 0x3DA (Input Status #1
 
 always_comb begin
 
- $display("Address: %h, d_io: %b, data_m_access: %b", data_m_addr, d_io, data_m_access);
+    // $display("Address: %h, d_io: %b, data_m_access: %b", data_m_addr, d_io, data_m_access); // Debug only
 
     // Initialize all accesses to 0
     leds_access          = 1'b0;

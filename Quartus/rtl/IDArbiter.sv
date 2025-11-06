@@ -196,18 +196,32 @@ module IDArbiter(
         end
     end
 
-    
-assign instr_m_ack = grant_active &  servingInstr & q_m_ack & (arb_state != IDLE);
-assign data_m_ack  = grant_active & ~servingInstr & q_m_ack & (arb_state != IDLE);
-    
+
+// Register ACK outputs to prevent glitches
+logic instr_m_ack_reg;
+logic data_m_ack_reg;
+
+assign instr_m_ack = instr_m_ack_reg;
+assign data_m_ack  = data_m_ack_reg;
+
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        instr_m_ack_reg <= 1'b0;
+        data_m_ack_reg  <= 1'b0;
+    end else begin
+        instr_m_ack_reg <= grant_active &  servingInstr & q_m_ack & (arb_state != IDLE);
+        data_m_ack_reg  <= grant_active & ~servingInstr & q_m_ack & (arb_state != IDLE);
+    end
+end
+
 // Assign outputs and acks
 
-	
-	
+
+
 	always_comb begin
 
-		
-		
+
+
 	   q_m_addr = servingInstr ? instr_m_addr : data_m_addr;
 					
 

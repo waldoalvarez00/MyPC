@@ -160,15 +160,26 @@ assign q_m_wr_en = q_b ? b_m_wr_en : a_m_wr_en;
 assign q_m_bytesel = q_b ? b_m_bytesel : a_m_bytesel;
 
 assign a_m_data_in = grant_active & ~grant_to_b ? q_m_data_in : 16'b0;
-assign a_m_ack = grant_active & ~grant_to_b & q_m_ack;
-
 assign b_m_data_in = grant_active & grant_to_b ? q_m_data_in : 16'b0;
-assign b_m_ack = grant_active & grant_to_b & q_m_ack;
+
+// Register ACK outputs to prevent glitches
+logic a_m_ack_reg;
+logic b_m_ack_reg;
+
+assign a_m_ack = a_m_ack_reg;
+assign b_m_ack = b_m_ack_reg;
 
 always_ff @(posedge clk or posedge reset) begin
     if (reset) begin
         grant_active <= 1'b0;
+        a_m_ack_reg  <= 1'b0;
+        b_m_ack_reg  <= 1'b0;
     end else begin
+        // Update ACK registers
+        a_m_ack_reg <= grant_active & ~grant_to_b & q_m_ack;
+        b_m_ack_reg <= grant_active & grant_to_b & q_m_ack;
+
+        // Grant logic
         if (q_m_ack)
             grant_active <= 1'b0;
         else if (!grant_active && (b_m_access || a_m_access)) begin

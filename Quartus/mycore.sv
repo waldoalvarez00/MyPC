@@ -632,41 +632,41 @@ wire ppi_ack;
 
 
 
-// Ack demultiplexing (kills noise in ack)
+// Ack demultiplexing - Register output to prevent glitches
 
-wire io_ack;
+reg io_ack;
 
-always @(*) begin
-    if (sdram_config_access) 
-        io_ack = sdram_config_ack;
-    else if (default_io_access) 
-        io_ack = default_io_ack;
-    else if (uart_access) 
-        io_ack = uart1_ack;
-    else if (uart2_access) 
-        io_ack = uart2_ack;
-    else if (leds_access) 
-        io_ack = leds_ack;
-    else if (irq_control_access) 
-        io_ack = irq_control_ack;
-    else if (pic_access) 
-        io_ack = pic_ack;
+always @(posedge clk_cpu) begin
+    if (sdram_config_access)
+        io_ack <= sdram_config_ack;
+    else if (default_io_access)
+        io_ack <= default_io_ack;
+    else if (uart_access)
+        io_ack <= uart1_ack;
+    else if (uart2_access)
+        io_ack <= uart2_ack;
+    else if (leds_access)
+        io_ack <= leds_ack;
+    else if (irq_control_access)
+        io_ack <= irq_control_ack;
+    else if (pic_access)
+        io_ack <= pic_ack;
     else if (cga_reg_access)
-        io_ack = cga_reg_ack;
-    else if (timer_access) 
-        io_ack = timer_ack;
+        io_ack <= cga_reg_ack;
+    else if (timer_access)
+        io_ack <= timer_ack;
     else if (mcga_reg_access)
-        io_ack = vga_reg_ack;
-    else if (ps2_mouse_access) 
-        io_ack = ps2_mouse_ack;
+        io_ack <= vga_reg_ack;
+    else if (ps2_mouse_access)
+        io_ack <= ps2_mouse_ack;
     else if (ppi_control_access)
-        io_ack = ppi_ack;
+        io_ack <= ppi_ack;
     else if (dma_chip_select | dma_page_chip_select)
-        io_ack = dma_ack;
-    else if (bios_control_access) 
-        io_ack = bios_control_ack;
-    else 
-        io_ack = 1'b0;
+        io_ack <= dma_ack;
+    else if (bios_control_access)
+        io_ack <= bios_control_ack;
+    else
+        io_ack <= 1'b0;
 end
 
 				  

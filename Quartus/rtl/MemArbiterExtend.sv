@@ -174,9 +174,23 @@ module MemArbiterExtend(
         end
     end
 
-assign cpu_m_ack  = grant_active &  servingA & sdram_m_ack;
-assign mcga_m_ack = grant_active & ~servingA & sdram_m_ack;
-    
+// Register ACK outputs to prevent glitches
+logic cpu_m_ack_reg;
+logic mcga_m_ack_reg;
+
+assign cpu_m_ack  = cpu_m_ack_reg;
+assign mcga_m_ack = mcga_m_ack_reg;
+
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        cpu_m_ack_reg  <= 1'b0;
+        mcga_m_ack_reg <= 1'b0;
+    end else begin
+        cpu_m_ack_reg  <= grant_active &  servingA & sdram_m_ack;
+        mcga_m_ack_reg <= grant_active & ~servingA & sdram_m_ack;
+    end
+end
+
 // Assign outputs and acks
 always_comb begin
 	 
