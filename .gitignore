@@ -2,3 +2,8 @@
 *.bak
 Quartus/serv_req_info.txt
 utils/bios/pcxtbios-iles.bin
+
+# Verilator generated files
+*.log
+obj_dir/
+Quartus/verilator_lint.log
