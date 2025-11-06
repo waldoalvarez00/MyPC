@@ -1,0 +1,24 @@
+.PHONY: lint clean install help
+
+# Verilator lint targets for PCXT project
+
+help:
+	@echo "Verilator Lint Targets:"
+	@echo "  make lint      - Run Verilator lint checks"
+	@echo "  make install   - Install Verilator (requires sudo)"
+	@echo "  make clean     - Clean lint output files"
+	@echo "  make help      - Show this help message"
+
+install:
+	sudo apt-get update
+	sudo apt-get install -y verilator
+
+lint:
+	@echo "Running Verilator lint..."
+	@./run_verilator_lint.sh
+
+clean:
+	rm -f verilator_lint.log
+	rm -rf obj_dir/
+
+check: lint

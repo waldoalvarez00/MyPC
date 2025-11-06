@@ -1,0 +1,48 @@
+// Verilator lint configuration file for PCXT project
+
+// Waive warnings for unoptimized signals (common in hardware designs)
+lint_off -rule UNUSED
+lint_off -rule UNDRIVEN
+lint_off -rule UNOPTFLAT
+
+// Waive width warnings (common when interfacing different width buses)
+lint_off -rule WIDTH
+
+// Waive case warnings (SystemVerilog uses casez/casex)
+lint_off -rule CASEINCOMPLETE
+lint_off -rule CASEOVERLAP
+
+// Waive latch warnings (intentional in some hardware designs)
+lint_off -rule LATCH
+
+// Waive timing-related warnings
+lint_off -rule BLKANDNBLK
+lint_off -rule BLKSEQ
+
+// Waive initial block warnings (used for simulation/initialization)
+lint_off -rule INITIALDLY
+
+// Waive multidriven warnings (may occur with tristates or inout ports)
+lint_off -rule MULTIDRIVEN
+
+// Waive async reset warnings (common in FPGA designs)
+lint_off -rule SYNCASYNCNET
+
+// Waive warnings for vendor-specific modules (Altera/Intel PLLs, etc.)
+lint_off -file "*/pll.v"
+lint_off -file "*/pll_0002.v"
+lint_off -file "*/pllsdram.v"
+lint_off -file "*/pllsdram_0002.v"
+lint_off -file "*/sys/*.v"
+lint_off -file "*/sys_top.v"
+lint_off -file "*/altera_pll*.v"
+lint_off -file "*/pll_audio*.v"
+lint_off -file "*/pll_cfg*.v"
+lint_off -file "*/pll_hdmi*.v"
+
+// Waive warnings for specific modules that are known good
+lint_off -msg "Signal is not used" -file "*/hps_io*"
+lint_off -msg "Signal is not driven" -file "*/hps_io*"
+
+// Enable more detailed error messages
+lint_on -msg "Signal is not used" -file "mycore.sv"
