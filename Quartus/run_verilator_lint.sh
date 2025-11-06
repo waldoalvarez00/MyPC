@@ -1,10 +1,20 @@
 #!/bin/bash
 # Script to run Verilator lint on the PCXT project
 # Install Verilator first: sudo apt-get install verilator
+# Or use the local verilator installation in /home/user/verilator-local
 
 cd "$(dirname "$0")"
 
+# Setup local Verilator if it exists
+if [ -d "/home/user/verilator-local/usr/bin" ]; then
+    export PATH="/home/user/verilator-local/usr/bin:$PATH"
+    export VERILATOR_ROOT="/home/user/verilator-local/usr/share/verilator"
+    echo "Using local Verilator installation"
+fi
+
 echo "Running Verilator lint on PCXT design..."
+echo "========================================"
+verilator --version
 echo "========================================"
 
 # Run Verilator in lint-only mode
@@ -39,6 +49,12 @@ verilator --lint-only \
     stubs/pll.v \
     stubs/pllsdram.v \
     stubs/hps_io.sv \
+    rtl/CPU/RegisterEnum.sv \
+    rtl/CPU/FlagsEnum.sv \
+    rtl/CPU/MicrocodeTypes.sv \
+    rtl/CPU/Instruction.sv \
+    rtl/CPU/InstructionDefinitions.sv \
+    rtl/VGA/VGATypes.sv \
     mycore.sv \
     rtl/IDArbiter.sv \
     rtl/DMAArbiter.sv \
@@ -93,7 +109,12 @@ verilator --lint-only \
     rtl/timer/*.sv \
     rtl/uart/*.sv \
     rtl/uart16750/uart.v \
-    rtl/common/*.sv \
+    rtl/common/BlockRam.sv \
+    rtl/common/Cache.sv \
+    rtl/common/DPRam.sv \
+    rtl/common/JTAGBridge.sv \
+    rtl/common/PoweronReset.sv \
+    rtl/common/VirtualJTAG.sv \
     2>&1 | tee verilator_lint.log
 
 echo ""
