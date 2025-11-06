@@ -7,3 +7,6 @@ utils/bios/pcxtbios-iles.bin
 *.log
 obj_dir/
 Quartus/verilator_lint.log
+
+# Simulation results
+modelsim/sim_results_*/
