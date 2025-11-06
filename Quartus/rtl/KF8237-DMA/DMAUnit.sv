@@ -98,18 +98,15 @@ KF8237 u_KF8237 (
         .dma_request                        (dma_device_request),         // Request from hardware to perform DMA
         .data_bus_in                        (m_data_in[7:0]),
         .data_bus_out                       (m_data_out),
-        .io_read_n_in                       (/*io_read*/),
+        .io_read_in                         (/*io_read*/),
         .io_read_n_out                      (/*dma_io_read*/),
-
+        .io_read_n_io                       (),
 
         .bus_ack(bus_ack),
 
-        //.io_read_n_io                     (),
-
         .io_write_in                        (m_cpu_access && m_cpu_wr_en), // IO Write from CPU to DMA chip
         .io_write_out                       (/*dma_io_write_n*/),
-
-        //.io_write_n_io                    (),
+        .io_write_n_io                      (),
 
         .end_of_process_in                  (1'b0),
         .end_of_process_out                 (/*terminal_count*/),

@@ -1,3 +1,6 @@
+`ifndef VGA_TYPES_SV
+`define VGA_TYPES_SV
+
 typedef enum bit [1:0] {
     VIDEO_MODE_TEXT,
     VIDEO_MODE_4_COLOR,
@@ -15,3 +18,5 @@ function VideoMode_t get_video_mode;
     else
         get_video_mode = VIDEO_MODE_TEXT;
 endfunction
+
+`endif // VGA_TYPES_SV

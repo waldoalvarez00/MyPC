@@ -5,6 +5,9 @@ lint_off -rule UNUSED
 lint_off -rule UNDRIVEN
 lint_off -rule UNOPTFLAT
 
+// Waive timescale warnings (Intel-generated IP has timescales, custom RTL doesn't)
+lint_off -rule TIMESCALEMOD
+
 // Waive width warnings (common when interfacing different width buses)
 lint_off -rule WIDTH
 

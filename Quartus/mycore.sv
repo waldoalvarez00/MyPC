@@ -636,7 +636,7 @@ wire ppi_ack;
 
 reg io_ack;
 
-always @(posedge clk_cpu) begin
+always @(posedge sys_clk) begin
     if (sdram_config_access)
         io_ack <= sdram_config_ack;
     else if (default_io_access)
