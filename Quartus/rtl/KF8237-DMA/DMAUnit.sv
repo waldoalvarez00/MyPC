@@ -28,9 +28,9 @@ module DMAUnit ( input  wire clk,
 					  
 					  input  wire   [3:0]   dma_device_request,
 					  output logic [3:0]   dma_acknowledge,     // Notify device DMA was completed
-					  
-					  
-	
+					  output logic          terminal_count,      // Terminal count - DMA transfer complete
+
+
                  // BUS from CPU
                  input  wire [19:1] m_cpu_addr_in,
                  input  wire [15:0] m_cpu_data_in,
@@ -109,7 +109,7 @@ KF8237 u_KF8237 (
         .io_write_n_io                      (),
 
         .end_of_process_in                  (1'b0),
-        .end_of_process_out                 (/*terminal_count*/),
+        .end_of_process_out                 (terminal_count),
         .address_in                         (m_cpu_addr_in[4:1]),
         .address_out                        (dma_address_out),
         .m_bytesel                          (m_bytesel),

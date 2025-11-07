@@ -830,10 +830,18 @@ wire data_mem_ack;
 
 
 
-// Instruction / Data Arbiter
+// Instruction / Data Arbiter (CPU-only)
+// Outputs to cpu_id_m_* which then goes to DMA arbiter
+
+wire [19:1] cpu_id_m_addr;
+wire [15:0] cpu_id_m_data_in;
+wire [15:0] cpu_id_m_data_out;
+wire cpu_id_m_access;
+wire cpu_id_m_ack;
+wire cpu_id_m_wr_en;
+wire [1:0] cpu_id_m_bytesel;
 
 IDArbiter IDArbiter(.clk(sys_clk),
-//MemArbiter IDArbiter(.clk(sys_clk),
                      .reset(post_sdram_reset),
 
                      .instr_m_addr(instr_m_addr),
@@ -843,8 +851,7 @@ IDArbiter IDArbiter(.clk(sys_clk),
                      .instr_m_ack(instr_m_ack),
                      .instr_m_wr_en(1'b0),
                      .instr_m_bytesel(2'b11),
-							
-							
+
                      .data_m_addr(data_m_addr),
                      .data_m_data_in(mem_data),
                      .data_m_data_out(data_m_data_out),
@@ -852,17 +859,59 @@ IDArbiter IDArbiter(.clk(sys_clk),
                      .data_m_ack(data_mem_ack),
                      .data_m_wr_en(data_m_wr_en),
                      .data_m_bytesel(data_m_bytesel),
-							
 
-                     // Output bus connections
-                    .q_m_addr(q_m_addr),
-                    .q_m_data_in(q_m_data_in),
-                    .q_m_data_out(q_m_data_out),
-                    .q_m_access(q_m_access),
-                    .q_m_ack(q_m_ack),
-                    .q_m_wr_en(q_m_wr_en),
-                    .q_m_bytesel(q_m_bytesel),
+                     // Output to DMA arbiter
+                    .q_m_addr(cpu_id_m_addr),
+                    .q_m_data_in(cpu_id_m_data_in),
+                    .q_m_data_out(cpu_id_m_data_out),
+                    .q_m_access(cpu_id_m_access),
+                    .q_m_ack(cpu_id_m_ack),
+                    .q_m_wr_en(cpu_id_m_wr_en),
+                    .q_m_bytesel(cpu_id_m_bytesel),
                     .q_b());
+
+// DMA Arbiter - Muxes CPU (instr+data) and DMA controller access to memory
+// Priority: DMA has higher priority when active
+
+// Prepare DMA data input (floppy write data when floppy DMA active)
+assign dma_m_data_in[7:0] = (dma_acknowledge[2] & ~dma_m_wr_en) ? floppy_dma_writedata : 8'h00;
+assign dma_m_data_in[15:8] = 8'h00;  // DMA transfers are 8-bit
+
+DMAArbiter CPUDMAArbiter(
+    .clk(sys_clk),
+    .reset(post_sdram_reset),
+
+    // DMA bus (higher priority)
+    .a_m_addr(dma_m_addr),
+    .a_m_data_in(dma_m_data_in),
+    .a_m_data_out(dma_m_data_out),
+    .a_m_access(dma_m_access & ~dma_d_io),  // Only memory access, not I/O
+    .a_m_ack(dma_m_ack),
+    .a_m_wr_en(dma_m_wr_en),
+    .a_m_bytesel(dma_m_bytesel),
+    .ioa(1'b0),  // DMA doesn't use I/O flag here
+
+    // CPU (instruction + data) bus
+    .b_m_addr(cpu_id_m_addr),
+    .b_m_data_in(cpu_id_m_data_in),
+    .b_m_data_out(cpu_id_m_data_out),
+    .b_m_access(cpu_id_m_access),
+    .b_m_ack(cpu_id_m_ack),
+    .b_m_wr_en(cpu_id_m_wr_en),
+    .b_m_bytesel(cpu_id_m_bytesel),
+    .iob(1'b0),
+
+    // Output to memory system (connects to CacheVGAArbiter)
+    .q_m_addr(q_m_addr),
+    .q_m_data_in(q_m_data_in),
+    .q_m_data_out(q_m_data_out),
+    .q_m_access(q_m_access),
+    .q_m_ack(q_m_ack),
+    .q_m_wr_en(q_m_wr_en),
+    .q_m_bytesel(q_m_bytesel),
+    .ioq(),
+    .q_b()
+);
 
 // SDRAM<->Cache signals
 wire [19:1] cache_sdram_m_addr;
@@ -1297,9 +1346,21 @@ wire dma_page_chip_select;
 
 wire fdd_dma_req;
 wire [7:0] floppy_readdata;
+wire [7:0] floppy_dma_writedata;
 wire floppy_access;
 wire floppy_ack;
 wire [3:0] dma_acknowledge;
+wire dma_terminal_count;
+
+// DMA memory bus signals
+wire [19:1] dma_m_addr;
+wire [15:0] dma_m_data_in;
+wire [15:0] dma_m_data_out;
+wire dma_m_access;
+wire dma_m_ack;
+wire dma_m_wr_en;
+wire [1:0] dma_m_bytesel;
+wire dma_d_io;
 
 DMAUnit uDMAUnit(
 
@@ -1317,16 +1378,20 @@ DMAUnit uDMAUnit(
 				.m_cpu_access(data_m_access),
             .m_cpu_wr_en(data_m_wr_en),
 				
-				// Data BUS
-				
-				
-				// DMA Signals
+				// DMA memory bus (to arbiter)
+				.m_addr(dma_m_addr),
+				.m_data_in(dma_m_data_in),
+				.m_data_out(dma_m_data_out),
+				.m_access(dma_m_access),
+				.m_ack(dma_m_ack),
+				.m_wr_en(dma_m_wr_en),
+				.m_bytesel(dma_m_bytesel),
+				.d_io(dma_d_io),
 
+				// DMA device signals
 				.dma_device_request({1'b0, fdd_dma_req, 1'b0, 1'b0}), // only floppy for now
-				.dma_acknowledge(dma_acknowledge)
-
-				// TODO: Connect DMA memory/IO bus outputs (m_addr, m_data_out, m_data_in, m_access, m_ack, m_wr_en)
-				// These need to be wired to a DMA arbiter that gives DMA controller access to system memory
+				.dma_acknowledge(dma_acknowledge),
+				.terminal_count(dma_terminal_count)
 
 );
 
@@ -1340,10 +1405,10 @@ floppy floppy
 
         //dma
         .dma_req                    (fdd_dma_req),
-        .dma_ack                    (dma_acknowledge[2]),      // Floppy is on DMA channel 2
-        .dma_tc                     (1'b0),                    // TODO: Connect terminal count from DMA controller
-        .dma_readdata               (8'b0),                    // TODO: Connect DMA read data (memory -> floppy)
-        .dma_writedata              (/* not connected */),     // TODO: Connect DMA write data (floppy -> memory)
+        .dma_ack                    (dma_acknowledge[2] & dma_m_ack),  // Floppy DMA channel 2 with memory ack
+        .dma_tc                     (dma_terminal_count),              // Terminal count from DMA controller
+        .dma_readdata               (dma_m_data_out[7:0]),             // DMA read data (memory -> floppy for write)
+        .dma_writedata              (floppy_dma_writedata),            // DMA write data (floppy -> memory for read)
 
         //irq
         .irq                        (fdd_interrupt),
