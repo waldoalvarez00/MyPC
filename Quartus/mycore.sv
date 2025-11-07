@@ -505,9 +505,11 @@ always @(*) begin
         io_data = ps2_mouse_data;
     else if (cga_reg_access) 
         io_data = cga_reg_data;
-    else if (ppi_control_access) 
+    else if (ppi_control_access)
         io_data = ppiout;
-    else 
+    else if (floppy_access)
+        io_data = {8'b0, floppy_readdata};
+    else
         io_data = 16'b0;
 end
  
@@ -665,6 +667,8 @@ always @(posedge sys_clk) begin
         io_ack <= dma_ack;
     else if (bios_control_access)
         io_ack <= bios_control_ack;
+    else if (floppy_access)
+        io_ack <= floppy_ack;
     else
         io_ack <= 1'b0;
 end
@@ -783,6 +787,7 @@ AddressDecoderIO AddressDecoderIO(
 	 .dma_page_chip_select(dma_page_chip_select),
 	 .dma_chip_select(dma_chip_select),
 	 .ppi_control_access(ppi_control_access)
+	 .floppy_access(floppy_access)
 	 
 );
 
@@ -1291,7 +1296,11 @@ wire dma_chip_select;
 wire dma_page_chip_select;
 
 wire fdd_dma_req;
-					  
+wire [7:0] floppy_readdata;
+wire floppy_access;
+wire floppy_ack;
+wire [3:0] dma_acknowledge;
+
 DMAUnit uDMAUnit(
 
             .clk(sys_clk),
@@ -1312,9 +1321,12 @@ DMAUnit uDMAUnit(
 				
 				
 				// DMA Signals
-				
-				.dma_device_request({1'b0, fdd_dma_req, 1'b0, 1'b0}) // only floppy for now
-				
+
+				.dma_device_request({1'b0, fdd_dma_req, 1'b0, 1'b0}), // only floppy for now
+				.dma_acknowledge(dma_acknowledge)
+
+				// TODO: Connect DMA memory/IO bus outputs (m_addr, m_data_out, m_data_in, m_access, m_ack, m_wr_en)
+				// These need to be wired to a DMA arbiter that gives DMA controller access to system memory
 
 );
 
@@ -1328,36 +1340,36 @@ floppy floppy
 
         //dma
         .dma_req                    (fdd_dma_req),
-        .dma_ack                    (/*fdd_dma_rw_ack*/),
-        .dma_tc                     (/*fdd_dma_tc & fdd_dma_rw_ack*/),
-        .dma_readdata               (/*write_to_fdd*/),
-        .dma_writedata              (/*fdd_dma_readdata*/),
+        .dma_ack                    (dma_acknowledge[2]),      // Floppy is on DMA channel 2
+        .dma_tc                     (1'b0),                    // TODO: Connect terminal count from DMA controller
+        .dma_readdata               (8'b0),                    // TODO: Connect DMA read data (memory -> floppy)
+        .dma_writedata              (/* not connected */),     // TODO: Connect DMA write data (floppy -> memory)
 
         //irq
         .irq                        (fdd_interrupt),
 
         //io buf
-        .io_address                 (/*fdd_io_address*/),
-        .io_read                    (/*fdd_io_read*/),
-        .io_readdata                (/*fdd_readdata_wire*/),
-        .io_write                   (/*fdd_io_write*/),
-        .io_writedata               (/*write_to_fdd*/),
+        .io_address                 (data_m_addr[3:1]),
+        .io_read                    (floppy_access && !data_m_wr_en),
+        .io_readdata                (floppy_readdata),
+        .io_write                   (floppy_access && data_m_wr_en),
+        .io_writedata               (data_m_data_out[7:0]),
+        .bus_ack                    (floppy_ack),
 
-        //        .fdd0_inserted              (),
+        .fdd0_inserted              (/* not connected */),
 
-        .mgmt_address               (/*mgmt_address[3:0]*/),
-        .mgmt_fddn                  (/*mgmt_address[7]*/),
-        .mgmt_write                 (/*mgmt_write & mgmt_fdd_cs*/),
-        .mgmt_writedata             (/*mgmt_writedata*/),
-        .mgmt_read                  (/*mgmt_read  & mgmt_fdd_cs*/),
-        .mgmt_readdata              (/*mgmt_fdd_readdata*/),
+        .mgmt_address               (4'b0),           // TODO: Connect to MiSTer SD interface
+        .mgmt_fddn                  (1'b0),
+        .mgmt_write                 (1'b0),
+        .mgmt_writedata             (16'b0),
+        .mgmt_read                  (1'b0),
+        .mgmt_readdata              (/* not connected - TODO */),
 
-        .wp                         (/*floppy_wp*/),
+        .wp                         (2'b00),          // Not write protected
 
-        .clock_rate                 (/*clk_select[1] == 1'b0 ? clk_rate :
-                                     clk_select[0] == 1'b0 ? {1'b0, clk_rate[27:1]} : {2'b00, clk_rate[27:2]}*/),
+        .clock_rate                 (28'd50_000_000),  // 50 MHz system clock
 
-        .request                    (/*fdd_request*/)
+        .request                    (/* not connected - TODO: for SD card interface */)
     );
 	 
 
