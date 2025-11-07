@@ -233,36 +233,52 @@ initial begin
     interrupt_request[7] = 1'b1;
     repeat(10) @(posedge clk);
 
-    if (simpleirq[1] == 1'b1) begin
+    // simpleirq[2:0] contains the IRQ number being serviced
+    if (interrupt_to_cpu && simpleirq[2:0] == 3'd1) begin
         $display("  [PASS] IRQ 1 serviced (higher priority)");
         pass_count++;
-    end else if (simpleirq[7] == 1'b1) begin
+    end else if (interrupt_to_cpu && simpleirq[2:0] == 3'd7) begin
         $display("  [WARN] IRQ 7 serviced instead (priority may be implementation-specific)");
         pass_count++;
     end else begin
-        $display("  [FAIL] No IRQ serviced");
+        $display("  [FAIL] No IRQ serviced (interrupt_to_cpu=%b, simpleirq[2:0]=%d)", interrupt_to_cpu, simpleirq[2:0]);
         fail_count++;
     end
 
-    // Clear interrupts
-    interrupt_request[1] = 1'b0;
-    interrupt_request[7] = 1'b0;
-    write_pic(1'b0, 8'h20);  // EOI
-    repeat(5) @(posedge clk);
+    // Clear interrupts - must clear request lines first, then send EOI
+    interrupt_request = 8'h00;  // Clear all interrupt requests first
+    repeat(10) @(posedge clk);
+    write_pic(1'b0, 8'h20);  // Send EOI
+    repeat(30) @(posedge clk);
+    write_pic(1'b1, 8'hFF);  // Mask all interrupts temporarily
+    repeat(10) @(posedge clk);
+    write_pic(1'b1, 8'h00);  // Unmask all interrupts
+    repeat(10) @(posedge clk);
 
     $display("");
     $display("Test 10: Mask specific IRQ (IRQ 3)");
     test_count++;
+
+    // Ensure all interrupt requests are low for clean edge detection
+    interrupt_request = 8'h00;
+    repeat(20) @(posedge clk);
+
     // Set bit 3 in IMR to mask IRQ 3
     write_pic(1'b1, 8'h08);  // IMR = 0000_1000
-    interrupt_request[3] = 1'b1;
-    repeat(10) @(posedge clk);
+    repeat(10) @(posedge clk);  // Let mask register update
 
-    if (simpleirq[3] == 1'b0) begin
+    // Create clean rising edge on IRQ 3 (should be masked)
+    interrupt_request[3] = 1'b0;
+    repeat(5) @(posedge clk);
+    interrupt_request[3] = 1'b1;
+    repeat(15) @(posedge clk);
+
+    // When masked, interrupt_to_cpu should be 0
+    if (interrupt_to_cpu == 1'b0) begin
         $display("  [PASS] IRQ 3 masked (no interrupt)");
         pass_count++;
     end else begin
-        $display("  [FAIL] IRQ 3 not masked (interrupt occurred)");
+        $display("  [FAIL] IRQ 3 not masked (interrupt_to_cpu=%b, simpleirq[2:0]=%d)", interrupt_to_cpu, simpleirq[2:0]);
         fail_count++;
     end
     interrupt_request[3] = 1'b0;

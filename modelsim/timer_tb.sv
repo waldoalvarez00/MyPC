@@ -187,16 +187,28 @@ initial begin
     // Configure Timer 2: Mode 3 (square wave), 16-bit access
     write_timer(2'b11, 8'b10110110);  // 0x43: Channel 2, LSB+MSB, Mode 3
     // Write count value 100 for high frequency
-    write_timer(2'b10, 8'd100);  // 0x42: LSB
-    write_timer(2'b10, 8'h00);   // 0x42: MSB
+    // NOTE: Timer 2 is at address 01 (Timer 1 not implemented)
+    write_timer(2'b01, 8'd100);  // Timer 2: LSB
+    write_timer(2'b01, 8'h00);   // Timer 2: MSB
+
+    // Wait for configuration to settle
+    repeat(10) @(posedge clk);
     $display("  [PASS] Timer 2 configured for square wave generation");
     pass_count++;
 
     $display("");
     $display("Test 6: Verify Timer 2 square wave output toggles");
     test_count++;
+
+    // Create a gate rising edge to trigger timer start
+    speaker_gate_en = 1'b0;
+    repeat(10) @(posedge clk);
+    speaker_gate_en = 1'b1;
+    repeat(50) @(posedge clk);  // Wait for trigger to propagate
+
     toggle_count = 0;
     prev_speaker = speaker_out;
+    $display("  [DEBUG] Initial speaker_out = %b", speaker_out);
 
     // Wait and count toggles (increased observation window)
     repeat(5000) begin
@@ -204,6 +216,8 @@ initial begin
         if (speaker_out != prev_speaker) begin
             toggle_count = toggle_count + 1;
             prev_speaker = speaker_out;
+            if (toggle_count <= 3)
+                $display("  [DEBUG] Toggle %0d detected at PIT cycle", toggle_count);
         end
     end
 
@@ -212,6 +226,7 @@ initial begin
         pass_count++;
     end else begin
         $display("  [FAIL] Speaker output did not toggle (got %0d toggles)", toggle_count);
+        $display("  [DEBUG] Final speaker_out = %b", speaker_out);
         fail_count++;
     end
 
@@ -291,7 +306,7 @@ initial begin
     test_count++;
     // Configure Timer 2: Mode 2, LSB only
     write_timer(2'b11, 8'b10010100);  // 0x43: Channel 2, LSB only, Mode 2
-    write_timer(2'b10, 8'd200);       // 0x42: LSB only
+    write_timer(2'b01, 8'd200);       // Timer 2: LSB only
     $display("  [PASS] LSB-only access mode configured");
     pass_count++;
 
@@ -300,7 +315,7 @@ initial begin
     test_count++;
     // Configure Timer 2: Mode 2, MSB only
     write_timer(2'b11, 8'b10100100);  // 0x43: Channel 2, MSB only, Mode 2
-    write_timer(2'b10, 8'd100);       // 0x42: MSB only
+    write_timer(2'b01, 8'd100);       // Timer 2: MSB only
     $display("  [PASS] MSB-only access mode configured");
     pass_count++;
 
@@ -355,8 +370,8 @@ initial begin
     // Standard PC speaker setup: Mode 3, variable count
     speaker_gate_en = 1'b1;
     write_timer(2'b11, 8'b10110110);  // Mode 3
-    write_timer(2'b10, 8'hA9);        // 1193 Hz tone (LSB)
-    write_timer(2'b10, 8'h04);        // (MSB)
+    write_timer(2'b01, 8'hA9);        // Timer 2: 1193 Hz tone (LSB)
+    write_timer(2'b01, 8'h04);        // Timer 2: (MSB)
 
     repeat(100) @(posedge clk);
     $display("  [PASS] Standard PC timer configuration successful");
