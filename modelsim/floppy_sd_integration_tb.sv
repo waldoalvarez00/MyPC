@@ -40,6 +40,12 @@ reg  [15:0] mgmt_writedata;
 reg         mgmt_read;
 wire [15:0] mgmt_readdata;
 
+// Floppy controller CHS interface
+reg  [7:0]  floppy_cylinder;
+reg         floppy_head;
+reg  [7:0]  floppy_sector;
+reg         floppy_drive;
+
 // Floppy request interface
 reg  [1:0]  floppy_request;
 wire [1:0]  wp_status;
@@ -48,6 +54,7 @@ wire [1:0]  wp_status;
 integer test_count;
 integer pass_count;
 integer fail_count;
+integer i;
 
 // DUT instantiation
 floppy_disk_manager dut (
@@ -70,6 +77,10 @@ floppy_disk_manager dut (
     .mgmt_writedata     (mgmt_writedata),
     .mgmt_read          (mgmt_read),
     .mgmt_readdata      (mgmt_readdata),
+    .floppy_cylinder    (floppy_cylinder),
+    .floppy_head        (floppy_head),
+    .floppy_sector      (floppy_sector),
+    .floppy_drive       (floppy_drive),
     .floppy_request     (floppy_request),
     .wp_status          (wp_status)
 );
@@ -105,6 +116,10 @@ initial begin
     mgmt_write = 1'b0;
     mgmt_writedata = 16'h0;
     mgmt_read = 1'b0;
+    floppy_cylinder = 8'h0;
+    floppy_head = 1'b0;
+    floppy_sector = 8'h1;
+    floppy_drive = 1'b0;
     floppy_request = 2'b00;
 
     // Wait for reset
@@ -426,6 +441,309 @@ initial begin
     end
     mgmt_read = 1'b0;
     @(posedge clk);
+
+    $display("");
+    $display("================================================================");
+    $display("CHS to LBA Calculation Tests");
+    $display("================================================================");
+
+    // Remount 1.44MB disk for LBA tests
+    img_size = 64'd1_474_560;  // 1.44MB: 80 cyl, 2 heads, 18 sectors
+    img_readonly = 2'b00;
+    img_mounted = 2'b01;
+    @(posedge clk);
+    img_mounted = 2'b00;
+    repeat(5) @(posedge clk);
+
+    $display("");
+    $display("Test 17: LBA calculation - First sector (C=0, H=0, S=1)");
+    test_count++;
+    floppy_cylinder = 8'd0;
+    floppy_head = 1'b0;
+    floppy_sector = 8'd1;
+    floppy_drive = 1'b0;
+    floppy_request = 2'b01;  // Read request
+    @(posedge clk);
+    @(posedge clk);  // Wait for LBA calculation
+    @(posedge clk);
+
+    // Read calculated LBA (available after CALC_LBA state)
+    mgmt_address = 4'd6;
+    mgmt_read = 1'b1;
+    @(posedge clk);
+    if (mgmt_readdata == 16'd0) begin
+        $display("  [PASS] LBA for (0,0,1) = 0");
+        pass_count++;
+    end else begin
+        $display("  [FAIL] LBA for (0,0,1) expected 0, got %d", mgmt_readdata);
+        fail_count++;
+    end
+    mgmt_read = 1'b0;
+
+    // Clear request and simulate SD acknowledge to complete operation
+    floppy_request = 2'b00;
+    sd_ack = 2'b01;
+    repeat(5) @(posedge clk);
+    sd_ack = 2'b00;
+    repeat(520) @(posedge clk);  // Wait for operation to complete
+
+    $display("");
+    $display("Test 18: LBA calculation - Second sector (C=0, H=0, S=2)");
+    test_count++;
+    floppy_cylinder = 8'd0;
+    floppy_head = 1'b0;
+    floppy_sector = 8'd2;
+    floppy_drive = 1'b0;
+    floppy_request = 2'b01;
+    @(posedge clk);
+    @(posedge clk);
+    @(posedge clk);
+
+    mgmt_address = 4'd6;
+    mgmt_read = 1'b1;
+    @(posedge clk);
+    if (mgmt_readdata == 16'd1) begin
+        $display("  [PASS] LBA for (0,0,2) = 1");
+        pass_count++;
+    end else begin
+        $display("  [FAIL] LBA for (0,0,2) expected 1, got %d", mgmt_readdata);
+        fail_count++;
+    end
+    mgmt_read = 1'b0;
+    floppy_request = 2'b00;
+    sd_ack = 2'b01;
+    repeat(5) @(posedge clk);
+    sd_ack = 2'b00;
+    repeat(520) @(posedge clk);
+
+    $display("");
+    $display("Test 19: LBA calculation - Head 1, Sector 1 (C=0, H=1, S=1)");
+    test_count++;
+    floppy_cylinder = 8'd0;
+    floppy_head = 1'b1;
+    floppy_sector = 8'd1;
+    floppy_drive = 1'b0;
+    floppy_request = 2'b01;
+    @(posedge clk);
+    @(posedge clk);
+    @(posedge clk);
+
+    mgmt_address = 4'd6;
+    mgmt_read = 1'b1;
+    @(posedge clk);
+    // Formula: LBA = (C * Heads + H) * SPT + (S - 1) = (0*2+1)*18+(1-1) = 18
+    if (mgmt_readdata == 16'd18) begin
+        $display("  [PASS] LBA for (0,1,1) = 18");
+        pass_count++;
+    end else begin
+        $display("  [FAIL] LBA for (0,1,1) expected 18, got %d", mgmt_readdata);
+        fail_count++;
+    end
+    mgmt_read = 1'b0;
+    floppy_request = 2'b00;
+    sd_ack = 2'b01;
+    repeat(5) @(posedge clk);
+    sd_ack = 2'b00;
+    repeat(520) @(posedge clk);
+
+    $display("");
+    $display("Test 20: LBA calculation - Cylinder 1, Head 0, Sector 1 (C=1, H=0, S=1)");
+    test_count++;
+    floppy_cylinder = 8'd1;
+    floppy_head = 1'b0;
+    floppy_sector = 8'd1;
+    floppy_drive = 1'b0;
+    floppy_request = 2'b01;
+    @(posedge clk);
+    @(posedge clk);
+    @(posedge clk);
+
+    mgmt_address = 4'd6;
+    mgmt_read = 1'b1;
+    @(posedge clk);
+    // Formula: LBA = (1*2+0)*18+(1-1) = 36
+    if (mgmt_readdata == 16'd36) begin
+        $display("  [PASS] LBA for (1,0,1) = 36");
+        pass_count++;
+    end else begin
+        $display("  [FAIL] LBA for (1,0,1) expected 36, got %d", mgmt_readdata);
+        fail_count++;
+    end
+    mgmt_read = 1'b0;
+    floppy_request = 2'b00;
+    sd_ack = 2'b01;
+    repeat(5) @(posedge clk);
+    sd_ack = 2'b00;
+    repeat(520) @(posedge clk);
+
+    $display("");
+    $display("Test 21: LBA calculation - Last sector (C=79, H=1, S=18)");
+    test_count++;
+    floppy_cylinder = 8'd79;
+    floppy_head = 1'b1;
+    floppy_sector = 8'd18;
+    floppy_drive = 1'b0;
+    floppy_request = 2'b01;
+    @(posedge clk);
+    @(posedge clk);
+    @(posedge clk);
+
+    mgmt_address = 4'd6;
+    mgmt_read = 1'b1;
+    @(posedge clk);
+    // Formula: LBA = (79*2+1)*18+(18-1) = 159*18+17 = 2862+17 = 2879
+    if (mgmt_readdata == 16'd2879) begin
+        $display("  [PASS] LBA for (79,1,18) = 2879 (last sector)");
+        pass_count++;
+    end else begin
+        $display("  [FAIL] LBA for (79,1,18) expected 2879, got %d", mgmt_readdata);
+        fail_count++;
+    end
+    mgmt_read = 1'b0;
+    floppy_request = 2'b00;
+    sd_ack = 2'b01;
+    repeat(5) @(posedge clk);
+    sd_ack = 2'b00;
+    repeat(520) @(posedge clk);
+
+    $display("");
+    $display("================================================================");
+    $display("SD Card Read/Write Operation Tests");
+    $display("================================================================");
+
+    $display("");
+    $display("Test 22: SD card read request generation");
+    test_count++;
+    floppy_cylinder = 8'd0;
+    floppy_head = 1'b0;
+    floppy_sector = 8'd1;
+    floppy_drive = 1'b0;
+    floppy_request = 2'b01;  // Read request
+    @(posedge clk);  // IDLE → CALC_LBA
+    @(posedge clk);  // CALC_LBA → READ_REQUEST
+    @(posedge clk);  // READ_REQUEST → READ_WAIT_ACK
+    @(posedge clk);  // One more cycle for signals to settle
+
+    if (sd_rd == 2'b01 && sd_lba == 32'd0) begin
+        $display("  [PASS] SD read request generated for drive A, LBA=0");
+        pass_count++;
+    end else begin
+        $display("  [FAIL] SD read: expected rd=01 lba=0, got rd=%b lba=%d", sd_rd, sd_lba);
+        fail_count++;
+    end
+
+    // Simulate SD card acknowledge
+    sd_ack = 2'b01;
+    @(posedge clk);
+    @(posedge clk);
+    sd_ack = 2'b00;
+    floppy_request = 2'b00;
+
+    // Wait for state machine to complete
+    repeat(520) @(posedge clk);
+
+    $display("");
+    $display("Test 23: SD card write request generation");
+    test_count++;
+    floppy_cylinder = 8'd10;
+    floppy_head = 1'b1;
+    floppy_sector = 8'd5;
+    floppy_drive = 1'b0;
+    floppy_request = 2'b10;  // Write request
+    @(posedge clk);  // IDLE → CALC_LBA
+    @(posedge clk);  // CALC_LBA → WRITE_REQUEST
+    @(posedge clk);  // WRITE_REQUEST → WRITE_WAIT_ACK
+    @(posedge clk);  // One more cycle for signals to settle
+
+    // Expected LBA: (10*2+1)*18+(5-1) = 21*18+4 = 378+4 = 382
+    if (sd_wr == 2'b01 && sd_lba == 32'd382) begin
+        $display("  [PASS] SD write request generated for drive A, LBA=382");
+        pass_count++;
+    end else begin
+        $display("  [FAIL] SD write: expected wr=01 lba=382, got wr=%b lba=%d", sd_wr, sd_lba);
+        fail_count++;
+    end
+
+    sd_ack = 2'b01;
+    @(posedge clk);
+    @(posedge clk);
+    sd_ack = 2'b00;
+    floppy_request = 2'b00;
+    repeat(520) @(posedge clk);
+
+    $display("");
+    $display("Test 24: SD card drive B selection");
+    test_count++;
+    floppy_cylinder = 8'd5;
+    floppy_head = 1'b0;
+    floppy_sector = 8'd1;
+    floppy_drive = 1'b1;  // Drive B
+    floppy_request = 2'b01;
+    @(posedge clk);  // IDLE → CALC_LBA
+    @(posedge clk);  // CALC_LBA → READ_REQUEST
+    @(posedge clk);  // READ_REQUEST → READ_WAIT_ACK
+    @(posedge clk);  // One more cycle for signals to settle
+
+    // Expected LBA: (5*2+0)*9+(1-1) = 10*9+0 = 90 (Drive B has 720KB: 9 SPT)
+    if (sd_rd == 2'b10 && sd_lba == 32'd90) begin
+        $display("  [PASS] SD read request generated for drive B, LBA=90");
+        pass_count++;
+    end else begin
+        $display("  [FAIL] SD read drive B: expected rd=10 lba=90, got rd=%b lba=%d", sd_rd, sd_lba);
+        fail_count++;
+    end
+
+    sd_ack = 2'b10;
+    @(posedge clk);
+    @(posedge clk);
+    sd_ack = 2'b00;
+    floppy_request = 2'b00;
+    repeat(520) @(posedge clk);
+
+    $display("");
+    $display("Test 25: State machine verification");
+    test_count++;
+    // Check initial state
+    mgmt_address = 4'd7;  // State register
+    mgmt_read = 1'b1;
+    @(posedge clk);
+    if (mgmt_readdata[2:0] == 3'd0) begin  // STATE_IDLE
+        $display("  [PASS] State machine in IDLE state");
+        pass_count++;
+    end else begin
+        $display("  [FAIL] Expected IDLE state (0), got %d", mgmt_readdata[2:0]);
+        fail_count++;
+    end
+    mgmt_read = 1'b0;
+    @(posedge clk);
+
+    $display("");
+    $display("Test 26: Buffer write enable during write operation");
+    test_count++;
+    // Fill buffer with test pattern
+    floppy_cylinder = 8'd0;
+    floppy_head = 1'b0;
+    floppy_sector = 8'd1;
+    floppy_drive = 1'b0;
+    floppy_request = 2'b10;  // Write request
+    @(posedge clk);
+    @(posedge clk);
+    @(posedge clk);
+    @(posedge clk);
+
+    if (sd_buff_wr == 1'b1) begin
+        $display("  [PASS] Buffer write enable asserted during write operation");
+        pass_count++;
+    end else begin
+        $display("  [FAIL] Buffer write enable not asserted");
+        fail_count++;
+    end
+
+    sd_ack = 2'b01;
+    @(posedge clk);
+    sd_ack = 2'b00;
+    floppy_request = 2'b00;
+    repeat(520) @(posedge clk);
 
     // Test Summary
     $display("");

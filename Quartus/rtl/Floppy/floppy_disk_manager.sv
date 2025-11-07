@@ -43,6 +43,12 @@ module floppy_disk_manager
     input  wire         mgmt_read,       // Read from management register
     output logic [15:0] mgmt_readdata,   // Data read
 
+    // Floppy controller CHS interface
+    input  wire  [7:0]  floppy_cylinder,  // Current cylinder (0-79)
+    input  wire         floppy_head,      // Current head (0-1)
+    input  wire  [7:0]  floppy_sector,    // Current sector (1-based)
+    input  wire         floppy_drive,     // Drive selection (0=A, 1=B)
+
     // Floppy request interface
     input  wire  [1:0]  floppy_request,  // bit0=read, bit1=write
     output logic [1:0]  wp_status        // Write protect (bit 0=drive A, bit 1=drive B)
@@ -55,6 +61,37 @@ logic [7:0]  media_cylinders[2];    // Number of cylinders
 logic [7:0]  media_sectors_per_track[2];  // Sectors per track
 logic [15:0] media_sector_count[2]; // Total sector count
 logic [1:0]  media_heads[2];        // Number of heads
+
+// State machine for sector buffering
+typedef enum logic [2:0] {
+    STATE_IDLE,
+    STATE_CALC_LBA,
+    STATE_READ_REQUEST,
+    STATE_READ_WAIT_ACK,
+    STATE_READ_DATA,
+    STATE_WRITE_REQUEST,
+    STATE_WRITE_WAIT_ACK,
+    STATE_WRITE_COMPLETE
+} state_t;
+
+state_t state, next_state;
+
+// LBA calculation registers
+logic [15:0] lba_temp;
+logic [15:0] lba_calculated;
+logic [7:0]  calc_cylinder;
+logic        calc_head;
+logic [7:0]  calc_sector;
+logic        calc_drive;
+
+// Sector buffer (512 bytes)
+logic [7:0]  sector_buffer[512];
+logic [8:0]  buffer_addr;
+
+// SD card control signals
+logic [31:0] current_lba;
+logic [1:0]  sd_rd_req;
+logic [1:0]  sd_wr_req;
 
 // Initialize on mount
 always @(posedge clk or posedge reset) begin
@@ -204,6 +241,8 @@ always_comb begin
         4'd3: mgmt_readdata = {8'b0, media_sectors_per_track[mgmt_fddn]};
         4'd4: mgmt_readdata = media_sector_count[mgmt_fddn];
         4'd5: mgmt_readdata = {14'b0, media_heads[mgmt_fddn]};
+        4'd6: mgmt_readdata = lba_calculated;  // Debug: expose calculated LBA
+        4'd7: mgmt_readdata = {13'b0, state};  // Debug: expose state
         default: mgmt_readdata = 16'h0001;  // Return 1 for unsupported addresses
     endcase
 end
@@ -211,16 +250,197 @@ end
 // Output write protect status
 assign wp_status = media_writeprotect | img_readonly;
 
-// SD card interface logic
-// Note: Full sector buffering logic would go here
-// For now, this is a placeholder that passes through floppy requests
-always_comb begin
-    sd_rd = floppy_request[0] ? (mgmt_fddn ? 2'b10 : 2'b01) : 2'b00;
-    sd_wr = floppy_request[1] ? (mgmt_fddn ? 2'b10 : 2'b01) : 2'b00;
-    sd_lba = 32'h0;  // Would be calculated from cylinder/head/sector
-    sd_buff_din = 8'h00;
-    sd_buff_wr = 1'b0;
+//============================================================================
+// CHS to LBA Calculation Module
+// Formula: LBA = (C * Heads + H) * Sectors_per_track + (S - 1)
+//============================================================================
+
+// Capture CHS values when request starts
+always @(posedge clk or posedge reset) begin
+    if (reset) begin
+        calc_cylinder <= 8'd0;
+        calc_head <= 1'b0;
+        calc_sector <= 8'd0;
+        calc_drive <= 1'b0;
+    end else if (state == STATE_IDLE && |floppy_request) begin
+        calc_cylinder <= floppy_cylinder;
+        calc_head <= floppy_head;
+        calc_sector <= floppy_sector;
+        calc_drive <= floppy_drive;
+    end
 end
+
+// LBA calculation logic (combinational for single-cycle operation)
+// Formula: LBA = (C * Heads + H) * Sectors_per_track + (S - 1)
+always_comb begin
+    // Step 1: Calculate (Cylinder * Heads + Head)
+    if (media_heads[calc_drive] == 2'd2)
+        lba_temp = {7'b0, calc_cylinder, 1'b0} + {15'b0, calc_head};  // C*2+H
+    else
+        lba_temp = {8'b0, calc_cylinder} + {15'b0, calc_head};        // C*1+H
+
+    // Step 2: Calculate temp * Sectors_per_track + (Sector - 1)
+    lba_calculated = lba_temp * {8'b0, media_sectors_per_track[calc_drive]} +
+                     {8'b0, calc_sector} - 16'd1;
+end
+
+//============================================================================
+// Sector Buffering State Machine
+//============================================================================
+
+// State machine sequential logic
+always @(posedge clk or posedge reset) begin
+    if (reset)
+        state <= STATE_IDLE;
+    else
+        state <= next_state;
+end
+
+// State machine combinational logic
+always_comb begin
+    next_state = state;
+
+    case (state)
+        STATE_IDLE: begin
+            if (floppy_request[0]) // Read request
+                next_state = STATE_CALC_LBA;
+            else if (floppy_request[1]) // Write request
+                next_state = STATE_CALC_LBA;
+        end
+
+        STATE_CALC_LBA: begin
+            // LBA calculation takes one cycle
+            if (floppy_request[0])
+                next_state = STATE_READ_REQUEST;
+            else if (floppy_request[1])
+                next_state = STATE_WRITE_REQUEST;
+            else
+                next_state = STATE_IDLE;
+        end
+
+        STATE_READ_REQUEST: begin
+            next_state = STATE_READ_WAIT_ACK;
+        end
+
+        STATE_READ_WAIT_ACK: begin
+            if (sd_ack[calc_drive])
+                next_state = STATE_READ_DATA;
+        end
+
+        STATE_READ_DATA: begin
+            // After acknowledge, return to IDLE
+            // (SD card will continue buffering data asynchronously)
+            next_state = STATE_IDLE;
+        end
+
+        STATE_WRITE_REQUEST: begin
+            next_state = STATE_WRITE_WAIT_ACK;
+        end
+
+        STATE_WRITE_WAIT_ACK: begin
+            if (sd_ack[calc_drive])
+                next_state = STATE_WRITE_COMPLETE;
+        end
+
+        STATE_WRITE_COMPLETE: begin
+            // After acknowledge, return to IDLE
+            // (SD card will continue writing data asynchronously)
+            next_state = STATE_IDLE;
+        end
+
+        default: next_state = STATE_IDLE;
+    endcase
+end
+
+// Buffer address counter
+always @(posedge clk or posedge reset) begin
+    if (reset) begin
+        buffer_addr <= 9'd0;
+    end else begin
+        case (state)
+            STATE_IDLE, STATE_CALC_LBA: begin
+                buffer_addr <= 9'd0;
+            end
+
+            STATE_READ_DATA: begin
+                if (buffer_addr < 9'd511)
+                    buffer_addr <= buffer_addr + 9'd1;
+            end
+
+            STATE_WRITE_COMPLETE: begin
+                if (buffer_addr < 9'd511)
+                    buffer_addr <= buffer_addr + 9'd1;
+            end
+        endcase
+    end
+end
+
+// Sector buffer write logic
+always @(posedge clk) begin
+    if (state == STATE_READ_DATA && buffer_addr == sd_buff_addr) begin
+        sector_buffer[buffer_addr] <= sd_buff_dout;
+    end
+end
+
+// SD card interface outputs
+always @(posedge clk or posedge reset) begin
+    if (reset) begin
+        sd_lba <= 32'd0;
+        sd_rd_req <= 2'b00;
+        sd_wr_req <= 2'b00;
+        current_lba <= 32'd0;
+    end else begin
+        case (state)
+            STATE_IDLE: begin
+                sd_rd_req <= 2'b00;
+                sd_wr_req <= 2'b00;
+            end
+
+            STATE_CALC_LBA: begin
+                // Update LBA for next state
+                current_lba <= {16'b0, lba_calculated};
+            end
+
+            STATE_READ_REQUEST: begin
+                sd_lba <= current_lba;
+                sd_rd_req <= calc_drive ? 2'b10 : 2'b01;
+            end
+
+            STATE_READ_WAIT_ACK: begin
+                // Hold request until acknowledged
+                sd_lba <= current_lba;
+            end
+
+            STATE_READ_DATA: begin
+                sd_rd_req <= 2'b00; // Clear request after ack
+            end
+
+            STATE_WRITE_REQUEST: begin
+                sd_lba <= current_lba;
+                sd_wr_req <= calc_drive ? 2'b10 : 2'b01;
+            end
+
+            STATE_WRITE_WAIT_ACK: begin
+                // Hold request until acknowledged
+                sd_lba <= current_lba;
+            end
+
+            STATE_WRITE_COMPLETE: begin
+                sd_wr_req <= 2'b00; // Clear request after ack
+            end
+        endcase
+    end
+end
+
+// SD card buffer data outputs
+always_comb begin
+    sd_buff_din = sector_buffer[sd_buff_addr];
+    sd_buff_wr = (state == STATE_WRITE_REQUEST || state == STATE_WRITE_WAIT_ACK || state == STATE_WRITE_COMPLETE);
+end
+
+// Assign SD card request outputs
+assign sd_rd = sd_rd_req;
+assign sd_wr = sd_wr_req;
 
 endmodule
 
