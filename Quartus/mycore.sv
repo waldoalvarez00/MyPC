@@ -320,6 +320,20 @@ wire wps2_mouse_data_in;
 
 wire [15:0] sdram_sz;
 
+// Disk image mounting signals
+wire [1:0]  img_mounted;      // Pulse when disk image mounted (bit 0=drive A, bit 1=drive B)
+wire [1:0]  img_readonly;     // Write protect status
+wire [63:0] img_size;         // Disk image size in bytes
+
+// SD card interface signals
+wire [31:0] sd_lba;           // Logical block address
+wire [1:0]  sd_rd;            // Read request
+wire [1:0]  sd_wr;            // Write request
+wire [1:0]  sd_ack;           // Transfer acknowledge
+wire [8:0]  sd_buff_addr;     // Buffer address (0-511)
+wire [7:0]  sd_buff_dout;     // Data from SD card
+wire [7:0]  sd_buff_din;      // Data to SD card
+wire        sd_buff_wr;       // Buffer write enable
 
 hps_io #(.CONF_STR(CONF_STR), .PS2DIV(10), .PS2WE(1), .WIDE(1)) hps_io
 (
@@ -353,7 +367,22 @@ hps_io #(.CONF_STR(CONF_STR), .PS2DIV(10), .PS2WE(1), .WIDE(1)) hps_io
 	.ps2_mouse_clk_out(wps2_mouse_clk_in),
 	.ps2_mouse_data_out(wps2_mouse_data_in),
 	.ps2_mouse_clk_in(wps2_mouse_clk_out),
-	.ps2_mouse_data_in(wps2_mouse_data_out)
+	.ps2_mouse_data_in(wps2_mouse_data_out),
+
+	// Disk image mounting interface
+	.img_mounted(img_mounted),
+	.img_readonly(img_readonly),
+	.img_size(img_size),
+
+	// SD card interface for floppy images
+	.sd_lba(sd_lba),
+	.sd_rd(sd_rd),
+	.sd_wr(sd_wr),
+	.sd_ack(sd_ack),
+	.sd_buff_addr(sd_buff_addr),
+	.sd_buff_dout(sd_buff_dout),
+	.sd_buff_din(sd_buff_din),
+	.sd_buff_wr(sd_buff_wr)
 );
 
 ///////////////////////   CLOCKS   ///////////////////////////////
@@ -1398,6 +1427,49 @@ DMAUnit uDMAUnit(
 
 wire fdd_interrupt;
 
+// Floppy disk manager signals for MiSTer SD card integration
+wire [3:0]  floppy_mgmt_address;
+wire        floppy_mgmt_fddn;
+wire        floppy_mgmt_write;
+wire [15:0] floppy_mgmt_writedata;
+wire        floppy_mgmt_read;
+wire [15:0] floppy_mgmt_readdata;
+wire [1:0]  floppy_wp_status;
+wire [1:0]  floppy_request;
+
+// Floppy disk manager - handles SD card interface and disk image mounting
+floppy_disk_manager floppy_mgr (
+    .clk                    (sys_clk),
+    .reset                  (post_sdram_reset),
+
+    // HPS disk image mounting interface
+    .img_mounted            (img_mounted),
+    .img_readonly           (img_readonly),
+    .img_size               (img_size),
+
+    // SD card interface
+    .sd_lba                 (sd_lba),
+    .sd_rd                  (sd_rd),
+    .sd_wr                  (sd_wr),
+    .sd_ack                 (sd_ack),
+    .sd_buff_addr           (sd_buff_addr),
+    .sd_buff_dout           (sd_buff_dout),
+    .sd_buff_din            (sd_buff_din),
+    .sd_buff_wr             (sd_buff_wr),
+
+    // Floppy controller management interface
+    .mgmt_address           (floppy_mgmt_address),
+    .mgmt_fddn              (floppy_mgmt_fddn),
+    .mgmt_write             (floppy_mgmt_write),
+    .mgmt_writedata         (floppy_mgmt_writedata),
+    .mgmt_read              (floppy_mgmt_read),
+    .mgmt_readdata          (floppy_mgmt_readdata),
+
+    // Floppy request interface
+    .floppy_request         (floppy_request),
+    .wp_status              (floppy_wp_status)
+);
+
 floppy floppy 
     (
         .clk                        (sys_clk),
@@ -1423,18 +1495,18 @@ floppy floppy
 
         .fdd0_inserted              (/* not connected */),
 
-        .mgmt_address               (4'b0),           // TODO: Connect to MiSTer SD interface
-        .mgmt_fddn                  (1'b0),
-        .mgmt_write                 (1'b0),
-        .mgmt_writedata             (16'b0),
-        .mgmt_read                  (1'b0),
-        .mgmt_readdata              (/* not connected - TODO */),
+        .mgmt_address               (floppy_mgmt_address),
+        .mgmt_fddn                  (floppy_mgmt_fddn),
+        .mgmt_write                 (floppy_mgmt_write),
+        .mgmt_writedata             (floppy_mgmt_writedata),
+        .mgmt_read                  (floppy_mgmt_read),
+        .mgmt_readdata              (floppy_mgmt_readdata),
 
-        .wp                         (2'b00),          // Not write protected
+        .wp                         (floppy_wp_status),
 
         .clock_rate                 (28'd50_000_000),  // 50 MHz system clock
 
-        .request                    (/* not connected - TODO: for SD card interface */)
+        .request                    (floppy_request)
     );
 	 
 
