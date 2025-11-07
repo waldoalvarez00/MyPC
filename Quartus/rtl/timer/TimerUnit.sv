@@ -97,17 +97,30 @@ wire trigger = gate & ~last_gate;
 task count_rate_gen;
 begin
     if (trigger) begin
-	 
-        count <= reload[0] ? reload - 1'b1 : reload;
+        // Initialize for Mode 3 square wave
+        count <= reload;
         out <= 1'b1;
-		  
     end else if (pit_clk_posedge && gate) begin
-        if (count == 17'b0 || count == 16'b1)
-            count <= reload[0] ? reload - 17'd1 : reload;
-        else
-            count <= count - 16'd1;
-        if (count == 17'd2)
-            out <= ~out;
+        // Mode 3: Square Wave Generation
+        // Decrement counter and toggle output at midpoint
+
+        if (count == 17'd0) begin
+            // Reload counter and set output HIGH
+            count <= reload;
+            out <= 1'b1;
+        end else begin
+            // Decrement counter
+            count <= count - 17'd1;
+
+            // Check if next value will be at midpoint
+            // For even reload: midpoint is reload/2
+            // For odd reload: midpoint is (reload+1)/2
+            // Since we're checking BEFORE the decrement takes effect,
+            // we check if current count - 1 equals midpoint
+            if ((count - 17'd1) == ({1'b0, reload[16:1]})) begin
+                out <= 1'b0;  // Go LOW at midpoint
+            end
+        end
     end
 end
 endtask
@@ -204,40 +217,36 @@ always_ff @(posedge reset or posedge clk) begin
         reload_low_stored <= 1'b0;
 		  
     end else if (configure) begin
-	 
+
         reload <= 17'b0;
         reload_low_stored <= 1'b0;
-		  
+
     end else if (load) begin
-	 
+
         if (rw == 2'b10) begin // High byte
 
             reload[15:8] <= reload_in;
 
         end else if (rw == 2'b01) begin // Low Byte
-		  
+
             reload[7:0] <= reload_in;
-				
+
         end else begin
-		  
+
             if (reload_low_stored) begin
-				
-                					 
-					 // Before loading, check if reload is zero, and adjust the most significant bit accordingly.
+
+                // Before loading, check if reload is zero, and adjust the most significant bit accordingly.
                 if (reload_in == 8'b0 && reload_low == 8'b0) begin
                     // If reload is zero, set the MSB of the counter to 1 when loading.
                     reload <= {1'b1, reload_in, reload_low};
-					//count  <= {1'b1, reload_in, reload_low};
                 end else begin
                     reload <= {1'b0, reload_in, reload_low};
-					//count  <= {1'b0, reload_in, reload_low};
                 end
-					 
+
                 reload_low_stored <= 1'b0;
-					 
-					 
+
             end else begin
-				
+
                 reload_low <= reload_in;
                 reload_low_stored <= 1'b1;
             end

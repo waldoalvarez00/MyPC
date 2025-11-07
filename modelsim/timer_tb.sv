@@ -87,7 +87,7 @@ task write_timer(input [2:1] addr, input [7:0] data);
         data_m_bytesel = 2'b01;
         data_m_wr_en = 1'b1;
         @(posedge clk);
-        @(posedge clk);  // Extra clock for data propagation
+        // Only hold wr_en for 1 clock to avoid double-triggering the load
         cs = 1'b0;
         data_m_access = 1'b0;
         data_m_wr_en = 1'b0;
