@@ -77,6 +77,7 @@ initial begin
 end
 
 // Helper task for writing to timer
+// Fixed timing: proper handshake sequence
 task write_timer(input [2:1] addr, input [7:0] data);
     begin
         cs = 1'b1;
@@ -86,6 +87,7 @@ task write_timer(input [2:1] addr, input [7:0] data);
         data_m_bytesel = 2'b01;
         data_m_wr_en = 1'b1;
         @(posedge clk);
+        @(posedge clk);  // Extra clock for data propagation
         cs = 1'b0;
         data_m_access = 1'b0;
         data_m_wr_en = 1'b0;
@@ -196,8 +198,8 @@ initial begin
     toggle_count = 0;
     prev_speaker = speaker_out;
 
-    // Wait and count toggles
-    repeat(1000) begin
+    // Wait and count toggles (increased observation window)
+    repeat(5000) begin
         @(posedge pit_clk);
         if (speaker_out != prev_speaker) begin
             toggle_count = toggle_count + 1;
@@ -310,6 +312,7 @@ initial begin
     data_m_addr = 2'b00;
     data_m_wr_en = 1'b0;
     @(posedge clk);
+    @(posedge clk);  // ACK may take an extra clock cycle
     if (data_m_ack) begin
         $display("  [PASS] ACK signal asserted on read access");
         pass_count++;

@@ -88,6 +88,7 @@ initial begin
 end
 
 // Helper task for writing to PIC
+// Fixed timing: proper handshake sequence
 task write_pic(input addr, input [7:0] data);
     begin
         chip_select = 1'b1;
@@ -96,6 +97,7 @@ task write_pic(input addr, input [7:0] data);
         address = addr;
         data_bus_in = {8'h00, data};
         @(posedge clk);
+        @(posedge clk);  // Extra clock for data propagation
         chip_select = 1'b0;
         write_enable = 1'b0;
         @(posedge clk);

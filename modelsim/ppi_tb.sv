@@ -80,6 +80,7 @@ initial begin
 end
 
 // Helper task for writing to PPI
+// Fixed: Keep chip_select high while write_enable transitions for proper edge detection
 task write_ppi(input [1:0] addr, input [7:0] data);
     begin
         chip_select = 1'b1;
@@ -87,9 +88,10 @@ task write_ppi(input [1:0] addr, input [7:0] data);
         read_enable = 1'b0;
         address = addr;
         data_bus_in = data;
-        @(posedge clk);
-        chip_select = 1'b0;
-        write_enable = 1'b0;
+        @(posedge clk);        // Clock 1: Setup write
+        write_enable = 1'b0;   // De-assert write_enable (falling edge)
+        @(posedge clk);        // Clock 2: Write pulse occurs here
+        chip_select = 1'b0;    // Now safe to clear chip_select
         @(posedge clk);
     end
 endtask
@@ -148,8 +150,10 @@ initial begin
     // Bit 2: Group B mode (0 = Mode 0)
     // Bit 1: Port B direction (0 = output)
     // Bit 0: Port C lower direction (0 = output)
+    $display("  [DEBUG] Writing control word 0x80 to configure outputs...");
     write_ppi(2'b11, 8'h80);
     repeat(5) @(posedge clk);
+    $display("  [DEBUG] After config: port_a_io=%b, port_b_io=%b", port_a_io, port_b_io);
 
     if (port_a_io == 1'b0 && port_b_io == 1'b0) begin
         $display("  [PASS] Mode 0 configured, ports set as outputs");
@@ -162,8 +166,10 @@ initial begin
     $display("");
     $display("Test 2: Write to Port A and verify output");
     test_count++;
+    $display("  [DEBUG] Writing 0xAA to Port A...");
     write_ppi(2'b00, 8'hAA);  // Write 0xAA to Port A
     repeat(5) @(posedge clk);
+    $display("  [DEBUG] Port A output = 0x%02X (port_a_io=%b)", port_a_out, port_a_io);
 
     if (port_a_out == 8'hAA) begin
         $display("  [PASS] Port A output = 0x%02X", port_a_out);
