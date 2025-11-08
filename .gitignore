@@ -10,3 +10,4 @@ Quartus/verilator_lint.log
 
 # Simulation results
 modelsim/sim_results_*/
+*.vcd
