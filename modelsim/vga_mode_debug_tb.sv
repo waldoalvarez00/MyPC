@@ -3,7 +3,7 @@
 
 `timescale 1ns/1ps
 
-`include "../Quartus/rtl/VGA/VGATypes.sv"
+`include "VGATypes.sv"
 
 module vga_mode_debug_tb;
 
@@ -79,8 +79,13 @@ VGARegisters VGARegisters(
 // Monitor internal signals
 always @(posedge sys_clk) begin
     if (cs && data_m_wr_en && data_m_ack) begin
-        $display("[%0t] Write to addr=%h, data=%h, bytesel=%b",
-                 $time, data_m_addr, data_m_data_in, data_m_bytesel);
+        $display("[%0t] Write to addr=0x%h (%0d decimal) = 0b%b",
+                 $time, data_m_addr, data_m_addr, data_m_addr);
+        $display("    data=%h, bytesel=%b", data_m_data_in, data_m_bytesel);
+        $display("    addr[4:1]=%b (%0d decimal)", data_m_addr[4:1], data_m_addr[4:1]);
+        $display("    Expected for MODE: 4'b0110 (6 decimal)");
+        $display("    reg_access=%b, sel_mode=%b, sel_amcr=%b",
+                 VGARegisters.reg_access, VGARegisters.sel_mode, VGARegisters.sel_amcr);
     end
 end
 

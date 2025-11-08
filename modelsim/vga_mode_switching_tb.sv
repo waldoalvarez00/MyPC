@@ -8,7 +8,7 @@
 
 `timescale 1ns/1ps
 
-`include "../Quartus/rtl/VGA/VGATypes.sv"
+`include "VGATypes.sv"
 
 module vga_mode_switching_tb;
 
@@ -267,11 +267,11 @@ initial begin
     $display("Test 2: CGA Graphics Mode 04h");
     $display("================================================================");
 
-    // Write mode control register (3D8h) to enable graphics
+    // Write mode control register (MCGA addr 0x1EC) to enable graphics
     // Bit 0 = 0: text disabled
     // Bit 1 = 1: graphics mode
     // Bit 3 = 1: display enabled
-    write_register(19'h1EC, 16'h000A, 2'b01);  // 3D8 = 0x0A
+    write_register(19'h1EC, 16'h000A, 2'b01);  // MCGA Mode Control = 0x0A
 
     test_mode_detection("CGA graphics mode", MODE_04H);
 
@@ -281,8 +281,8 @@ initial begin
     $display("Test 3: MCGA Mode 13h (256 colors)");
     $display("================================================================");
 
-    // Write AMCR register (3C0h) to enable 256-color mode
-    write_register(19'h1E0, 16'h0041, 2'b11);  // 3C0 = 0x41
+    // Write AMCR register (MCGA addr 0x1E0) to enable 256-color mode
+    write_register(19'h1E0, 16'h0041, 2'b01);  // MCGA AMCR = 0x41
 
     test_mode_detection("MCGA 256-color mode", MODE_13H);
 

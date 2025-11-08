@@ -54,30 +54,20 @@ module VGARegisters(input wire  clk,
 
 wire reg_access     = cs & data_m_access;
 
-// We need to fix this with simpler IO
-//wire sel_index      = reg_access & data_m_addr[4:1] == 4'b1010 & data_m_bytesel[0];
-//wire sel_value      = reg_access & data_m_addr[4:1] == 4'b1010 & data_m_bytesel[1];
-//wire sel_mode       = reg_access & data_m_addr[4:1] == 4'b1100 & data_m_bytesel[0];
-//wire sel_color      = reg_access & data_m_addr[4:1] == 4'b1100 & data_m_bytesel[1];
-//wire sel_status     = reg_access & data_m_addr[4:1] == 4'b1101 & data_m_bytesel[0];
-//wire sel_amcr       = reg_access & data_m_addr[4:1] == 4'b0000 & data_m_bytesel[0];
-//wire sel_dac_wr_idx = reg_access & data_m_addr[4:1] == 4'b0100 & data_m_bytesel[0];
-//wire sel_dac_rd_idx = reg_access & data_m_addr[4:1] == 4'b0011 & data_m_bytesel[1];
-//wire sel_dac        = reg_access & data_m_addr[4:1] == 4'b0100 & data_m_bytesel[1];
+// MCGA Register Address Decode
+// MCGA controller uses non-standard addresses to coexist with CGA controller
+// Addresses are at 0x1E0-0x1ED (I/O ports 0x3C0-0x3DA equivalent)
+// Note: data_m_addr is [19:1], so data_m_addr[4:1] extracts numerical bits [3:0]
 
-
-
-wire sel_index       = reg_access & data_m_addr[5:1] == 5'b10100; // 3D4
-wire sel_value       = reg_access & data_m_addr[5:1] == 5'b10101; // 3D5
-
-wire sel_mode        = reg_access & data_m_addr[5:1] == 5'b11000; // 3D8 mode control register
-wire sel_color       = reg_access & data_m_addr[5:1] == 5'b11001; // 3D9
-wire sel_status      = reg_access & data_m_addr[5:1] == 5'b11010; // 3DA status
-
-wire sel_amcr        = reg_access & data_m_addr[5:1] == 5'b00000; // 3C0
-wire sel_dac_wr_idx  = reg_access & data_m_addr[5:1] == 5'b01000; // 3C8
-wire sel_dac_rd_idx  = reg_access & data_m_addr[5:1] == 5'b00111; // 3C7
-wire sel_dac         = reg_access & data_m_addr[5:1] == 5'b01001; // 3C9
+wire sel_amcr        = reg_access & (data_m_addr[4:1] == 4'b0000) & data_m_bytesel[0];  // 0x1E0
+wire sel_dac_rd_idx  = reg_access & (data_m_addr[4:1] == 4'b0011) & data_m_bytesel[1];  // 0x1E3
+wire sel_dac_wr_idx  = reg_access & (data_m_addr[4:1] == 4'b0100) & data_m_bytesel[0];  // 0x1E4
+wire sel_dac         = reg_access & (data_m_addr[4:1] == 4'b0100) & data_m_bytesel[1];  // 0x1E4 (DAC data)
+wire sel_index       = reg_access & (data_m_addr[4:1] == 4'b1010) & data_m_bytesel[0];  // 0x1EA (CRT Index)
+wire sel_value       = reg_access & (data_m_addr[4:1] == 4'b1010) & data_m_bytesel[1];  // 0x1EA (CRT Data)
+wire sel_mode        = reg_access & (data_m_addr[4:1] == 4'b1100) & data_m_bytesel[0];  // 0x1EC (Mode Control)
+wire sel_color       = reg_access & (data_m_addr[4:1] == 4'b1100) & data_m_bytesel[1];  // 0x1EC (Color Select)
+wire sel_status      = reg_access & (data_m_addr[4:1] == 4'b1101) & data_m_bytesel[0];  // 0x1ED (Status)
 
 
 
