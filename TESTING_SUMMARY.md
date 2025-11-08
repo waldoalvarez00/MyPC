@@ -329,14 +329,58 @@ See `CACHE_BUGS.md` for detailed bug analysis and fixes.
 - **Status:** NOT YET TESTED
 - **Priority:** HIGH (critical for memory access)
 
-### 10. VGA Controller (Untested)
+### 10. VGA/MCGA Controller (Tested with Issues) ⚠️
 - **Files:**
+  - `Quartus/rtl/VGA/VGARegisters.sv` (CPU interface - TESTED)
   - `Quartus/rtl/VGA/VGAController.sv`
   - `Quartus/rtl/VGA/FrameBuffer.sv`
   - `Quartus/rtl/VGA/VGASync.sv`
-  - And others
-- **Status:** NOT YET TESTED
-- **Priority:** MEDIUM (visual output)
+  - `Quartus/rtl/VGA/DACRam.v` (replaced with DACRam_sim.sv for testing)
+- **Testbench:** `modelsim/vga_registers_tb.sv`
+- **Script:** `modelsim/run_vga_test.sh`
+- **Tests:** 23 tests created for CPU interface
+- **Status:** BUGS FOUND AND PARTIALLY FIXED
+
+**Supported Video Modes:**
+- ✅ Text mode (80x25, 16 colors)
+- ✅ 4-color CGA graphics (320x200, 2bpp)
+- ✅ 256-color MCGA mode (320x200, 8bpp with DAC palette)
+
+**Missing Video Modes** (as noted):
+- ❌ 2-color high-resolution (640x200, 1bpp)
+- ❌ 16-color EGA modes (320x200, 640x200, 640x350, 640x480)
+- ❌ Monochrome text mode
+- ❌ 40-column text modes (may work but not verified)
+
+**Bugs Found and Fixed:**
+1. ✅ **Uninitialized Registers** - Critical bug
+   - sys_graphics_enabled not initialized in reset (was 'X')
+   - sys_amcr and other control registers uninitialized
+   - Added proper initialization in VGARegisters.sv
+
+2. ✅ **Icarus Verilog Type Issues**
+   - Changed wire to logic for procedurally-assigned signals
+   - sys_cursor_scan_start/end, sys_background_color, index_value
+
+3. ✅ **Data Output Timing** - Icarus Verilog compatibility
+   - Refactored data_m_data_out to use always_comb + register pattern
+   - Similar fix as PS2KeyboardController
+
+**Registers Tested:**
+- 3D4h/3D5h: CRT Controller (cursor position, scan lines)
+- 3D8h: Mode Control (text/graphics/display enable)
+- 3D9h: Color Select (background, brightness, palette)
+- 3DAh: Status Register
+- 3C0h: AMCR (256-color mode enable)
+- 3C7h/3C8h/3C9h: DAC Palette (RGB programming)
+
+**Known Issues:**
+- Some tests still failing after initial fixes
+- Clock domain crossing timing may need more work
+- Actual video output not tested (CPU interface only)
+- Full validation requires framebuffer testing
+
+**See:** `VGA_MCGA_FINDINGS.md` for complete analysis
 
 ### 11. PS/2 Keyboard Controller ✓
 - **Files:**

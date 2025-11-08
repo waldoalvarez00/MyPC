@@ -79,7 +79,7 @@ wire sel_dac         = reg_access & data_m_addr[5:1] == 5'b01001; // 3C9
 
 reg  [3:0] active_index;
 wire [3:0] index = data_m_wr_en & sel_index ? data_m_data_in[3:0] : active_index;
-wire [7:0] index_value;
+logic [7:0] index_value;
 
 reg [1:0] cursor_mode;
 reg display_enabled;
@@ -96,15 +96,15 @@ wire load_vga_cursor;
 wire rdy_vga_cursor;
 wire [14:0] vga_cursor;
 
-wire [2:0] sys_cursor_scan_start;
+logic [2:0] sys_cursor_scan_start;
 wire load_cursor_scan_start;
 wire [2:0] vga_cursor_scan_start;
 
-wire [2:0] sys_cursor_scan_end;
+logic [2:0] sys_cursor_scan_end;
 wire load_cursor_scan_end;
 wire [2:0] vga_cursor_scan_end;
 
-wire [3:0] sys_background_color;
+logic [3:0] sys_background_color;
 wire load_background_color;
 wire [3:0] vga_background_color;
 
@@ -116,6 +116,21 @@ reg [1:0] dac_wr_offs;
 reg [1:0] dac_rd_offs;
 
 reg vga_send;
+
+// Fix: Add reset initialization for uninitialized registers
+initial begin
+    sys_amcr = 8'h00;
+    sys_palette_sel = 1'b0;
+    sys_bright_colors = 1'b0;
+    cursor_mode = 2'b00;
+    active_index = 4'h0;
+    sys_cursor_pos = 15'h0000;
+    dac_wr_idx = 8'h00;
+    dac_rd_idx = 8'h00;
+    dac_wr_offs = 2'b00;
+    dac_rd_offs = 2'b00;
+    dac_component_rg = 12'h000;
+end
 
 always_ff @(posedge clk)
     vga_send <= rdy_vga_cursor && vsync;
@@ -333,14 +348,9 @@ end
 
 always_ff @(posedge clk or posedge reset)
     if (reset) begin
-	 
-        //sys_graphics_enabled <= 1'b0;
-        //text_enabled <= 1'b0;
-		  
-		  text_enabled <= 1'b1;
-		  
-		  display_enabled <= 1'b1;
-		  
+        text_enabled <= 1'b1;
+        display_enabled <= 1'b1;
+        sys_graphics_enabled <= 1'b0;  // Fix: Initialize to 0 (text mode)
     end else if (sel_mode && data_m_wr_en)
         {display_enabled, sys_graphics_enabled, text_enabled} <=
             {data_m_data_in[3], data_m_data_in[1], data_m_data_in[0]};
@@ -390,40 +400,44 @@ end
 
 
 
-always_ff @(posedge clk) begin
+// Fix: Use always_comb to build output, then register it for Icarus Verilog compatibility
+logic [15:0] data_out_comb;
 
-    data_m_data_out <= 16'b0;
+always_comb begin
+    data_out_comb = 16'b0;
 
     if (!data_m_wr_en) begin
-	 
         if (sel_index)
-            data_m_data_out[7:0]  <= {4'b0, active_index};
-				
+            data_out_comb[7:0] = {4'b0, active_index};
+
         if (sel_mode)
-            data_m_data_out[7:0]  <= {4'b0, display_enabled, 1'b0,
-                                     sys_graphics_enabled, text_enabled};
+            data_out_comb[7:0] = {4'b0, display_enabled, 1'b0,
+                                  sys_graphics_enabled, text_enabled};
         if (sel_status)
-            data_m_data_out[7:0]  <= status;
+            data_out_comb[7:0] = status;
 
         if (sel_value)
-            data_m_data_out[15:8] <= index_value;
-				
+            data_out_comb[15:8] = index_value;
+
         if (sel_color)
-            data_m_data_out[15:8] <= {2'b0, sys_palette_sel, sys_bright_colors,
-                                      sys_background_color};
+            data_out_comb[15:8] = {2'b0, sys_palette_sel, sys_bright_colors,
+                                   sys_background_color};
         if (sel_amcr)
-            data_m_data_out[7:0]  <= sys_amcr;
+            data_out_comb[7:0] = sys_amcr;
 
         if (sel_dac) begin
             if (dac_rd_offs == 2'b10)
-                data_m_data_out[15:8] <= {2'b0, sys_dac_rd[5:0]};
-            if (dac_rd_offs == 2'b01)
-                data_m_data_out[15:8] <= {2'b0, sys_dac_rd[11:6]};
-            if (dac_rd_offs == 2'b00)
-                data_m_data_out[15:8] <= {2'b0, sys_dac_rd[17:12]};
+                data_out_comb[15:8] = {2'b0, sys_dac_rd[5:0]};
+            else if (dac_rd_offs == 2'b01)
+                data_out_comb[15:8] = {2'b0, sys_dac_rd[11:6]};
+            else if (dac_rd_offs == 2'b00)
+                data_out_comb[15:8] = {2'b0, sys_dac_rd[17:12]};
         end
-		  
     end
+end
+
+always_ff @(posedge clk) begin
+    data_m_data_out <= data_out_comb;
 end
 
 always_ff @(posedge clk)
