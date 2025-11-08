@@ -247,8 +247,10 @@ initial begin
         cpu_write(19'h1EA, 16'h000F, 2'b01);  // 3D4h: index = 0xF
         cpu_write(19'h1EA, 16'h3400, 2'b10);  // 3D5h: cursor_pos[7:0] = 0x34
 
-        repeat(20) @(posedge clk);
-        repeat(20) @(posedge vga_clk);
+        // Wait for vsync to transfer values to VGA clock domain
+        @(posedge vga_vsync);
+        @(negedge vga_vsync);
+        repeat(10) @(posedge vga_clk);
 
         // Read back
         cpu_write(19'h1EA, 16'h000E, 2'b01);
@@ -278,8 +280,10 @@ initial begin
         cpu_write(19'h1EA, 16'h000B, 2'b01);  // 3D4h: index = 0xB
         cpu_write(19'h1EA, 16'h0700, 2'b10);  // 3D5h: cursor_scan_end = 7
 
-        repeat(20) @(posedge clk);
-        repeat(20) @(posedge vga_clk);
+        // Wait for vsync to transfer values to VGA clock domain
+        @(posedge vga_vsync);
+        @(negedge vga_vsync);
+        repeat(10) @(posedge vga_clk);
 
         // Read back
         cpu_write(19'h1EA, 16'h000A, 2'b01);

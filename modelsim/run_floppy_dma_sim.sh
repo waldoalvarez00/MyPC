@@ -16,7 +16,7 @@ echo "Compiling DMA controller and floppy controller modules..."
 echo ""
 
 # Compile the design
-iverilog -g2012 \
+iverilog -g2012 -DICARUS \
     -o floppy_dma_tb \
     -I../../Quartus/rtl \
     -I../../Quartus/rtl/Floppy \
