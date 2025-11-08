@@ -261,8 +261,12 @@ module KF8237_Timing_And_Control (
                     next_state = SI;
                 else if (end_of_process_internal)
                     next_state = SI;
-                else
-                    next_state = (reoutput_high_address) ? S1 : S2;
+                else begin
+                    if (reoutput_high_address)
+                        next_state = S1;
+                    else
+                        next_state = S2;
+                end
             end
             default: begin
             end

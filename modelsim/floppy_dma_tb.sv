@@ -119,23 +119,33 @@ module floppy_dma_tb;
     // Connect DMA and floppy data paths
     assign dma_device_request = {1'b0, floppy_dma_req, 1'b0, 1'b0};
     assign floppy_dma_readdata = dma_m_data_out[7:0];
-    assign dma_m_data_in[7:0] = (dma_acknowledge[2] & ~dma_m_wr_en) ? floppy_dma_writedata : 8'h00;
-    assign dma_m_data_in[15:8] = 8'h00;
+
+    // Memory model data register
+    logic [15:0] mem_read_data;
+
+    // Multiplex dma_m_data_in based on transfer direction
+    // - Floppy write (to memory): data comes from floppy controller
+    // - Memory read: data comes from memory
+    assign dma_m_data_in = (dma_acknowledge[2] & ~dma_m_wr_en) ?
+                           {8'h00, floppy_dma_writedata} :  // Floppy->Memory
+                           mem_read_data;                    // Memory->DMA
 
     // Simple memory model with acknowledge
     always @(posedge clk) begin
         dma_m_ack <= 1'b0;
+        mem_read_data <= 16'h0000;  // Default value
+
         if (dma_m_access) begin
             if (dma_m_wr_en) begin
-                // Memory write
-                if (dma_m_bytesel[0]) memory[{dma_m_addr, 1'b0}] <= dma_m_data_in[7:0];
-                if (dma_m_bytesel[1]) memory[{dma_m_addr, 1'b1}] <= dma_m_data_in[15:8];
+                // Memory write - DMA writing to memory
+                if (dma_m_bytesel[0]) memory[{dma_m_addr, 1'b0}] <= dma_m_data_out[7:0];
+                if (dma_m_bytesel[1]) memory[{dma_m_addr, 1'b1}] <= dma_m_data_out[15:8];
                 $display("[MEM_WRITE] Addr=0x%05h Data=0x%04h ByteSel=%b",
-                         {dma_m_addr, 1'b0}, dma_m_data_in, dma_m_bytesel);
+                         {dma_m_addr, 1'b0}, dma_m_data_out, dma_m_bytesel);
             end else begin
-                // Memory read
-                dma_m_data_out[7:0] <= memory[{dma_m_addr, 1'b0}];
-                dma_m_data_out[15:8] <= memory[{dma_m_addr, 1'b1}];
+                // Memory read - DMA reading from memory
+                mem_read_data[7:0] <= memory[{dma_m_addr, 1'b0}];
+                mem_read_data[15:8] <= memory[{dma_m_addr, 1'b1}];
                 $display("[MEM_READ] Addr=0x%05h Data=0x%04h",
                          {dma_m_addr, 1'b0}, {memory[{dma_m_addr, 1'b1}], memory[{dma_m_addr, 1'b0}]});
             end
@@ -269,7 +279,7 @@ module floppy_dma_tb;
         dma_cpu_data_in = 16'h0;
         dma_cpu_access = 0;
         dma_cpu_wr_en = 0;
-        dma_m_data_out = 16'h0;
+        // Note: dma_m_data_out is driven by DMA unit, not testbench
         floppy_io_address = 3'h0;
         floppy_io_read = 0;
         floppy_io_write = 0;
