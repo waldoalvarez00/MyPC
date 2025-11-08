@@ -30,6 +30,7 @@ iverilog -g2012 -DICARUS \
     ../Quartus/rtl/VGA/VGATypes.sv \
     DACRam_sim.sv \
     ../Quartus/rtl/CPU/cdc/BitSync.sv \
+    ../Quartus/rtl/CPU/cdc/BusSync.sv \
     ../Quartus/rtl/CPU/cdc/MCP.sv \
     ../Quartus/rtl/CPU/cdc/SyncPulse.sv \
     vga_registers_tb.sv \

@@ -37,8 +37,6 @@ module sdram_tb();
 
     // SDRAM model internal storage
     logic [15:0] sdram_mem[0:65535];  // Simplified SDRAM memory model
-    logic [15:0] sdram_out_data;
-    logic sdram_output_enable;
     logic [12:0] active_row[0:3];     // Active row for each bank
     logic [3:0] row_active;           // Row active flags for each bank
 
@@ -74,8 +72,9 @@ module sdram_tb();
         .s_banksel(s_banksel)
     );
 
-    // Bidirectional data bus driver
-    assign s_data = sdram_output_enable ? sdram_out_data : 16'hzzzz;
+    // Bidirectional data bus driver - combinational for proper timing
+    // Use pipeline stage 1 to account for command decode delay (CAS latency = 2)
+    assign s_data = read_valid_pipe[1] ? read_data_pipe[1] : 16'hzzzz;
 
     // Clock generation (40ns period = 25 MHz)
     initial begin
@@ -95,17 +94,14 @@ module sdram_tb();
         read_valid_pipe[1] <= read_valid_pipe[0];
         read_valid_pipe[2] <= read_valid_pipe[1];
 
+        // Debug pipeline state
+        if (read_valid_pipe[0] || read_valid_pipe[1] || read_valid_pipe[2])
+            $display("  [%0t] SDRAM MODEL: Pipeline [%b %b %b] Data [%h %h %h]", $time,
+                     read_valid_pipe[0], read_valid_pipe[1], read_valid_pipe[2],
+                     read_data_pipe[0], read_data_pipe[1], read_data_pipe[2]);
+
         // Clear stage 0 by default
         read_valid_pipe[0] <= 1'b0;
-
-        // Drive output based on pipeline stage 2 (CAS latency = 2)
-        if (read_valid_pipe[2]) begin
-            sdram_out_data <= read_data_pipe[2];
-            sdram_output_enable <= 1'b1;
-            $display("  [%0t] SDRAM MODEL: Outputting read data 0x%h", $time, read_data_pipe[2]);
-        end else begin
-            sdram_output_enable <= 1'b0;
-        end
 
         // Decode SDRAM commands
         if (!s_cs_n) begin
@@ -121,8 +117,9 @@ module sdram_tb();
                 3'b101: begin
                     if (row_active[s_banksel]) begin
                         // Read from memory (simplified addressing)
+                        // Only 64K memory: 2 bits bank + 12 bits row + 2 bits column = 16 bits
                         logic [15:0] addr_index_r;
-                        addr_index_r = {s_banksel, active_row[s_banksel][11:0], s_addr[8:1]};
+                        addr_index_r = {s_banksel, active_row[s_banksel][11:0], s_addr[1:0]};
                         read_data_pipe[0] <= sdram_mem[addr_index_r];
                         read_valid_pipe[0] <= 1'b1;
                         $display("  [%0t] SDRAM MODEL: READ cmd bank=%0d, col=0x%h, addr_idx=0x%h, data=0x%h",
@@ -134,10 +131,11 @@ module sdram_tb();
                 3'b100: begin
                     if (row_active[s_banksel]) begin
                         // Write to memory (simplified addressing)
+                        // Only 64K memory: 2 bits bank + 12 bits row + 2 bits column = 16 bits
                         logic [15:0] addr_index_w;
                         logic [15:0] write_data;
 
-                        addr_index_w = {s_banksel, active_row[s_banksel][11:0], s_addr[8:1]};
+                        addr_index_w = {s_banksel, active_row[s_banksel][11:0], s_addr[1:0]};
                         write_data = s_data;
 
                         $display("  [%0t] SDRAM MODEL: WRITE cmd bank=%0d, col=0x%h, addr_idx=0x%h, data=0x%h, bytesel=0x%b",
@@ -179,7 +177,6 @@ module sdram_tb();
         read_valid_pipe[0] = 1'b0;
         read_valid_pipe[1] = 1'b0;
         read_valid_pipe[2] = 1'b0;
-        sdram_output_enable = 1'b0;
     end
 
     // Task: Wait for initialization to complete
@@ -195,6 +192,7 @@ module sdram_tb();
     task write_sdram(input [25:1] addr, input [15:0] data, input [1:0] bytesel);
         begin
             @(posedge clk);
+            #1;  // Small delay to avoid race with always @(posedge clk) blocks
             h_addr = addr;
             h_wdata = data;
             h_wr_en = 1'b1;
@@ -216,19 +214,29 @@ module sdram_tb();
 
     // Task: Perform a read transaction
     task read_sdram(input [25:1] addr, input [1:0] bytesel, output [15:0] data);
+        logic done;
         begin
+            done = 0;
+
             @(posedge clk);
+            #1;  // Small delay to avoid race with always @(posedge clk) blocks
             h_addr = addr;
             h_wr_en = 1'b0;
             h_bytesel = bytesel;
             cs = 1'b1;
             data_m_access = 1'b1;
 
-            // Wait for completion and sample data on the same clock as h_compl
-            wait(h_compl == 1'b1);
-            data = h_rdata;  // Sample immediately when h_compl is asserted
-            $display("  [%0t] Read from addr=0x%h: data=0x%h", $time, addr, data);
-            @(posedge clk);
+            // Wait for h_compl, sampling at each clock edge
+            // h_rdata is only valid for ONE cycle so we must sample synchronously
+            while (!done) begin
+                @(posedge clk);
+                #1;  // Small delay for signal stability
+                if (h_compl) begin
+                    data = h_rdata;
+                    $display("  [%0t] Read from addr=0x%h: data=0x%h", $time, addr, data);
+                    done = 1;
+                end
+            end
 
             cs = 1'b0;
             data_m_access = 1'b0;

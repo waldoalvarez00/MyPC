@@ -1,0 +1,44 @@
+MASTER TEST SUMMARY
+Generated: Sat Nov  8 20:49:46 UTC 2025
+
+Total Tests: 29
+Passed: 21
+Failed: 8
+Skipped: 0
+Pass Rate: 72%
+
+PASSED TESTS:
+  ✓ run_ALU_sim
+  ✓ run_RegisterFile_sim
+  ✓ run_JumpTest_sim
+  ✓ run_cache_test
+  ✓ run_sdram_config_test
+  ✓ run_id_arbiter_test
+  ✓ run_dma_arbiter_test
+  ✓ run_mem_arbiter_extend_test
+  ✓ run_pic_test
+  ✓ run_timer_test
+  ✓ run_ppi_test
+  ✓ run_floppy_sd_test
+  ✓ run_floppy_sd_integration
+  ✓ run_dma_integration_test
+  ✓ run_ps2_keyboard_test
+  ✓ run_ps2_mouse_test
+  ✓ run_vga_modes_test
+  ✓ run_vga_all_modes_test
+  ✓ run_vga_complete_test
+  ✓ run_cga_test
+  ✓ run_simple_uart_test
+
+FAILED TESTS:
+  ✗ run_sdram_test
+  ✗ run_arbiter_test
+  ✗ run_floppy_sim
+  ✗ run_floppy_dma_sim
+  ✗ run_vga_test
+  ✗ run_vga_mode_switching_test
+  ✗ run_cga_integration_test (TIMEOUT)
+  ✗ run_uart_test
+
+SKIPPED TESTS:
+

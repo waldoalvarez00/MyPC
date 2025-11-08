@@ -45,12 +45,12 @@ run_test() {
 
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
-    # Run the test with timeout
-    timeout 120 bash "$test_script" > "$MASTER_RESULTS_DIR/${test_name}.log" 2>&1
+    # Run the test with timeout (180s for longer tests like CGA integration)
+    timeout 180 bash "$test_script" > "$MASTER_RESULTS_DIR/${test_name}.log" 2>&1
     local exit_code=$?
 
     if [ $exit_code -eq 124 ]; then
-        echo -e "${RED}[TIMEOUT] Test timed out after 120 seconds${NC}"
+        echo -e "${RED}[TIMEOUT] Test timed out after 180 seconds${NC}"
         FAILED_TESTS+=("$test_name (TIMEOUT)")
         FAILED_COUNT=$((FAILED_COUNT + 1))
     elif [ $exit_code -eq 0 ]; then

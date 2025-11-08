@@ -86,9 +86,13 @@ module mem_arbiter_tb();
             // Read: return address as data (for easy verification)
             q_m_ack <= 1'b1;
             q_m_data_in <= {16'h0000 | q_m_addr[15:1], 1'b0};
+            $display("  [%0t] MEMORY: Read access, addr=0x%h, returning data=0x%h",
+                     $time, q_m_addr, {16'h0000 | q_m_addr[15:1], 1'b0});
         end else if (q_m_access && q_m_wr_en) begin
             // Write: acknowledge
             q_m_ack <= 1'b1;
+            $display("  [%0t] MEMORY: Write access, addr=0x%h, data=0x%h",
+                     $time, q_m_addr, q_m_data_out);
         end else begin
             q_m_ack <= 1'b0;
         end
@@ -112,6 +116,7 @@ module mem_arbiter_tb();
     task request_a(input [19:1] addr, input logic wr_en, input [15:0] data, output [15:0] result);
         begin
             @(posedge clk);
+            #1;  // Small delay to avoid race with always @(posedge clk) blocks
             a_m_addr = addr;
             a_m_wr_en = wr_en;
             a_m_data_out = data;
@@ -120,6 +125,7 @@ module mem_arbiter_tb();
 
             // Wait for acknowledgement
             wait(a_m_ack == 1'b1);
+            #1;  // Small delay to ensure data has propagated
             result = a_m_data_in;
             @(posedge clk);
 
@@ -132,6 +138,7 @@ module mem_arbiter_tb();
     task request_b(input [19:1] addr, input logic wr_en, input [15:0] data, output [15:0] result);
         begin
             @(posedge clk);
+            #1;  // Small delay to avoid race with always @(posedge clk) blocks
             b_m_addr = addr;
             b_m_wr_en = wr_en;
             b_m_data_out = data;
@@ -140,7 +147,10 @@ module mem_arbiter_tb();
 
             // Wait for acknowledgement
             wait(b_m_ack == 1'b1);
+            #1;  // Small delay to ensure data has propagated
             result = b_m_data_in;
+            $display("  [%0t] BUS B: ack=%b, data_in=0x%h, q_data_in=0x%h",
+                     $time, b_m_ack, b_m_data_in, q_m_data_in);
             @(posedge clk);
 
             b_m_access = 1'b0;
@@ -190,7 +200,8 @@ module mem_arbiter_tb();
         // Test 2: Single request from bus B
         $display("\n[Test %0d] Single request from bus B (data)", test_num);
         request_b(19'h54321, 1'b0, 16'h0000, read_data);
-        report_test("Bus B request - data returned correctly", read_data == 16'hA864 || read_data == 16'h2);
+        $display("  Bus B read data: 0x%h (expected 0x8642)", read_data);
+        report_test("Bus B request - data returned correctly", read_data == 16'h8642);
 
         // Test 3: Sequential requests (A then B)
         $display("\n[Test %0d] Sequential requests A then B", test_num);
@@ -198,6 +209,7 @@ module mem_arbiter_tb();
         data_a = read_data;
         request_b(19'h22222, 1'b0, 16'h0000, read_data);
         data_b = read_data;
+        $display("  Bus A returned: 0x%h, Bus B returned: 0x%h", data_a, data_b);
         report_test("Sequential A then B", (data_a != data_b));
 
         // Test 4: Write from bus A
