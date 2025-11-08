@@ -15,8 +15,8 @@ This document summarizes the testing status of all major components in the s80x8
 **Components by Status:**
 - ✅ **11 Fully Functional** (100% pass): Timer, PIC, DMA, Floppy/SD, UART, Cache, PPI, DMAArbiter, IDArbiter, SDRAM Config, MemArbiterExtend
 - ⚠️ **2 With Testing Challenges**: SDRAM Controller (timing issues), MemArbiter (87% pass - functional)
+- 🔧 **Now Testable**: PS/2 Keyboard/Mouse Controllers (compatibility fixes applied, ready for testing)
 - 🔲 **Untested**: MCGA Controller
-- ⛔ **Cannot Test**: PS/2 Keyboard/Mouse Controllers (require Altera libraries)
 
 ## Tested Components (100% Pass Rate)
 
@@ -339,32 +339,49 @@ See `CACHE_BUGS.md` for detailed bug analysis and fixes.
 - **Status:** NOT YET TESTED
 - **Priority:** MEDIUM (visual output)
 
-### 11. PS/2 Keyboard Controller (Cannot Test)
+### 11. PS/2 Keyboard Controller (Now Testable)
 - **Files:**
   - `Quartus/rtl/ps2/PS2KeyboardController.sv`
   - `Quartus/rtl/ps2/KeyboardController.sv`
   - `Quartus/rtl/ps2/PS2Host.sv`
-- **Status:** CANNOT TEST WITH ICARUS VERILOG
+  - `Quartus/rtl/CPU/cdc/BitSync.sv`
+- **Status:** COMPILATION VERIFIED - Ready for testing
 - **Priority:** MEDIUM
-- **Blocker:** Requires Altera-specific libraries (`altera_std_synchronizer`)
 
-**Analysis:**
-- Controllers use `BitSync` module for clock domain crossing
-- `BitSync` instantiates Altera-specific `altera_std_synchronizer` primitives
-- These primitives are only available in Quartus/ModelSim with Altera libraries
-- Testing would require either:
-  1. Modified version with generic synchronizers
-  2. Testing in Quartus/ModelSim environment
-  3. Hardware testing on actual FPGA
-- Controllers are from original proven s80x86 project, likely functional
+**Fixes Applied:**
+1. ✅ **BitSync.sv** - Added conditional compilation
+   - Uses generic 2-stage synchronizer for simulation (`ICARUS`, `SIMULATION` defines)
+   - Uses Altera primitive for FPGA synthesis
+   - Removed Altera library dependency for testing
 
-### 12. PS/2 Mouse Controller (Cannot Test)
+2. ✅ **PS2Host.sv** - Fixed Icarus Verilog compatibility
+   - Replaced enum ternary operators with if-else statements
+   - Icarus Verilog is strict about enum type matching in ternary operators
+   - State machine logic now compiles cleanly
+
+3. ✅ **KeyboardController.sv** - Fixed Icarus Verilog compatibility
+   - Same ternary operator issues as PS2Host
+   - Converted to if-else statements for better simulator compatibility
+
+**Compilation Status:**
+- ✓ Compiles successfully with Icarus Verilog + `-DICARUS` flag
+- ✓ All dependencies resolved (no Altera primitives)
+- ✓ Ready for testbench development
+- Note: Full PS/2 protocol testing requires complex timing simulation
+
+**Assessment:**
+- Controllers are from proven s80x86 project, likely functional
+- Interface testing now possible with open-source tools
+- Full protocol testing would be complex (timing-sensitive)
+
+### 12. PS/2 Mouse Controller (Now Testable)
 - **Files:**
   - `Quartus/rtl/ps2/PS2MouseController.sv`
-  - `Quartus/rtl/ps2/PS2Host.sv`
-- **Status:** CANNOT TEST WITH ICARUS VERILOG
+  - `Quartus/rtl/ps2/PS2Host.sv` (fixed)
+  - `Quartus/rtl/CPU/cdc/BitSync.sv` (fixed)
+- **Status:** COMPILATION VERIFIED - Ready for testing
 - **Priority:** LOW
-- **Blocker:** Same as Keyboard Controller - requires Altera libraries
+- **Note:** Benefits from same fixes as Keyboard Controller (shared PS2Host module)
 
 ### 13. CPU Core Components (Partially Tested)
 - **Files:**
@@ -458,6 +475,29 @@ TOTAL               173     162     11     94%
    - Ensures data is stable and valid when ACK goes high
    - Fixed in `MemArbiterExtend.sv:180-206`
 
+### PS/2 Controller Issues:
+1. ✅ **FIXED:** Altera library dependency blocking simulation
+   - Problem: BitSync used Altera-specific `altera_std_synchronizer` primitive
+   - Impact: Could not test PS/2 controllers with Icarus Verilog or other open-source tools
+   - Fix: Added conditional compilation to BitSync.sv
+     - Simulation: Uses generic 2-stage flip-flop synchronizer
+     - Synthesis: Uses Altera primitive
+   - Defines: `verilator`, `ICARUS`, `SIMULATION`
+   - Fixed in `BitSync.sv:24-65`
+
+2. ✅ **FIXED:** Enum ternary operator type issues
+   - Problem: Icarus Verilog strict about enum types in ternary operators
+   - Impact: PS2Host and KeyboardController wouldn't compile
+   - Fix: Replaced all ternary operators with if-else statements in always_comb
+   - Fixed in `PS2Host.sv:110-175` and `KeyboardController.sv:56-87`
+   - Maintains identical functionality, improves simulator compatibility
+
+**Verification:**
+- PS2MouseController compiles successfully with `-DICARUS` flag
+- PS2KeyboardController compiles successfully with `-DICARUS` flag
+- No Altera-specific primitives required for simulation
+- Full FPGA compatibility maintained
+
 ## Recommendations
 
 ### Immediate Actions:
@@ -465,8 +505,9 @@ TOTAL               173     162     11     94%
 2. ✅ **COMPLETED:** PPI output mode fixed - all tests passing
 3. ✅ **COMPLETED:** Memory arbiters tested - all passing
 4. ✅ **COMPLETED:** MemArbiterExtend tested and fixed - all tests passing
-5. ⛔ **BLOCKED:** Keyboard/Mouse controllers - require Altera libraries
-6. Consider testing MCGA controller (deferred - complex, would need significant effort)
+5. ✅ **COMPLETED:** PS/2 controllers made testable - Altera dependency removed
+6. Consider PS/2 controller interface testing (now possible with open-source tools)
+7. Consider testing MCGA controller (deferred - complex, would need significant effort)
 
 ### Future Testing:
 1. VGA controller testing
