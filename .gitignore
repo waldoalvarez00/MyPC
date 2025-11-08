@@ -17,3 +17,7 @@ modelsim/master_test_results_*/
 modelsim/*_tb
 modelsim/*_test
 modelsim/simple_uart_test
+# Icarus Verilog simulation files
+*.vvp
+*.vcd
+*.out
