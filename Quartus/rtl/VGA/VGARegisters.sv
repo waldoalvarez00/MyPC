@@ -72,8 +72,8 @@ wire sel_status      = reg_access & (data_m_addr[4:1] == 4'b1101) & data_m_bytes
 
 
 
-reg  [3:0] active_index;
-wire [3:0] index = data_m_wr_en & sel_index ? data_m_data_in[3:0] : active_index;
+reg  [5:0] active_index;  // Expanded to 6 bits for VGA CRTC (up to 0x18)
+wire [5:0] index = data_m_wr_en & sel_index ? data_m_data_in[5:0] : active_index;
 logic [7:0] index_value;
 
 reg [1:0] cursor_mode;
@@ -110,6 +110,12 @@ logic [3:0] sys_background_color;
 wire load_background_color;
 wire [3:0] vga_background_color;
 
+// CRTC registers for resolution detection
+reg [7:0] crtc_horiz_display_end;    // Register 0x01: Horizontal Display End
+reg [7:0] crtc_vert_display_end_low; // Register 0x12: Vertical Display End (low byte)
+reg [7:0] crtc_overflow;             // Register 0x07: Overflow register
+reg [4:0] crtc_max_scan_line;        // Register 0x09: Maximum Scan Line
+
 reg [17:0] sys_dac_rd;
 reg [7:0] dac_wr_idx;
 reg [7:0] dac_rd_idx;
@@ -137,51 +143,119 @@ initial begin
     bw_mode = 1'b0;
     mode_640 = 1'b0;
     blink_enabled = 1'b0;
+    crtc_horiz_display_end = 8'd79;     // Default: 80 columns - 1
+    crtc_vert_display_end_low = 8'd191; // Default: 200 lines - 1 (low byte)
+    crtc_overflow = 8'h00;
+    crtc_max_scan_line = 5'd7;          // Default: 8-line characters
+    active_index = 6'h0;
 end
 
 // Mode detection logic
 // Detect current video mode based on register settings
 logic [7:0] sys_mode_num;
 
+// Extract vertical display end from CRTC registers (10-bit value)
+// Bit 8 is in overflow[1], bit 9 is in overflow[6]
+wire [9:0] vert_display_end = {crtc_overflow[6], crtc_overflow[1], crtc_vert_display_end_low};
+
+// Helper: Detect resolution ranges
+wire is_200_lines  = (vert_display_end >= 10'd190) && (vert_display_end <= 10'd210);  // ~200 lines
+wire is_350_lines  = (vert_display_end >= 10'd340) && (vert_display_end <= 10'd360);  // ~350 lines
+wire is_400_lines  = (vert_display_end >= 10'd390) && (vert_display_end <= 10'd410);  // ~400 lines
+wire is_480_lines  = (vert_display_end >= 10'd470) && (vert_display_end <= 10'd490);  // ~480 lines
+
+// Helper: Detect column modes (register holds columns-1)
+wire is_40_col = (crtc_horiz_display_end >= 8'd38) && (crtc_horiz_display_end <= 8'd41);  // ~40 columns
+wire is_80_col = (crtc_horiz_display_end >= 8'd78) && (crtc_horiz_display_end <= 8'd81);  // ~80 columns
+
+// Helper: Detect MDA mode (720x350 monochrome text)
+wire is_mda_mode = is_350_lines && (crtc_horiz_display_end >= 8'd88) && (crtc_horiz_display_end <= 8'd92);  // ~90 columns
+
 always_comb begin
     // Default to mode 03h (80x25 text color)
     sys_mode_num = MODE_03H;
 
-    // Mode detection based on register combinations
+    // Priority-based mode detection
     if (sys_256_color) begin
         // Mode 13h: 320x200, 256 colors (MCGA/VGA)
         sys_mode_num = MODE_13H;
-    end else if (mode_640) begin
-        // Mode 06h: 640x200, 2 colors (CGA hi-res graphics)
-        sys_mode_num = MODE_06H;
-    end else if (graphics_320) begin
-        // CGA 320x200 graphics modes
-        if (bw_mode) begin
-            // Mode 05h: 320x200, 4 grays (B&W palette)
-            sys_mode_num = MODE_05H;
-        end else begin
-            // Mode 04h: 320x200, 4 colors
-            sys_mode_num = MODE_04H;
-        end
-    end else begin
-        // Text modes (not graphics_320 and not mode_640)
-        if (hres_mode) begin
-            // 80-column text modes
+
+    end else if (is_mda_mode) begin
+        // Mode 07h: 80x25 text, monochrome (MDA/Hercules)
+        sys_mode_num = MODE_07H;
+
+    end else if (is_480_lines) begin
+        // VGA 640x480 modes
+        if (mode_640 || graphics_320) begin
+            // Graphics mode
             if (bw_mode) begin
-                // Mode 02h: 80x25 text, B&W
-                sys_mode_num = MODE_02H;
+                // Mode 11h: 640x480, 2 colors
+                sys_mode_num = MODE_11H;
             end else begin
-                // Mode 03h: 80x25 text, 16 colors
-                sys_mode_num = MODE_03H;
+                // Mode 12h: 640x480, 16 colors
+                sys_mode_num = MODE_12H;
             end
-        end else begin
-            // 40-column text modes
+        end
+        // Could be text mode at 640x480, default to 03h
+
+    end else if (is_350_lines) begin
+        // EGA 640x350 modes
+        if (mode_640 || graphics_320) begin
+            // Graphics mode
             if (bw_mode) begin
-                // Mode 00h: 40x25 text, B&W
-                sys_mode_num = MODE_00H;
+                // Mode 0Fh: 640x350, monochrome
+                sys_mode_num = MODE_0FH;
             end else begin
-                // Mode 01h: 40x25 text, 16 colors
-                sys_mode_num = MODE_01H;
+                // Mode 10h: 640x350, 16 colors
+                sys_mode_num = MODE_10H;
+            end
+        end
+        // Could be EGA text mode, default to 03h
+
+    end else if (is_200_lines || is_400_lines) begin
+        // CGA/MCGA 200-line modes (or 400-line doubled)
+        if (mode_640) begin
+            // CGA/EGA hi-res graphics (640x200)
+            // Distinguish between CGA (2-color) and EGA (16-color) using bw_mode
+            // CGA mode 06h typically has bw_mode=1, EGA 0Eh has bw_mode=0
+            if (bw_mode) begin
+                // CGA 640x200, 2 colors (mode 06h)
+                sys_mode_num = MODE_06H;
+            end else begin
+                // EGA 640x200, 16 colors (mode 0Eh)
+                sys_mode_num = MODE_0EH;
+            end
+
+        end else if (graphics_320) begin
+            // 320x200 graphics modes
+            if (is_40_col || (crtc_horiz_display_end <= 8'd41)) begin
+                // CGA 320x200 modes
+                if (bw_mode) begin
+                    sys_mode_num = MODE_05H;  // 320x200, 4 grays
+                end else begin
+                    sys_mode_num = MODE_04H;  // 320x200, 4 colors
+                end
+            end else begin
+                // EGA 320x200, 16 colors
+                sys_mode_num = MODE_0DH;
+            end
+
+        end else begin
+            // Text modes
+            if (is_40_col || !hres_mode) begin
+                // 40-column text
+                if (bw_mode) begin
+                    sys_mode_num = MODE_00H;  // 40x25 text, B&W
+                end else begin
+                    sys_mode_num = MODE_01H;  // 40x25 text, 16 colors
+                end
+            end else begin
+                // 80-column text
+                if (bw_mode) begin
+                    sys_mode_num = MODE_02H;  // 80x25 text, B&W
+                end else begin
+                    sys_mode_num = MODE_03H;  // 80x25 text, 16 colors
+                end
             end
         end
     end
@@ -385,11 +459,15 @@ end
 always_ff @(posedge clk) begin
     if (data_m_wr_en & sel_value) begin
         case (index)
-        4'ha: {cursor_mode, sys_cursor_scan_start} <=
+        6'h01: crtc_horiz_display_end <= data_m_data_in[15:8];      // Horizontal Display End
+        6'h07: crtc_overflow <= data_m_data_in[15:8];               // Overflow register
+        6'h09: crtc_max_scan_line <= data_m_data_in[12:8];          // Maximum Scan Line
+        6'h0a: {cursor_mode, sys_cursor_scan_start} <=
             {data_m_data_in[13:12], data_m_data_in[10:8]};
-        4'hb: sys_cursor_scan_end <= data_m_data_in[10:8];
-        4'he: sys_cursor_pos[14:8] <= data_m_data_in[14:8];
-        4'hf: sys_cursor_pos[7:0] <= data_m_data_in[15:8];
+        6'h0b: sys_cursor_scan_end <= data_m_data_in[10:8];
+        6'h0e: sys_cursor_pos[14:8] <= data_m_data_in[14:8];
+        6'h0f: sys_cursor_pos[7:0] <= data_m_data_in[15:8];
+        6'h12: crtc_vert_display_end_low <= data_m_data_in[15:8];   // Vertical Display End (low)
         default: ;
         endcase
     end
@@ -443,7 +521,7 @@ always_ff @(posedge clk or posedge reset)
 				
 always_ff @(posedge clk)
     if (sel_index & data_m_wr_en)
-        active_index <= data_m_data_in[3:0];
+        active_index <= data_m_data_in[5:0];  // 6 bits for VGA CRTC
 
 		  
 		  
@@ -459,13 +537,17 @@ always_ff @(posedge clk)
 always_comb begin
 
     case (index)
-    4'ha: index_value = {2'b0, cursor_mode, 1'b0, sys_cursor_scan_start};
-    4'hb: index_value = {5'b0, sys_cursor_scan_end};
-    4'he: index_value = {2'b0, sys_cursor_pos[13:8]};
-    4'hf: index_value = sys_cursor_pos[7:0];
+    6'h01: index_value = crtc_horiz_display_end;
+    6'h07: index_value = crtc_overflow;
+    6'h09: index_value = {3'b0, crtc_max_scan_line};
+    6'h0a: index_value = {2'b0, cursor_mode, 1'b0, sys_cursor_scan_start};
+    6'h0b: index_value = {5'b0, sys_cursor_scan_end};
+    6'h0e: index_value = {2'b0, sys_cursor_pos[13:8]};
+    6'h0f: index_value = sys_cursor_pos[7:0];
+    6'h12: index_value = crtc_vert_display_end_low;
     default: index_value = 8'b0;
     endcase
-	 
+
 end
 
 
@@ -481,7 +563,7 @@ always_comb begin
 
     if (!data_m_wr_en) begin
         if (sel_index)
-            data_out_comb[7:0] = {4'b0, active_index};
+            data_out_comb[7:0] = {2'b0, active_index};
 
         if (sel_mode)
             data_out_comb[7:0] = {2'b0, blink_enabled, mode_640,
