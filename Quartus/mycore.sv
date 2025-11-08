@@ -320,6 +320,20 @@ wire wps2_mouse_data_in;
 
 wire [15:0] sdram_sz;
 
+// Disk image mounting signals
+wire [1:0]  img_mounted;      // Pulse when disk image mounted (bit 0=drive A, bit 1=drive B)
+wire [1:0]  img_readonly;     // Write protect status
+wire [63:0] img_size;         // Disk image size in bytes
+
+// SD card interface signals
+wire [31:0] sd_lba;           // Logical block address
+wire [1:0]  sd_rd;            // Read request
+wire [1:0]  sd_wr;            // Write request
+wire [1:0]  sd_ack;           // Transfer acknowledge
+wire [8:0]  sd_buff_addr;     // Buffer address (0-511)
+wire [7:0]  sd_buff_dout;     // Data from SD card
+wire [7:0]  sd_buff_din;      // Data to SD card
+wire        sd_buff_wr;       // Buffer write enable
 
 hps_io #(.CONF_STR(CONF_STR), .PS2DIV(10), .PS2WE(1), .WIDE(1)) hps_io
 (
@@ -353,7 +367,22 @@ hps_io #(.CONF_STR(CONF_STR), .PS2DIV(10), .PS2WE(1), .WIDE(1)) hps_io
 	.ps2_mouse_clk_out(wps2_mouse_clk_in),
 	.ps2_mouse_data_out(wps2_mouse_data_in),
 	.ps2_mouse_clk_in(wps2_mouse_clk_out),
-	.ps2_mouse_data_in(wps2_mouse_data_out)
+	.ps2_mouse_data_in(wps2_mouse_data_out),
+
+	// Disk image mounting interface
+	.img_mounted(img_mounted),
+	.img_readonly(img_readonly),
+	.img_size(img_size),
+
+	// SD card interface for floppy images
+	.sd_lba(sd_lba),
+	.sd_rd(sd_rd),
+	.sd_wr(sd_wr),
+	.sd_ack(sd_ack),
+	.sd_buff_addr(sd_buff_addr),
+	.sd_buff_dout(sd_buff_dout),
+	.sd_buff_din(sd_buff_din),
+	.sd_buff_wr(sd_buff_wr)
 );
 
 ///////////////////////   CLOCKS   ///////////////////////////////
@@ -505,9 +534,11 @@ always @(*) begin
         io_data = ps2_mouse_data;
     else if (cga_reg_access) 
         io_data = cga_reg_data;
-    else if (ppi_control_access) 
+    else if (ppi_control_access)
         io_data = ppiout;
-    else 
+    else if (floppy_access)
+        io_data = {8'b0, floppy_readdata};
+    else
         io_data = 16'b0;
 end
  
@@ -632,41 +663,43 @@ wire ppi_ack;
 
 
 
-// Ack demultiplexing (kills noise in ack)
+// Ack demultiplexing - Register output to prevent glitches
 
-wire io_ack;
+reg io_ack;
 
-always @(*) begin
-    if (sdram_config_access) 
-        io_ack = sdram_config_ack;
-    else if (default_io_access) 
-        io_ack = default_io_ack;
-    else if (uart_access) 
-        io_ack = uart1_ack;
-    else if (uart2_access) 
-        io_ack = uart2_ack;
-    else if (leds_access) 
-        io_ack = leds_ack;
-    else if (irq_control_access) 
-        io_ack = irq_control_ack;
-    else if (pic_access) 
-        io_ack = pic_ack;
+always @(posedge sys_clk) begin
+    if (sdram_config_access)
+        io_ack <= sdram_config_ack;
+    else if (default_io_access)
+        io_ack <= default_io_ack;
+    else if (uart_access)
+        io_ack <= uart1_ack;
+    else if (uart2_access)
+        io_ack <= uart2_ack;
+    else if (leds_access)
+        io_ack <= leds_ack;
+    else if (irq_control_access)
+        io_ack <= irq_control_ack;
+    else if (pic_access)
+        io_ack <= pic_ack;
     else if (cga_reg_access)
-        io_ack = cga_reg_ack;
-    else if (timer_access) 
-        io_ack = timer_ack;
+        io_ack <= cga_reg_ack;
+    else if (timer_access)
+        io_ack <= timer_ack;
     else if (mcga_reg_access)
-        io_ack = vga_reg_ack;
-    else if (ps2_mouse_access) 
-        io_ack = ps2_mouse_ack;
+        io_ack <= vga_reg_ack;
+    else if (ps2_mouse_access)
+        io_ack <= ps2_mouse_ack;
     else if (ppi_control_access)
-        io_ack = ppi_ack;
+        io_ack <= ppi_ack;
     else if (dma_chip_select | dma_page_chip_select)
-        io_ack = dma_ack;
-    else if (bios_control_access) 
-        io_ack = bios_control_ack;
-    else 
-        io_ack = 1'b0;
+        io_ack <= dma_ack;
+    else if (bios_control_access)
+        io_ack <= bios_control_ack;
+    else if (floppy_access)
+        io_ack <= floppy_ack;
+    else
+        io_ack <= 1'b0;
 end
 
 				  
@@ -783,6 +816,7 @@ AddressDecoderIO AddressDecoderIO(
 	 .dma_page_chip_select(dma_page_chip_select),
 	 .dma_chip_select(dma_chip_select),
 	 .ppi_control_access(ppi_control_access)
+	 .floppy_access(floppy_access)
 	 
 );
 
@@ -825,10 +859,18 @@ wire data_mem_ack;
 
 
 
-// Instruction / Data Arbiter
+// Instruction / Data Arbiter (CPU-only)
+// Outputs to cpu_id_m_* which then goes to DMA arbiter
+
+wire [19:1] cpu_id_m_addr;
+wire [15:0] cpu_id_m_data_in;
+wire [15:0] cpu_id_m_data_out;
+wire cpu_id_m_access;
+wire cpu_id_m_ack;
+wire cpu_id_m_wr_en;
+wire [1:0] cpu_id_m_bytesel;
 
 IDArbiter IDArbiter(.clk(sys_clk),
-//MemArbiter IDArbiter(.clk(sys_clk),
                      .reset(post_sdram_reset),
 
                      .instr_m_addr(instr_m_addr),
@@ -838,8 +880,7 @@ IDArbiter IDArbiter(.clk(sys_clk),
                      .instr_m_ack(instr_m_ack),
                      .instr_m_wr_en(1'b0),
                      .instr_m_bytesel(2'b11),
-							
-							
+
                      .data_m_addr(data_m_addr),
                      .data_m_data_in(mem_data),
                      .data_m_data_out(data_m_data_out),
@@ -847,17 +888,59 @@ IDArbiter IDArbiter(.clk(sys_clk),
                      .data_m_ack(data_mem_ack),
                      .data_m_wr_en(data_m_wr_en),
                      .data_m_bytesel(data_m_bytesel),
-							
 
-                     // Output bus connections
-                    .q_m_addr(q_m_addr),
-                    .q_m_data_in(q_m_data_in),
-                    .q_m_data_out(q_m_data_out),
-                    .q_m_access(q_m_access),
-                    .q_m_ack(q_m_ack),
-                    .q_m_wr_en(q_m_wr_en),
-                    .q_m_bytesel(q_m_bytesel),
+                     // Output to DMA arbiter
+                    .q_m_addr(cpu_id_m_addr),
+                    .q_m_data_in(cpu_id_m_data_in),
+                    .q_m_data_out(cpu_id_m_data_out),
+                    .q_m_access(cpu_id_m_access),
+                    .q_m_ack(cpu_id_m_ack),
+                    .q_m_wr_en(cpu_id_m_wr_en),
+                    .q_m_bytesel(cpu_id_m_bytesel),
                     .q_b());
+
+// DMA Arbiter - Muxes CPU (instr+data) and DMA controller access to memory
+// Priority: DMA has higher priority when active
+
+// Prepare DMA data input (floppy write data when floppy DMA active)
+assign dma_m_data_in[7:0] = (dma_acknowledge[2] & ~dma_m_wr_en) ? floppy_dma_writedata : 8'h00;
+assign dma_m_data_in[15:8] = 8'h00;  // DMA transfers are 8-bit
+
+DMAArbiter CPUDMAArbiter(
+    .clk(sys_clk),
+    .reset(post_sdram_reset),
+
+    // DMA bus (higher priority)
+    .a_m_addr(dma_m_addr),
+    .a_m_data_in(dma_m_data_in),
+    .a_m_data_out(dma_m_data_out),
+    .a_m_access(dma_m_access & ~dma_d_io),  // Only memory access, not I/O
+    .a_m_ack(dma_m_ack),
+    .a_m_wr_en(dma_m_wr_en),
+    .a_m_bytesel(dma_m_bytesel),
+    .ioa(1'b0),  // DMA doesn't use I/O flag here
+
+    // CPU (instruction + data) bus
+    .b_m_addr(cpu_id_m_addr),
+    .b_m_data_in(cpu_id_m_data_in),
+    .b_m_data_out(cpu_id_m_data_out),
+    .b_m_access(cpu_id_m_access),
+    .b_m_ack(cpu_id_m_ack),
+    .b_m_wr_en(cpu_id_m_wr_en),
+    .b_m_bytesel(cpu_id_m_bytesel),
+    .iob(1'b0),
+
+    // Output to memory system (connects to CacheVGAArbiter)
+    .q_m_addr(q_m_addr),
+    .q_m_data_in(q_m_data_in),
+    .q_m_data_out(q_m_data_out),
+    .q_m_access(q_m_access),
+    .q_m_ack(q_m_ack),
+    .q_m_wr_en(q_m_wr_en),
+    .q_m_bytesel(q_m_bytesel),
+    .ioq(),
+    .q_b()
+);
 
 // SDRAM<->Cache signals
 wire [19:1] cache_sdram_m_addr;
@@ -1291,7 +1374,23 @@ wire dma_chip_select;
 wire dma_page_chip_select;
 
 wire fdd_dma_req;
-					  
+wire [7:0] floppy_readdata;
+wire [7:0] floppy_dma_writedata;
+wire floppy_access;
+wire floppy_ack;
+wire [3:0] dma_acknowledge;
+wire dma_terminal_count;
+
+// DMA memory bus signals
+wire [19:1] dma_m_addr;
+wire [15:0] dma_m_data_in;
+wire [15:0] dma_m_data_out;
+wire dma_m_access;
+wire dma_m_ack;
+wire dma_m_wr_en;
+wire [1:0] dma_m_bytesel;
+wire dma_d_io;
+
 DMAUnit uDMAUnit(
 
             .clk(sys_clk),
@@ -1308,18 +1407,68 @@ DMAUnit uDMAUnit(
 				.m_cpu_access(data_m_access),
             .m_cpu_wr_en(data_m_wr_en),
 				
-				// Data BUS
-				
-				
-				// DMA Signals
-				
-				.dma_device_request({1'b0, fdd_dma_req, 1'b0, 1'b0}) // only floppy for now
-				
+				// DMA memory bus (to arbiter)
+				.m_addr(dma_m_addr),
+				.m_data_in(dma_m_data_in),
+				.m_data_out(dma_m_data_out),
+				.m_access(dma_m_access),
+				.m_ack(dma_m_ack),
+				.m_wr_en(dma_m_wr_en),
+				.m_bytesel(dma_m_bytesel),
+				.d_io(dma_d_io),
+
+				// DMA device signals
+				.dma_device_request({1'b0, fdd_dma_req, 1'b0, 1'b0}), // only floppy for now
+				.dma_acknowledge(dma_acknowledge),
+				.terminal_count(dma_terminal_count)
 
 );
 
 
 wire fdd_interrupt;
+
+// Floppy disk manager signals for MiSTer SD card integration
+wire [3:0]  floppy_mgmt_address;
+wire        floppy_mgmt_fddn;
+wire        floppy_mgmt_write;
+wire [15:0] floppy_mgmt_writedata;
+wire        floppy_mgmt_read;
+wire [15:0] floppy_mgmt_readdata;
+wire [1:0]  floppy_wp_status;
+wire [1:0]  floppy_request;
+
+// Floppy disk manager - handles SD card interface and disk image mounting
+floppy_disk_manager floppy_mgr (
+    .clk                    (sys_clk),
+    .reset                  (post_sdram_reset),
+
+    // HPS disk image mounting interface
+    .img_mounted            (img_mounted),
+    .img_readonly           (img_readonly),
+    .img_size               (img_size),
+
+    // SD card interface
+    .sd_lba                 (sd_lba),
+    .sd_rd                  (sd_rd),
+    .sd_wr                  (sd_wr),
+    .sd_ack                 (sd_ack),
+    .sd_buff_addr           (sd_buff_addr),
+    .sd_buff_dout           (sd_buff_dout),
+    .sd_buff_din            (sd_buff_din),
+    .sd_buff_wr             (sd_buff_wr),
+
+    // Floppy controller management interface
+    .mgmt_address           (floppy_mgmt_address),
+    .mgmt_fddn              (floppy_mgmt_fddn),
+    .mgmt_write             (floppy_mgmt_write),
+    .mgmt_writedata         (floppy_mgmt_writedata),
+    .mgmt_read              (floppy_mgmt_read),
+    .mgmt_readdata          (floppy_mgmt_readdata),
+
+    // Floppy request interface
+    .floppy_request         (floppy_request),
+    .wp_status              (floppy_wp_status)
+);
 
 floppy floppy 
     (
@@ -1328,36 +1477,36 @@ floppy floppy
 
         //dma
         .dma_req                    (fdd_dma_req),
-        .dma_ack                    (/*fdd_dma_rw_ack*/),
-        .dma_tc                     (/*fdd_dma_tc & fdd_dma_rw_ack*/),
-        .dma_readdata               (/*write_to_fdd*/),
-        .dma_writedata              (/*fdd_dma_readdata*/),
+        .dma_ack                    (dma_acknowledge[2] & dma_m_ack),  // Floppy DMA channel 2 with memory ack
+        .dma_tc                     (dma_terminal_count),              // Terminal count from DMA controller
+        .dma_readdata               (dma_m_data_out[7:0]),             // DMA read data (memory -> floppy for write)
+        .dma_writedata              (floppy_dma_writedata),            // DMA write data (floppy -> memory for read)
 
         //irq
         .irq                        (fdd_interrupt),
 
         //io buf
-        .io_address                 (/*fdd_io_address*/),
-        .io_read                    (/*fdd_io_read*/),
-        .io_readdata                (/*fdd_readdata_wire*/),
-        .io_write                   (/*fdd_io_write*/),
-        .io_writedata               (/*write_to_fdd*/),
+        .io_address                 (data_m_addr[3:1]),
+        .io_read                    (floppy_access && !data_m_wr_en),
+        .io_readdata                (floppy_readdata),
+        .io_write                   (floppy_access && data_m_wr_en),
+        .io_writedata               (data_m_data_out[7:0]),
+        .bus_ack                    (floppy_ack),
 
-        //        .fdd0_inserted              (),
+        .fdd0_inserted              (/* not connected */),
 
-        .mgmt_address               (/*mgmt_address[3:0]*/),
-        .mgmt_fddn                  (/*mgmt_address[7]*/),
-        .mgmt_write                 (/*mgmt_write & mgmt_fdd_cs*/),
-        .mgmt_writedata             (/*mgmt_writedata*/),
-        .mgmt_read                  (/*mgmt_read  & mgmt_fdd_cs*/),
-        .mgmt_readdata              (/*mgmt_fdd_readdata*/),
+        .mgmt_address               (floppy_mgmt_address),
+        .mgmt_fddn                  (floppy_mgmt_fddn),
+        .mgmt_write                 (floppy_mgmt_write),
+        .mgmt_writedata             (floppy_mgmt_writedata),
+        .mgmt_read                  (floppy_mgmt_read),
+        .mgmt_readdata              (floppy_mgmt_readdata),
 
-        .wp                         (/*floppy_wp*/),
+        .wp                         (floppy_wp_status),
 
-        .clock_rate                 (/*clk_select[1] == 1'b0 ? clk_rate :
-                                     clk_select[0] == 1'b0 ? {1'b0, clk_rate[27:1]} : {2'b00, clk_rate[27:2]}*/),
+        .clock_rate                 (28'd50_000_000),  // 50 MHz system clock
 
-        .request                    (/*fdd_request*/)
+        .request                    (floppy_request)
     );
 	 
 

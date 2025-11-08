@@ -1,7 +1,7 @@
 module vram #(parameter AW=16)
 (
   input clka,
-  input ena,  
+  input ena,
   input wea,
   input [AW-1:0] addra,
   input [7:0] dina,
@@ -14,16 +14,24 @@ module vram #(parameter AW=16)
   output reg [7:0] doutb
 );
 
-reg [7:0] vram[(2**AW)-1:0];
+// Use explicit [0:N-1] ordering for IEEE 1364-2005 compatibility
+reg [7:0] vram[0:(2**AW)-1];
 
-initial $readmemh("splash.hex", vram);
+// Conditional initialization for Icarus vs Quartus compatibility
+`ifdef ICARUS
+  initial $readmemh("splash.hex", vram, 0, (2**AW)-1);
+`else
+  initial $readmemh("splash.hex", vram);
+`endif
 
 always @(posedge clka)
-  if (ena)
-		if (wea)
+  if (ena) begin
+		if (wea) begin
 			vram[addra] <= dina;
-		else
+		end else begin
 			douta <= vram[addra];
+		end
+  end
 		
 			
 always @(posedge clkb)

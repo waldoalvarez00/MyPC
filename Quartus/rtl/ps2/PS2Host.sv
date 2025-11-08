@@ -109,16 +109,61 @@ always_ff @(posedge clk or posedge reset)
 
 always_comb begin
     case (state)
-    STATE_IDLE: next_state = do_sample && !ps2_dat_sync ? STATE_RX : STATE_IDLE;
-    STATE_RX: next_state = do_sample && bitpos == 3'd7 ? STATE_RX_PARITY : STATE_RX;
-    STATE_RX_PARITY: next_state = do_sample ? STATE_STOP : STATE_RX_PARITY;
-    STATE_STOP: next_state = do_sample ? STATE_IDLE : STATE_STOP;
-    STATE_INHIBIT: next_state = ~|clk_inhibit_count ? STATE_TX_START : STATE_INHIBIT;
+    STATE_IDLE: begin
+        if (do_sample && !ps2_dat_sync)
+            next_state = STATE_RX;
+        else
+            next_state = STATE_IDLE;
+    end
+    STATE_RX: begin
+        if (do_sample && bitpos == 3'd7)
+            next_state = STATE_RX_PARITY;
+        else
+            next_state = STATE_RX;
+    end
+    STATE_RX_PARITY: begin
+        if (do_sample)
+            next_state = STATE_STOP;
+        else
+            next_state = STATE_RX_PARITY;
+    end
+    STATE_STOP: begin
+        if (do_sample)
+            next_state = STATE_IDLE;
+        else
+            next_state = STATE_STOP;
+    end
+    STATE_INHIBIT: begin
+        if (~|clk_inhibit_count)
+            next_state = STATE_TX_START;
+        else
+            next_state = STATE_INHIBIT;
+    end
     STATE_TX_START: next_state = STATE_TX;
-    STATE_TX: next_state = do_sample && bitpos == 3'd7 ? STATE_TX_PARITY : STATE_TX;
-    STATE_TX_PARITY: next_state = do_sample ? STATE_TX_STOP : STATE_TX_PARITY;
-    STATE_TX_STOP: next_state = do_sample ? STATE_TX_ACK : STATE_TX_STOP;
-    STATE_TX_ACK: next_state = do_sample ? STATE_IDLE : STATE_TX_ACK;
+    STATE_TX: begin
+        if (do_sample && bitpos == 3'd7)
+            next_state = STATE_TX_PARITY;
+        else
+            next_state = STATE_TX;
+    end
+    STATE_TX_PARITY: begin
+        if (do_sample)
+            next_state = STATE_TX_STOP;
+        else
+            next_state = STATE_TX_PARITY;
+    end
+    STATE_TX_STOP: begin
+        if (do_sample)
+            next_state = STATE_TX_ACK;
+        else
+            next_state = STATE_TX_STOP;
+    end
+    STATE_TX_ACK: begin
+        if (do_sample)
+            next_state = STATE_IDLE;
+        else
+            next_state = STATE_TX_ACK;
+    end
     default: next_state = STATE_IDLE;
     endcase
 

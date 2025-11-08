@@ -21,8 +21,18 @@ module BitSync(input logic clk,
                input logic d,
                output logic q);
 
+// Use generic synchronizer for simulation, Altera primitive for synthesis
 `ifdef verilator
+    `define USE_GENERIC_SYNC
+`elsif ICARUS
+    `define USE_GENERIC_SYNC
+`elsif SIMULATION
+    `define USE_GENERIC_SYNC
+`endif
 
+`ifdef USE_GENERIC_SYNC
+
+// Generic 2-stage synchronizer for simulation
 reg p1;
 reg p2;
 
@@ -42,11 +52,16 @@ always_ff @(posedge clk or posedge reset)
 
 `else
 
+// Altera-specific synchronizer for FPGA synthesis
 altera_std_synchronizer sync(.clk(clk),
                              .reset_n(~reset),
                              .din(d),
                              .dout(q));
 
+`endif
+
+`ifdef USE_GENERIC_SYNC
+    `undef USE_GENERIC_SYNC
 `endif
 
 endmodule

@@ -2,34 +2,34 @@
 module IDArbiter(
     input clk,
     input reset,
-    
+
     // Instruction bus
     input [19:1] instr_m_addr,
-    output  [15:0] instr_m_data_in,
+    output logic [15:0] instr_m_data_in,
     input  [15:0] instr_m_data_out,
     input  instr_m_access,
-    output  instr_m_ack,
+    output logic instr_m_ack,
     input  instr_m_wr_en,
     input  [1:0] instr_m_bytesel,
-    
+
     // Data bus
     input [19:1] data_m_addr,
-    output  [15:0] data_m_data_in,
+    output logic [15:0] data_m_data_in,
     input  [15:0] data_m_data_out,
     input  data_m_access,
-    output  data_m_ack,
+    output logic data_m_ack,
     input  data_m_wr_en,
     input  [1:0] data_m_bytesel,
-    
+
     // Output bus
-    output  [19:1] q_m_addr,
+    output logic [19:1] q_m_addr,
     input  [15:0] q_m_data_in,
-    output  [15:0] q_m_data_out,
+    output logic [15:0] q_m_data_out,
     output logic q_m_access,
     input  q_m_ack,
-    output  q_m_wr_en,
-    output  [1:0] q_m_bytesel,
-    output  q_b
+    output logic q_m_wr_en,
+    output logic [1:0] q_m_bytesel,
+    output logic q_b
 	 
 	 //output logic [2:0] current_state only used for debugging
 );
@@ -196,18 +196,32 @@ module IDArbiter(
         end
     end
 
-    
-assign instr_m_ack = grant_active &  servingInstr & q_m_ack & (arb_state != IDLE);
-assign data_m_ack  = grant_active & ~servingInstr & q_m_ack & (arb_state != IDLE);
-    
+
+// Register ACK outputs to prevent glitches
+logic instr_m_ack_reg;
+logic data_m_ack_reg;
+
+assign instr_m_ack = instr_m_ack_reg;
+assign data_m_ack  = data_m_ack_reg;
+
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        instr_m_ack_reg <= 1'b0;
+        data_m_ack_reg  <= 1'b0;
+    end else begin
+        instr_m_ack_reg <= grant_active &  servingInstr & q_m_ack & (arb_state != IDLE);
+        data_m_ack_reg  <= grant_active & ~servingInstr & q_m_ack & (arb_state != IDLE);
+    end
+end
+
 // Assign outputs and acks
 
-	
-	
+
+
 	always_comb begin
 
-		
-		
+
+
 	   q_m_addr = servingInstr ? instr_m_addr : data_m_addr;
 					
 

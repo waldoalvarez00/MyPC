@@ -159,16 +159,36 @@ assign q_m_access = ~q_m_ack & (b_m_access | a_m_access);
 assign q_m_wr_en = q_b ? b_m_wr_en : a_m_wr_en;
 assign q_m_bytesel = q_b ? b_m_bytesel : a_m_bytesel;
 
-assign a_m_data_in = grant_active & ~grant_to_b ? q_m_data_in : 16'b0;
-assign a_m_ack = grant_active & ~grant_to_b & q_m_ack;
+// Register ACK and data outputs to prevent glitches and maintain data stability
+logic a_m_ack_reg;
+logic b_m_ack_reg;
+logic [15:0] a_m_data_in_reg;
+logic [15:0] b_m_data_in_reg;
 
-assign b_m_data_in = grant_active & grant_to_b ? q_m_data_in : 16'b0;
-assign b_m_ack = grant_active & grant_to_b & q_m_ack;
+assign a_m_ack = a_m_ack_reg;
+assign b_m_ack = b_m_ack_reg;
+assign a_m_data_in = a_m_data_in_reg;
+assign b_m_data_in = b_m_data_in_reg;
 
 always_ff @(posedge clk or posedge reset) begin
     if (reset) begin
         grant_active <= 1'b0;
+        a_m_ack_reg  <= 1'b0;
+        b_m_ack_reg  <= 1'b0;
+        a_m_data_in_reg <= 16'b0;
+        b_m_data_in_reg <= 16'b0;
     end else begin
+        // Update ACK registers
+        a_m_ack_reg <= grant_active & ~grant_to_b & q_m_ack;
+        b_m_ack_reg <= grant_active & grant_to_b & q_m_ack;
+
+        // Update data registers - latch data when ACK is asserted
+        if (grant_active & ~grant_to_b & q_m_ack)
+            a_m_data_in_reg <= q_m_data_in;
+        if (grant_active & grant_to_b & q_m_ack)
+            b_m_data_in_reg <= q_m_data_in;
+
+        // Grant logic
         if (q_m_ack)
             grant_active <= 1'b0;
         else if (!grant_active && (b_m_access || a_m_access)) begin

@@ -31,30 +31,30 @@ module MemArbiterExtend(
     
     // CPU bus
     input  [19:1] cpu_m_addr,
-    output  [15:0] cpu_m_data_in,
+    output logic [15:0] cpu_m_data_in,
     input  [15:0] cpu_m_data_out,
     input  cpu_m_access,
     output  cpu_m_ack,
     input  cpu_m_wr_en,
     input  [1:0] cpu_m_bytesel,
-    
+
     // MCGA bus
     input  [19:1] mcga_m_addr,
-    output  [15:0] mcga_m_data_in,
+    output logic [15:0] mcga_m_data_in,
     input  [15:0] mcga_m_data_out,
     input  mcga_m_access,
     output  mcga_m_ack,
     input  mcga_m_wr_en,
     input  [1:0] mcga_m_bytesel,
-    
+
     // Output bus
-    output  [19:1] sdram_m_addr,
+    output logic [19:1] sdram_m_addr,
     input  [15:0] sdram_m_data_in,
-    output  [15:0] sdram_m_data_out,
+    output logic [15:0] sdram_m_data_out,
     output logic sdram_m_access,
     input  sdram_m_ack,
-    output  sdram_m_wr_en,
-    output  [1:0] sdram_m_bytesel,
+    output logic sdram_m_wr_en,
+    output logic [1:0] sdram_m_bytesel,
     output  q_b
 	 
 	 // Debug FSM
@@ -174,25 +174,51 @@ module MemArbiterExtend(
         end
     end
 
-assign cpu_m_ack  = grant_active &  servingA & sdram_m_ack;
-assign mcga_m_ack = grant_active & ~servingA & sdram_m_ack;
-    
-// Assign outputs and acks
+// Register ACK and data outputs to prevent glitches and ensure timing
+logic cpu_m_ack_reg;
+logic mcga_m_ack_reg;
+logic [15:0] cpu_m_data_in_reg;
+logic [15:0] mcga_m_data_in_reg;
+
+assign cpu_m_ack  = cpu_m_ack_reg;
+assign mcga_m_ack = mcga_m_ack_reg;
+assign cpu_m_data_in  = cpu_m_data_in_reg;
+assign mcga_m_data_in = mcga_m_data_in_reg;
+
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        cpu_m_ack_reg  <= 1'b0;
+        mcga_m_ack_reg <= 1'b0;
+        cpu_m_data_in_reg  <= 16'b0;
+        mcga_m_data_in_reg <= 16'b0;
+    end else begin
+        cpu_m_ack_reg  <= grant_active &  servingA & sdram_m_ack;
+        mcga_m_ack_reg <= grant_active & ~servingA & sdram_m_ack;
+
+        // Capture data when SDRAM ACK is high
+        if (sdram_m_ack) begin
+            if (servingA)
+                cpu_m_data_in_reg <= sdram_m_data_in;
+            else
+                mcga_m_data_in_reg <= sdram_m_data_in;
+        end
+    end
+end
+
+// Assign control outputs
 always_comb begin
-	 
-      
+
+
 		sdram_m_access = grant_active && (mcga_m_access || cpu_m_access);
-		
+
       //cpu_m_ack = (servingA) && sdram_m_ack;
       //mcga_m_ack = !servingA && sdram_m_ack;
-				
-	   sdram_m_addr = servingA ? cpu_m_addr : mcga_m_addr;					
+
+	   sdram_m_addr = servingA ? cpu_m_addr : mcga_m_addr;
 		sdram_m_data_out = servingA ? cpu_m_data_out : mcga_m_data_out;
       sdram_m_wr_en = servingA ? cpu_m_wr_en : mcga_m_wr_en;
       sdram_m_bytesel = servingA ? cpu_m_bytesel : mcga_m_bytesel;
-      cpu_m_data_in = servingA && sdram_m_ack ? sdram_m_data_in : 16'b0; //servingA ? sdram_m_data_in : 0;
-      mcga_m_data_in = !servingA && sdram_m_ack ? sdram_m_data_in : 16'b0;
-		
+
  end
 
 assign q_b = (grant_active && !servingA) || (!grant_active && mcga_m_access);

@@ -6,6 +6,8 @@
 // http://creativecommons.org/licenses/by-sa/4.0/ or send a letter to Creative
 // Commons, PO Box 1866, Mountain View, CA 94042, USA.
 //
+// Modified for Icarus Verilog compatibility using conditional compilation
+//
 `default_nettype wire
 module cga_pixel(
     input clk,
@@ -36,7 +38,13 @@ module cga_pixel(
     input[3:0] tandy_bordercol,
 	 input tandy_color_4,
 	 input tandy_color_16,
+`ifdef ICARUS
+    // Icarus Verilog requires 'logic' type for procedurally-assigned outputs
+    output logic [3:0] video
+`else
+    // Quartus synthesis works with default wire type
     output[3:0] video
+`endif
     );
 
     reg[7:0] attr_byte;
@@ -52,9 +60,35 @@ module cga_pixel(
     reg[1:0] pix_bits_old;
     reg[3:0] tandy_bits;
 	 reg overscan;
-	 
-    reg[3:0] tandy_palette[0:15] = '{ 4'h0, 4'h1, 4'h2, 4'h3, 4'h4, 4'h5, 4'h6, 4'h7, 4'h8, 4'h9, 4'ha, 4'hb, 4'hc, 4'hd, 4'he, 4'hf };  
-	 
+
+    // Tandy palette array
+`ifdef ICARUS
+    // Icarus Verilog doesn't support aggregate array initialization
+    reg[3:0] tandy_palette[0:15];
+
+    initial begin
+        tandy_palette[0]  = 4'h0;
+        tandy_palette[1]  = 4'h1;
+        tandy_palette[2]  = 4'h2;
+        tandy_palette[3]  = 4'h3;
+        tandy_palette[4]  = 4'h4;
+        tandy_palette[5]  = 4'h5;
+        tandy_palette[6]  = 4'h6;
+        tandy_palette[7]  = 4'h7;
+        tandy_palette[8]  = 4'h8;
+        tandy_palette[9]  = 4'h9;
+        tandy_palette[10] = 4'ha;
+        tandy_palette[11] = 4'hb;
+        tandy_palette[12] = 4'hc;
+        tandy_palette[13] = 4'hd;
+        tandy_palette[14] = 4'he;
+        tandy_palette[15] = 4'hf;
+    end
+`else
+    // Quartus synthesis supports aggregate initialization
+    reg[3:0] tandy_palette[0:15] = '{ 4'h0, 4'h1, 4'h2, 4'h3, 4'h4, 4'h5, 4'h6, 4'h7, 4'h8, 4'h9, 4'ha, 4'hb, 4'hc, 4'hd, 4'he, 4'hf };
+`endif
+
     wire pix_640;
     wire[10:0] rom_addr;
     wire load_shifter;
@@ -73,7 +107,7 @@ module cga_pixel(
 				else if (tandy_color_4)
 					video = tandy_palette[{ 2'b00, video_out[2:1] }];
 				else if (mode_640)
-					video = tandy_palette[{ 2'b000, pix_640 }];
+					video = tandy_palette[{ 3'b000, pix_640 }];  // Fixed: 3 bits not 2
 				else
 					video = tandy_palette[video_out];
 		  end else

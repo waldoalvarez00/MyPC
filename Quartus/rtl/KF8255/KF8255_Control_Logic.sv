@@ -37,9 +37,8 @@ module KF8255_Control_Logic (
     logic           prev_write_enable;
     logic           write_flag;
     logic   [2:0]   stable_address;
-	
+
 	 logic           prev_chip_select;
-    logic           operation_initiated;
 
 
     //
@@ -49,34 +48,27 @@ module KF8255_Control_Logic (
         if (reset) begin
             internal_data_bus <= 8'b00000000;
 			   prev_write_enable <= 1'b0;
+			   prev_chip_select <= 1'b0;
         end else begin
-		
+
 		    if (write_enable & chip_select)
               internal_data_bus <= data_bus_in;
-			
+
 		    if (!chip_select)
               prev_write_enable <= 1'b0;
 		    else
               prev_write_enable <= write_enable;
-		
+
 		    // Track chip_select transitions
           prev_chip_select <= chip_select;
 
-          // Detect operation initiation
-          operation_initiated <= (write_enable | read_enable) & chip_select & ~prev_chip_select;
-			
 		end
-        
+
     end
-	
-	// Generate ack signal
-    // Ack is asserted for one clock cycle after an operation is initiated
-    always_ff @(posedge clock or posedge reset) begin
-        if (reset)
-            ack <= 1'b0;
-        else
-            ack <= operation_initiated;
-    end
+
+	// Generate ack signal - combinational for fast response
+    // Ack is asserted whenever chip_select is high with read or write enabled
+    assign ack = (write_enable | read_enable) & chip_select;
 
     
 	
@@ -90,11 +82,16 @@ module KF8255_Control_Logic (
     end
 
     // Generate write request flags
-    assign write_port_a  = (stable_address == `ADDRESS_PORT_A ) & write_flag;
-    assign write_port_b  = (stable_address == `ADDRESS_PORT_B ) & write_flag;
-    assign write_port_c  = (stable_address == `ADDRESS_PORT_C ) & write_flag;
-    assign write_control = (stable_address == `ADDRESS_CONTROL) & write_flag;
+    assign write_port_a  = (stable_address == `ADDRESS_PORT_A ) & write_flag & chip_select;
+    assign write_port_b  = (stable_address == `ADDRESS_PORT_B ) & write_flag & chip_select;
+    assign write_port_c  = (stable_address == `ADDRESS_PORT_C ) & write_flag & chip_select;
+    assign write_control = (stable_address == `ADDRESS_CONTROL) & write_flag & chip_select;
 
+    // Debug signals for verification
+    `ifndef verilator
+    logic debug_write_control;
+    always @(posedge clock) debug_write_control <= write_control;
+    `endif
 
     //
     // Read Control

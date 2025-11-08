@@ -12,15 +12,16 @@ module cga(
 
     // Clocks
     input clk,
+    input reset,      // ADDED: Reset signal for CRTC and other modules
     output [4:0] clkdiv,
 
     // Non ISA bus
     input[14:0] bus_a,
-	 
+
     input bus_ior_l,
     input bus_iow_l,
-    
-	 
+
+
     input[7:0] bus_d,
     output[7:0] bus_out,
     output bus_dir,
@@ -287,9 +288,9 @@ module cga(
 	
     UM6845R crtc (
         .CLOCK(clk),
-		  .CLKEN(crtc_clk), 
+		  .CLKEN(crtc_clk),
 		  // .nCLKEN(),
-		  .nRESET(1'b1),
+		  .nRESET(~reset),      // FIXED: Connect to inverted reset (active-low)
 		  .CRTC_TYPE(1'b1),
 		  
 		  .ENABLE(1'b1),

@@ -614,8 +614,14 @@ module KF8259_Control_Logic (
             simpleirq[2:0] <= bit2num(interrupt);
             simpleirq[7:3] <= interrupt_vector_address[10:6];
         end
-        else if (end_of_poll_command == 1'b1)
+        else if (end_of_poll_command == 1'b1) begin
             interrupt_to_cpu <= 1'b0;
+        end else if (interrupt_to_cpu == 1'b1) begin
+            // Clear interrupt_to_cpu when no interrupts are pending
+            // This handles cases where an interrupt was active but conditions changed
+            // (e.g., interrupt was masked or request was cleared)
+            interrupt_to_cpu <= 1'b0;
+        end
     end
 
     // freeze

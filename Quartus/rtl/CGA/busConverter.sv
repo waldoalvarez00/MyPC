@@ -62,10 +62,10 @@ always @(posedge clk or posedge rst) begin
                     mem_en <= 1; // Enable memory access
                     //bus_ack <= 0; // Clear bus_ack at the start of an operation
                     if (we) begin
-						  
-						  
+
+
                         mem_we <= 1; // Enable memory write
-								
+
                         if (bytesel[0]) begin
                             mem_data_out <= data_in[7:0]; // Prepare low byte for write
 									 mem_addr <= {addr, 1'b0};
@@ -111,7 +111,7 @@ always @(posedge clk or posedge rst) begin
 				WAIT_1: begin
 				  state <= WAIT_2;
 				end
-				
+
 				WAIT_2: begin
 				  state <= PROCESS_LOW_BYTEW;
 				  mem_we <= 0;
@@ -169,24 +169,24 @@ always @(posedge clk or posedge rst) begin
                 begin
                     // Reading low byte
                     data_out[7:0] <= mem_data_in;
-						  
+
 						  if(bytesel[1]) begin
-						  
+
 						    state <= PROCESS_HIGH_BYTE_WAIT;
-						  
+
 						    mem_addr <= {addr, 1'b1};
-						  
-                      
-						  
+
+
+
 						  end else
 						  begin
-						  
+
 						    state <= COMPLETE;
                       mem_en <= 0; // Disable memory access after operation
                       bus_ack <= 1; // Complete operation for the bus
-						  
+
 						  end
-                    
+
                 end
             end
 				
@@ -250,14 +250,14 @@ always @(posedge clk or posedge rst) begin
 				
 				
             PROCESS_HIGH_BYTE: begin
-                
+
                     // Reading high byte
                     data_out[15:8] <= mem_data_in;
                     mem_en <= 0; // Disable memory access after operation
                     state <= COMPLETE;
-                    
+
                     bus_ack <= 1; // Complete operation for the bus
-                
+
             end
 				
 				COMPLETE: begin

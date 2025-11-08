@@ -2,3 +2,18 @@
 *.bak
 Quartus/serv_req_info.txt
 utils/bios/pcxtbios-iles.bin
+
+# Verilator generated files
+*.log
+obj_dir/
+Quartus/verilator_lint.log
+
+# Simulation results
+modelsim/sim_results_*/
+modelsim/master_test_results_*/
+*.vcd
+
+# Compiled test binaries
+modelsim/*_tb
+modelsim/*_test
+modelsim/simple_uart_test

@@ -1,0 +1,129 @@
+#!/bin/bash
+# Thorough Verilator lint check with all warnings enabled
+# This will help detect logic flaws
+
+cd "$(dirname "$0")"
+
+# Setup local Verilator if it exists
+if [ -d "/home/user/verilator-local/usr/bin" ]; then
+    export PATH="/home/user/verilator-local/usr/bin:$PATH"
+    export VERILATOR_ROOT="/home/user/verilator-local/usr/share/verilator"
+    echo "Using local Verilator installation"
+fi
+
+echo "Running THOROUGH Verilator lint on PCXT design..."
+echo "========================================"
+verilator --version
+echo "========================================"
+
+# Run Verilator with maximum warnings
+verilator --lint-only \
+    -Wall \
+    -Wno-TIMESCALEMOD \
+    -Wno-fatal \
+    -sv \
+    --top-module emu \
+    -I. \
+    -Istubs \
+    -Irtl \
+    -Irtl/CPU \
+    -Irtl/CGA \
+    -Irtl/VGA \
+    -Irtl/KF8237-DMA \
+    -Irtl/KF8253 \
+    -Irtl/KF8255 \
+    -Irtl/KF8259 \
+    -Irtl/Keyboard \
+    -Irtl/Floppy \
+    -Irtl/Debug \
+    -Irtl/bios \
+    -Irtl/common \
+    -Irtl/irq \
+    -Irtl/leds \
+    -Irtl/pic \
+    -Irtl/ps2 \
+    -Irtl/sdram \
+    -Irtl/timer \
+    -Irtl/uart \
+    --error-limit 200 \
+    stubs/pll.v \
+    stubs/pllsdram.v \
+    stubs/hps_io.sv \
+    rtl/CPU/RegisterEnum.sv \
+    rtl/CPU/FlagsEnum.sv \
+    rtl/CPU/MicrocodeTypes.sv \
+    rtl/CPU/Instruction.sv \
+    rtl/CPU/InstructionDefinitions.sv \
+    rtl/VGA/VGATypes.sv \
+    mycore.sv \
+    rtl/IDArbiter.sv \
+    rtl/DMAArbiter.sv \
+    rtl/MemArbiterExtend.sv \
+    rtl/AddressDecoder.sv \
+    rtl/AckExtender.sv \
+    rtl/CPU/Core.sv \
+    rtl/CPU/CSIPSync.sv \
+    rtl/CPU/Divider.sv \
+    rtl/CPU/Fifo.sv \
+    rtl/CPU/Flags.sv \
+    rtl/CPU/IP.sv \
+    rtl/CPU/ImmediateReader.sv \
+    rtl/CPU/InsnDecoder.sv \
+    rtl/CPU/JumpTest.sv \
+    rtl/CPU/LoadStore.sv \
+    rtl/CPU/LoopCounter.sv \
+    rtl/CPU/MemArbiter.sv \
+    rtl/CPU/Microcode.sv \
+    rtl/CPU/ModRMDecode.sv \
+    rtl/CPU/PosedgeToPulse.sv \
+    rtl/CPU/Prefetch.sv \
+    rtl/CPU/RegisterFile.sv \
+    rtl/CPU/SegmentOverride.sv \
+    rtl/CPU/SegmentRegisterFile.sv \
+    rtl/CPU/TempReg.sv \
+    rtl/CPU/alu/*.sv \
+    rtl/CPU/cdc/*.sv \
+    rtl/CGA/*.sv \
+    rtl/VGA/FBPrefetch.sv \
+    rtl/VGA/FontColorLUT.sv \
+    rtl/VGA/FrameBuffer.sv \
+    rtl/VGA/VGAController.sv \
+    rtl/VGA/VGAPrefetchRAM.sv \
+    rtl/VGA/VGARegisters.sv \
+    rtl/VGA/VGASync.sv \
+    rtl/VGA/DACRam.v \
+    rtl/KF8237-DMA/*.sv \
+    rtl/KF8253/*.sv \
+    rtl/KF8255/*.sv \
+    rtl/KF8259/*.sv \
+    rtl/Keyboard/*.sv \
+    rtl/MSMouse/MSMouseWrapper.v \
+    rtl/Floppy/*.sv \
+    rtl/Debug/*.sv \
+    rtl/bios/*.sv \
+    rtl/irq/*.sv \
+    rtl/leds/*.sv \
+    rtl/pic/*.sv \
+    rtl/ps2/*.sv \
+    rtl/sdram/*.sv \
+    rtl/sdramtut6.sv \
+    rtl/timer/*.sv \
+    rtl/uart/*.sv \
+    rtl/uart16750/uart.v \
+    rtl/common/BlockRam.sv \
+    rtl/common/Cache.sv \
+    rtl/common/DPRam.sv \
+    rtl/common/JTAGBridge.sv \
+    rtl/common/PoweronReset.sv \
+    rtl/common/VirtualJTAG.sv \
+    2>&1 | tee verilator_thorough.log
+
+echo ""
+echo "========================================"
+echo "Thorough lint complete. See verilator_thorough.log"
+echo ""
+echo "Critical Issues:"
+grep -E "%(Error|Warning-UNOPTFLAT|Warning-LATCH|Warning-MULTIDRIVEN|Warning-COMBDLY|Warning-WIDTH)" verilator_thorough.log | wc -l | xargs -I {} echo "Count: {}"
+echo ""
+echo "All Warnings:"
+grep -E "^%Warning" verilator_thorough.log | wc -l | xargs -I {} echo "Total: {}"

@@ -55,10 +55,30 @@ always_ff @(posedge clk or posedge reset)
 
 always_comb begin
     case (state)
-    STATE_RESET_START: next_state = tx_complete ? STATE_RESET_WAIT : STATE_RESET_START;
-    STATE_RESET_WAIT: next_state = rx_valid && rx == 8'haa ? STATE_ENABLE_START : STATE_RESET_WAIT;
-    STATE_ENABLE_START: next_state = tx_complete ? STATE_ENABLE_WAIT : STATE_ENABLE_START;
-    STATE_ENABLE_WAIT: next_state = rx_valid ? STATE_IDLE : STATE_ENABLE_WAIT;
+    STATE_RESET_START: begin
+        if (tx_complete)
+            next_state = STATE_RESET_WAIT;
+        else
+            next_state = STATE_RESET_START;
+    end
+    STATE_RESET_WAIT: begin
+        if (rx_valid && rx == 8'haa)
+            next_state = STATE_ENABLE_START;
+        else
+            next_state = STATE_RESET_WAIT;
+    end
+    STATE_ENABLE_START: begin
+        if (tx_complete)
+            next_state = STATE_ENABLE_WAIT;
+        else
+            next_state = STATE_ENABLE_START;
+    end
+    STATE_ENABLE_WAIT: begin
+        if (rx_valid)
+            next_state = STATE_IDLE;
+        else
+            next_state = STATE_ENABLE_WAIT;
+    end
     default: next_state = STATE_IDLE;
     endcase
 

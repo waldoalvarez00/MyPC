@@ -77,15 +77,16 @@ module cgacard(
 	 
 	 wire [7:0] CGA_CRTC_DOUT;
 
-    cga cga1 
+    cga cga1
     (
         .clk                        (clk_vga_cga),
+        .reset                      (reset),          // ADDED: Pass reset signal
         .clkdiv                     (clkdiv),
         .bus_a                      (data_m_addr),
         .bus_ior_l                  (~(regaccess & ~data_m_wr_en)),
         .bus_iow_l                  (~(regaccess &  data_m_wr_en)),
-       
-		  
+
+
 		  .ack_signal                 (regack),
 		  
         .bus_d                      (data_m_data_in[7:0]),
@@ -131,7 +132,7 @@ module cgacard(
 	 
 	 busConverter #(.AW(14)) Converter
 	 (
-	 
+	 .outstate(),                    // Output state (not used)
 	 .clk(clock),                    // Clock input
     .rst(reset),                    // Asynchronous reset, active high
 	 .en(memaccess),                 // Enable signal for the module
@@ -141,14 +142,12 @@ module cgacard(
     .addr(imem_m_addr[14:1]),       // Address input for memory operations
     .bytesel(imem_m_bytesel),       // 2-bit Byte select signal
 	 .bus_ack(mem_m_ack),            // Acknowledgment signal for operation completion
-	 
+
     .mem_addr(mem_addr),            // Output address for memory
     .mem_data_in(mem_data_in),      // 8-bit data input from memory (for reads)
     .mem_data_out(mem_data_out),    // 8-bit data output to memory (for writes)
 	 .mem_we(mem_we),
-	 .mem_en(mem_en),
-                       
-	 
+	 .mem_en(mem_en)
 	 );
 	 
 
