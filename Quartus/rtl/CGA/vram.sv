@@ -25,11 +25,13 @@ reg [7:0] vram[0:(2**AW)-1];
 `endif
 
 always @(posedge clka)
-  if (ena)
-		if (wea)
+  if (ena) begin
+		if (wea) begin
 			vram[addra] <= dina;
-		else
+		end else begin
 			douta <= vram[addra];
+		end
+  end
 		
 			
 always @(posedge clkb)

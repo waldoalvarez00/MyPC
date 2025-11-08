@@ -110,6 +110,7 @@ end
 task write_cga_register(input [15:0] addr, input [7:0] data);
     begin
         @(posedge clock);
+        #1;  // Small delay to avoid race with always @(posedge clock) blocks
         regaccess = 1'b1;
         data_m_addr = addr[19:1];
         data_m_data_in = {8'h00, data};
@@ -130,6 +131,7 @@ endtask
 task read_cga_register(input [15:0] addr, output [7:0] data);
     begin
         @(posedge clock);
+        #1;  // Small delay to avoid race with always @(posedge clock) blocks
         regaccess = 1'b1;
         data_m_addr = addr[19:1];
         data_m_bytesel = 2'b01;
@@ -149,6 +151,7 @@ endtask
 task write_vram_word(input [15:0] addr, input [15:0] data);
     begin
         @(posedge clock);
+        #1;  // Small delay to avoid race with always @(posedge clock) blocks
         memaccess = 1'b1;
         imem_m_addr = addr[19:1];
         imem_m_data_in = data;
@@ -169,6 +172,7 @@ endtask
 task read_vram_word(input [15:0] addr, output [15:0] data);
     begin
         @(posedge clock);
+        #1;  // Small delay to avoid race with always @(posedge clock) blocks
         memaccess = 1'b1;
         imem_m_addr = addr[19:1];
         imem_m_bytesel = 2'b11;
