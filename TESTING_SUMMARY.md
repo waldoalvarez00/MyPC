@@ -7,15 +7,16 @@ This document summarizes the testing status of all major components in the s80x8
 
 | Category | Components | Tests | Passed | Failed | Rate |
 |----------|-----------|-------|--------|--------|------|
-| Fully Functional | 10 | 139 | 139 | 0 | 100% |
+| Fully Functional | 11 | 155 | 155 | 0 | 100% |
 | Partially Functional | 0 | 0 | 0 | 0 | - |
 | Testing Challenges | 2 | 20 | 9 | 11 | 45% |
-| **TOTAL TESTED** | **12** | **159** | **148** | **11** | **93%** |
+| **TOTAL TESTED** | **13** | **175** | **164** | **11** | **94%** |
 
 **Components by Status:**
-- ✅ **10 Fully Functional** (100% pass): Timer, PIC, DMA, Floppy/SD, UART, Cache, PPI, DMAArbiter, IDArbiter, SDRAM Config
+- ✅ **11 Fully Functional** (100% pass): Timer, PIC, DMA, Floppy/SD, UART, Cache, PPI, DMAArbiter, IDArbiter, SDRAM Config, MemArbiterExtend
 - ⚠️ **2 With Testing Challenges**: SDRAM Controller (timing issues), MemArbiter (87% pass - functional)
-- 🔲 **Untested**: MCGA Controller, Keyboard/Mouse Controllers, MemArbiterExtend
+- 🔲 **Untested**: MCGA Controller
+- ⛔ **Cannot Test**: PS/2 Keyboard/Mouse Controllers (require Altera libraries)
 
 ## Tested Components (100% Pass Rate)
 
@@ -284,15 +285,43 @@ See `CACHE_BUGS.md` for detailed bug analysis and fixes.
 - Proper acknowledgment signaling
 - Chip select requirement enforced
 
+### 13. MemArbiterExtend ✓
+- **File:** `Quartus/rtl/MemArbiterExtend.sv`
+- **Testbench:** `modelsim/mem_arbiter_extend_tb.sv`
+- **Tests:** 16/16 passing (100%)
+- **Status:** FULLY FUNCTIONAL (BUGS FIXED)
+
+**Bugs Fixed:**
+1. ✅ **Port declaration bug** - Same issue as IDArbiter
+   - Outputs assigned in `always_comb` must be declared as `logic`, not `wire`
+   - Fixed: cpu_m_data_in, mcga_m_data_in, sdram_m_addr, sdram_m_data_out, sdram_m_wr_en, sdram_m_bytesel
+   - Synthesis/simulation portability issue for Icarus Verilog
+
+2. ✅ **Data timing bug** - ACK registered but data_in combinational
+   - Problem: cpu_m_ack/mcga_m_ack were registered (1-cycle delay) but data_in signals were combinational
+   - When ACK_reg went high, sdram_m_ack was already low, making data_in = 0
+   - Fix: Added data_in registers, capture data when sdram_m_ack is high
+   - Lines 180-206: Proper data capture and timing alignment
+
+**Tests Cover:**
+- CPU bus read/write requests
+- MCGA bus read/write requests
+- Sequential request handling
+- Round-robin fairness verification
+- Simultaneous requests (priority testing)
+- q_b busy signal (MCGA access indicator)
+- Address/data/control signal routing
+- Byte select routing
+- Rapid alternating requests
+
+**Functionality Verified:**
+- Proper arbitration between CPU and MCGA (video) buses for SDRAM access
+- Round-robin scheduling with last-served tracking for fairness
+- State machine transitions (IDLE, SERVING_A, SERVING_B)
+- Correct signal multiplexing based on granted bus
+- Registered ACK and data outputs prevent glitches
+
 ## Untested Components
-
-### 13. Memory Arbiter Extended (Untested)
-- **Files:**
-  - `Quartus/rtl/MemArbiterExtend.sv` - Extended memory arbiter
-- **Status:** NOT YET TESTED
-- **Priority:** LOW (other arbiters tested and working)
-
-**Note:** MemArbiter.sv has proper reset logic and appears well-designed
 
 ### 9. SDRAM Controller (Untested)
 - **Files:**
@@ -310,18 +339,32 @@ See `CACHE_BUGS.md` for detailed bug analysis and fixes.
 - **Status:** NOT YET TESTED
 - **Priority:** MEDIUM (visual output)
 
-### 11. Keyboard Controller (Untested)
+### 11. PS/2 Keyboard Controller (Cannot Test)
 - **Files:**
-  - `Quartus/rtl/Keyboard/KFPS2KB.sv`
-  - `Quartus/rtl/ps2/`
-- **Status:** NOT YET TESTED
-- **Priority:** LOW (PS/2 likely functional)
+  - `Quartus/rtl/ps2/PS2KeyboardController.sv`
+  - `Quartus/rtl/ps2/KeyboardController.sv`
+  - `Quartus/rtl/ps2/PS2Host.sv`
+- **Status:** CANNOT TEST WITH ICARUS VERILOG
+- **Priority:** MEDIUM
+- **Blocker:** Requires Altera-specific libraries (`altera_std_synchronizer`)
 
-### 12. Mouse Controller (Untested)
+**Analysis:**
+- Controllers use `BitSync` module for clock domain crossing
+- `BitSync` instantiates Altera-specific `altera_std_synchronizer` primitives
+- These primitives are only available in Quartus/ModelSim with Altera libraries
+- Testing would require either:
+  1. Modified version with generic synchronizers
+  2. Testing in Quartus/ModelSim environment
+  3. Hardware testing on actual FPGA
+- Controllers are from original proven s80x86 project, likely functional
+
+### 12. PS/2 Mouse Controller (Cannot Test)
 - **Files:**
-  - `Quartus/rtl/MSMouse/`
-- **Status:** NOT YET TESTED
+  - `Quartus/rtl/ps2/PS2MouseController.sv`
+  - `Quartus/rtl/ps2/PS2Host.sv`
+- **Status:** CANNOT TEST WITH ICARUS VERILOG
 - **Priority:** LOW
+- **Blocker:** Same as Keyboard Controller - requires Altera libraries
 
 ### 13. CPU Core Components (Partially Tested)
 - **Files:**
@@ -356,14 +399,15 @@ DMA (8237)           24      24      0    100%    ✓ PASS
 Floppy + SD          26      26      0    100%    ✓ PASS
 UART                  -       -      -      -     ✓ PASS
 PPI (8255)           17      17      0    100%    ✓ PASS (FIXED)
-Cache                10      10      0    100%    ✓ PASS
+Cache                10      10      0    100%    ✓ PASS (FIXED)
 MemArbiter            8       7      1     87%    ✓ FUNCTIONAL
 DMAArbiter           10      10      0    100%    ✓ PASS
-IDArbiter            10      10      0    100%    ✓ PASS
+IDArbiter            10      10      0    100%    ✓ PASS (FIXED)
 SDRAM Config          8       8      0    100%    ✓ PASS
+MemArbiterExtend     16      16      0    100%    ✓ PASS (FIXED)
 SDRAM Controller     12       2     10     16%    ⚠ TIMING ISSUES
 ───────────────────────────────────────────────────────────
-TOTAL               157     146     11     93%
+TOTAL               173     162     11     94%
 ```
 
 ## Issues Found and Fixed
@@ -399,14 +443,30 @@ TOTAL               157     146     11     93%
    - Documented in `CACHE_BUGS.md`
    - All 10 tests now passing
 
+### MemArbiterExtend Issues:
+1. ✅ **FIXED:** Port declaration bug
+   - Same issue as IDArbiter - outputs assigned in `always_comb` must be `logic`
+   - Fixed ports: cpu_m_data_in, mcga_m_data_in, sdram_m_addr, sdram_m_data_out, sdram_m_wr_en, sdram_m_bytesel
+   - Synthesis/simulation portability issue for Icarus Verilog
+   - Fixed in `MemArbiterExtend.sv:34-58`
+
+2. ✅ **FIXED:** Data timing bug - ACK registered but data_in combinational
+   - Problem: cpu_m_ack/mcga_m_ack were registered (1-cycle delay)
+   - But cpu_m_data_in/mcga_m_data_in were combinational, depending on sdram_m_ack
+   - When ACK_reg went high (cycle N+1), sdram_m_ack was already low, data_in = 0
+   - Fix: Added cpu_m_data_in_reg/mcga_m_data_in_reg, capture data when sdram_m_ack is high
+   - Ensures data is stable and valid when ACK goes high
+   - Fixed in `MemArbiterExtend.sv:180-206`
+
 ## Recommendations
 
 ### Immediate Actions:
 1. ✅ **COMPLETED:** Cache module fixed - all tests passing
 2. ✅ **COMPLETED:** PPI output mode fixed - all tests passing
 3. ✅ **COMPLETED:** Memory arbiters tested - all passing
-4. Consider testing MCGA controller (deferred - complex)
-5. Consider testing Keyboard/Mouse (deferred - PS/2 protocol)
+4. ✅ **COMPLETED:** MemArbiterExtend tested and fixed - all tests passing
+5. ⛔ **BLOCKED:** Keyboard/Mouse controllers - require Altera libraries
+6. Consider testing MCGA controller (deferred - complex, would need significant effort)
 
 ### Future Testing:
 1. VGA controller testing
