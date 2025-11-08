@@ -42,7 +42,17 @@ module KF8237_Priority_Encoder (
     import KF8237_Common_Package::rotate_left;
     import KF8237_Common_Package::resolv_priority;
 
+`ifdef ICARUS
+    logic   [1:0]   bit_select[4];
+    initial begin
+        bit_select[0] = 2'b00;
+        bit_select[1] = 2'b01;
+        bit_select[2] = 2'b10;
+        bit_select[3] = 2'b11;
+    end
+`else
     logic   [1:0]   bit_select[4] = '{ 2'b00, 2'b01, 2'b10, 2'b11 };
+`endif
     logic           controller_disable;
     logic           rotating_priority;
     logic           dreq_sense_active_low;

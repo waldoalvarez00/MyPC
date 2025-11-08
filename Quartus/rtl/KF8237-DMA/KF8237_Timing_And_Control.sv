@@ -102,7 +102,17 @@ module KF8237_Timing_And_Control (
     state_t         state;
     state_t         next_state;
     logic           next_s4;
+`ifdef ICARUS
+    logic   [1:0]   bit_select[4];
+    initial begin
+        bit_select[0] = 2'b00;
+        bit_select[1] = 2'b01;
+        bit_select[2] = 2'b10;
+        bit_select[3] = 2'b11;
+    end
+`else
     logic   [1:0]   bit_select[4] = '{ 2'b00, 2'b01, 2'b10, 2'b11 };
+`endif
     logic           memory_to_memory_enable;
     logic           chanel_0_address_hold_enable;
     logic           compressed_timing;
@@ -254,7 +264,7 @@ module KF8237_Timing_And_Control (
                 else if (end_of_process_internal)
                     next_state = SI;
                 else
-                    next_state = (reoutput_high_address) ? S1 : S2;
+                    next_state = state_t'(reoutput_high_address ? S1 : S2);
             end
             default: begin
             end

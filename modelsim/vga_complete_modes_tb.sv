@@ -279,8 +279,8 @@ initial begin
     $display("Testing EGA Graphics Modes (0Dh-10h)");
     $display("================================================================");
 
-    // Mode 0Dh: 320x200, 16 colors
-    test_mode(8'd79, 10'd199, 5'd1, 8'h0A, 8'h00, MODE_0DH, "Mode 0Dh: 320x200 16-color (EGA)");
+    // Mode 0Dh: 320x200, 16 colors (EGA - requires 80-column mode, bit0=1, bit1=1, bit4=0)
+    test_mode(8'd79, 10'd199, 5'd1, 8'h0B, 8'h00, MODE_0DH, "Mode 0Dh: 320x200 16-color (EGA)");
 
     // Mode 0Eh: 640x200, 16 colors (use bw_mode=0 to distinguish from mode 06h)
     test_mode(8'd79, 10'd199, 5'd1, 8'h1A, 8'h00, MODE_0EH, "Mode 0Eh: 640x200 16-color (EGA)");
