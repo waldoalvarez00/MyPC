@@ -16,6 +16,8 @@
 // along with s80x86.  If not, see <http://www.gnu.org/licenses/>.
 
 `default_nettype none
+
+`include "VGATypes.sv"
 module VGARegisters(input wire  clk,
                     input wire  vga_clk,
                     input wire  reset,
@@ -45,7 +47,10 @@ module VGARegisters(input wire  clk,
                     output logic [2:0] cursor_scan_end,
                     output logic vga_256_color,
                     input  logic [7:0] vga_dac_idx,
-                    output logic [17:0] vga_dac_rd);
+                    output logic [17:0] vga_dac_rd,
+
+                    // NEW: Video mode number output
+                    output VideoModeNumber_t mode_num);
 
 wire reg_access     = cs & data_m_access;
 
@@ -131,6 +136,43 @@ initial begin
     dac_rd_offs = 2'b00;
     dac_component_rg = 12'h000;
 end
+
+// Mode detection logic
+// Detect current video mode based on register settings
+logic [7:0] sys_mode_num;
+
+always_comb begin
+    // Default to mode 03h (80x25 text)
+    sys_mode_num = MODE_03H;
+
+    // Mode detection based on register combinations
+    if (sys_256_color) begin
+        // Mode 13h: 320x200, 256 colors (MCGA/VGA)
+        sys_mode_num = MODE_13H;
+    end else if (sys_graphics_enabled) begin
+        // Graphics modes
+        if (text_enabled) begin
+            // This shouldn't happen, but default to text
+            sys_mode_num = MODE_03H;
+        end else begin
+            // Determine graphics mode based on resolution hints
+            // This is simplified - real BIOS uses more register state
+            // For now, assume mode 04h (CGA 320x200, 4 colors)
+            sys_mode_num = MODE_04H;
+        end
+    end else if (text_enabled) begin
+        // Text modes - determine based on mode register
+        // Mode 03h is most common (80x25 color text)
+        sys_mode_num = MODE_03H;
+    end
+end
+
+// Synchronize mode number to VGA clock domain
+BusSync #(.WIDTH(8))
+        ModeNumSync(.clk(vga_clk),
+                    .reset(reset),
+                    .d(sys_mode_num),
+                    .q(mode_num));
 
 always_ff @(posedge clk)
     vga_send <= rdy_vga_cursor && vsync;

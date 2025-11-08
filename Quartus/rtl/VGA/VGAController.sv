@@ -18,6 +18,9 @@
 // along with s80x86.  If not, see <http://www.gnu.org/licenses/>.
 
 `default_nettype none
+
+`include "VGATypes.sv"
+
 module VGAController(input logic clk,
                      input logic sys_clk,
 		               input logic reset,
@@ -25,7 +28,7 @@ module VGAController(input logic clk,
                      output logic [15:0] fb_address,
                      input logic fb_ack,
                      input logic [15:0] fb_data,
-					 
+
 
                      // VGA signals
 		               output logic vga_hsync,
@@ -33,12 +36,12 @@ module VGAController(input logic clk,
 		               output logic [3:0] vga_r,
 		               output logic [3:0] vga_g,
 		               output logic [3:0] vga_b,
-						 
+
 						   output logic H_BLANK,
 						   output logic V_BLANK,
-						 
+
 						   output logic ce_pix, // Added ce_pix output
-					 
+
                      input logic graphics_enabled,
                      input logic cursor_enabled,
                      input logic bright_colors,
@@ -50,22 +53,25 @@ module VGAController(input logic clk,
                      input logic vga_256_color,
                      output logic [7:0] vga_dac_idx,
                      input logic [17:0] vga_dac_rd,
-							
-							output logic DE
-							
+
+							output logic DE,
+
+							// Video mode number from VGARegisters
+							input VideoModeNumber_t mode_num
+
 							);
 
 wire hsync;
 wire vsync;
 wire is_blank;
-wire [9:0] row;
-wire [9:0] col;
+wire [10:0] row;  // Expanded to 11 bits for higher resolutions
+wire [10:0] col;  // Expanded to 11 bits for higher resolutions
 logic fdata;
 
 // Putting a 640x400 display into a 640x480 screen.  Black bars of 40 pixels
 // at the top and bottom.
-wire [9:0] shifted_row = is_border ? 10'b0 : row - 10'd40;
-wire is_border = row < 10'd40 || row >= 10'd440;
+wire [10:0] shifted_row = is_border ? 11'b0 : row - 11'd40;
+wire is_border = row < 11'd40 || row >= 11'd440;
 
 wire [3:0] fb_background;
 wire [3:0] fb_foreground;
@@ -89,15 +95,16 @@ end
 
 
 VGASync VGASync(
-    .clk(clk),             
-    .reset(reset),         
-    .vsync(vsync),         
-    .hsync(hsync),         
-    .is_blank(is_blank),   
-    .row(row),             
-    .col(col),             
-    .V_BLANK(V_BLANK),     
-    .H_BLANK(H_BLANK)      
+    .clk(clk),
+    .reset(reset),
+    .mode_num(mode_num),      // Pass mode number for configurable timing
+    .vsync(vsync),
+    .hsync(hsync),
+    .is_blank(is_blank),
+    .row(row),
+    .col(col),
+    .V_BLANK(V_BLANK),
+    .H_BLANK(H_BLANK)
 );
 
 

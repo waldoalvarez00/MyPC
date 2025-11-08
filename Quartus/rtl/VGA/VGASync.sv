@@ -1,4 +1,5 @@
 // Copyright Jamie Iles, 2017
+// Modified 2024 - Configurable timing for all PC video modes
 //
 // This file is part of s80x86.
 //
@@ -16,55 +17,71 @@
 // along with s80x86.  If not, see <http://www.gnu.org/licenses/>.
 
 `default_nettype none
+
+`include "VGATypes.sv"
+
 module VGASync(input logic clk,
                input logic reset,
+               input VideoModeNumber_t mode_num,  // NEW: Mode input
                output logic vsync,
                output logic hsync,
                output logic is_blank,
-               output logic [9:0] row,
-               output logic [9:0] col,
-					output logic V_BLANK,
-					output logic H_BLANK);
+               output logic [10:0] row,           // Expanded to 11 bits
+               output logic [10:0] col,           // Expanded to 11 bits
+               output logic V_BLANK,
+               output logic H_BLANK);
 
-reg [9:0] hcount;
-reg [9:0] vcount;
+// Get mode parameters
+VideoModeParams_t mode_params;
+assign mode_params = get_mode_params(mode_num);
 
-localparam v_front_porch = 10'd10;
-localparam v_back_porch = 10'd33;
-localparam v_sync_count = 10'd2;
-localparam v_lines = 10'd480;
-localparam v_total = v_front_porch + v_back_porch + v_sync_count + v_lines;
+// Counters (expanded to 11 bits for higher resolutions)
+reg [10:0] hcount;
+reg [10:0] vcount;
 
-localparam h_front_porch = 10'd16;
-localparam h_back_porch = 10'd48;
-localparam h_sync_count = 10'd96;
-localparam h_lines = 10'd640;
-localparam h_total = h_front_porch + h_back_porch + h_sync_count + h_lines;
+// Calculate blanking regions based on mode parameters
+wire v_blank = vcount < mode_params.v_back_porch ||
+               vcount >= (mode_params.v_back_porch + mode_params.v_active);
+wire h_blank = hcount < mode_params.h_back_porch ||
+               hcount >= (mode_params.h_back_porch + mode_params.h_active);
 
-wire v_blank = vcount < (v_sync_count + v_back_porch) ||
-               vcount >= (v_sync_count + v_back_porch + v_lines);
-wire h_blank = hcount < (h_sync_count + h_back_porch) ||
-               hcount >= (h_sync_count + h_back_porch + h_lines);
-					
 assign is_blank = v_blank | h_blank;
-
 assign V_BLANK = v_blank;
 assign H_BLANK = h_blank;
 
-assign vsync = ~(vcount < v_sync_count);
-assign hsync = ~(hcount < h_sync_count);
+// Calculate sync pulse positions
+// H sync: starts at h_total - h_sync_width, width based on mode
+// V sync: starts at v_total - v_sync_width, width based on mode
+wire [10:0] h_sync_width = mode_params.h_sync_end - mode_params.h_sync_start;
+wire [10:0] v_sync_width = mode_params.v_sync_end - mode_params.v_sync_start;
 
-assign row = vcount - (v_sync_count + v_back_porch);
-assign col = is_blank ? 10'b0 : hcount - (h_sync_count + h_back_porch);
+// Sync signals - active low (negative polarity)
+assign hsync = ~(hcount >= (mode_params.h_total - h_sync_width - mode_params.h_back_porch) &&
+                 hcount < (mode_params.h_total - mode_params.h_back_porch));
+assign vsync = ~(vcount >= (mode_params.v_total - v_sync_width - mode_params.v_back_porch) &&
+                 vcount < (mode_params.v_total - mode_params.v_back_porch));
 
+// Output current row/column within active area
+assign row = v_blank ? 11'b0 : vcount - mode_params.v_back_porch;
+assign col = h_blank ? 11'b0 : hcount - mode_params.h_back_porch;
+
+// Timing counters
 always_ff @(posedge clk or posedge reset) begin
     if (reset) begin
-        hcount <= 10'b0;
-        vcount <= 10'b0;
+        hcount <= 11'b0;
+        vcount <= 11'b0;
     end else begin
-        hcount <= hcount == h_total - 1'b1 ? 10'd0 : hcount + 1'b1;
-        if (hcount == h_total - 1'b1)
-            vcount <= vcount == v_total - 1'b1 ? 10'd0 : vcount + 1'b1;
+        // Horizontal counter
+        if (hcount == mode_params.h_total - 1'b1) begin
+            hcount <= 11'd0;
+            // Vertical counter increments at end of horizontal line
+            if (vcount == mode_params.v_total - 1'b1)
+                vcount <= 11'd0;
+            else
+                vcount <= vcount + 1'b1;
+        end else begin
+            hcount <= hcount + 1'b1;
+        end
     end
 end
 
