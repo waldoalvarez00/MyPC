@@ -60,6 +60,14 @@ wire fifo_rd_en = cs & data_m_wr_en & data_m_bytesel[1] & data_m_data_in[15] & ~
 
 reg unread_error = 1'b0;
 
+// Internal speaker control signals
+logic speaker_data_internal;
+logic speaker_gate_en_internal;
+
+// Assign internal signals to outputs
+assign speaker_data = speaker_data_internal;
+assign speaker_gate_en = speaker_gate_en_internal;
+
 assign ps2_intr = fifo_wr_en;
 
 Fifo    #(.data_width(8),
@@ -74,11 +82,16 @@ Fifo    #(.data_width(8),
              .flush(fifo_flush),
              .*);
 
-wire [7:0] status = {3'b0, ~empty, tx_busy, unread_error, speaker_data, speaker_gate_en};
+wire [7:0] status = {3'b0, ~empty, tx_busy, unread_error, speaker_data_internal, speaker_gate_en_internal};
 wire [7:0] data = empty ? 8'b0 : fifo_rd_data;
+wire [15:0] read_value = {status, data};
 
-always_ff @(posedge clk)
-    data_m_data_out <= do_read ? {status, data} : 16'b0;
+always_ff @(posedge clk) begin
+    if (do_read)
+        data_m_data_out <= read_value;
+    else
+        data_m_data_out <= 16'b0;
+end
 
 always_ff @(posedge clk)
     data_m_ack <= data_m_access & cs;
@@ -93,9 +106,9 @@ always_ff @(posedge clk or posedge reset)
 
 always_ff @(posedge clk or posedge reset)
     if (reset)
-        {speaker_data, speaker_gate_en} <= 2'b0;
+        {speaker_data_internal, speaker_gate_en_internal} <= 2'b0;
     else if (do_write & data_m_bytesel[1])
-        {speaker_data, speaker_gate_en} <= {data_m_data_in[9], data_m_data_in[8]};
+        {speaker_data_internal, speaker_gate_en_internal} <= {data_m_data_in[9], data_m_data_in[8]};
 
 PS2Host #(.clkf(clkf))
         PS2Host(.*);

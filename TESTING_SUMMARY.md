@@ -7,15 +7,14 @@ This document summarizes the testing status of all major components in the s80x8
 
 | Category | Components | Tests | Passed | Failed | Rate |
 |----------|-----------|-------|--------|--------|------|
-| Fully Functional | 11 | 155 | 155 | 0 | 100% |
+| Fully Functional | 13 | 187 | 187 | 0 | 100% |
 | Partially Functional | 0 | 0 | 0 | 0 | - |
 | Testing Challenges | 2 | 20 | 9 | 11 | 45% |
-| **TOTAL TESTED** | **13** | **175** | **164** | **11** | **94%** |
+| **TOTAL TESTED** | **15** | **207** | **196** | **11** | **95%** |
 
 **Components by Status:**
-- ✅ **11 Fully Functional** (100% pass): Timer, PIC, DMA, Floppy/SD, UART, Cache, PPI, DMAArbiter, IDArbiter, SDRAM Config, MemArbiterExtend
+- ✅ **13 Fully Functional** (100% pass): Timer, PIC, DMA, Floppy/SD, UART, Cache, PPI, DMAArbiter, IDArbiter, SDRAM Config, MemArbiterExtend, PS/2 Keyboard, PS/2 Mouse
 - ⚠️ **2 With Testing Challenges**: SDRAM Controller (timing issues), MemArbiter (87% pass - functional)
-- 🔧 **Now Testable**: PS/2 Keyboard/Mouse Controllers (compatibility fixes applied, ready for testing)
 - 🔲 **Untested**: MCGA Controller
 
 ## Tested Components (100% Pass Rate)
@@ -339,49 +338,77 @@ See `CACHE_BUGS.md` for detailed bug analysis and fixes.
 - **Status:** NOT YET TESTED
 - **Priority:** MEDIUM (visual output)
 
-### 11. PS/2 Keyboard Controller (Now Testable)
+### 11. PS/2 Keyboard Controller ✓
 - **Files:**
   - `Quartus/rtl/ps2/PS2KeyboardController.sv`
   - `Quartus/rtl/ps2/KeyboardController.sv`
   - `Quartus/rtl/ps2/PS2Host.sv`
   - `Quartus/rtl/CPU/cdc/BitSync.sv`
-- **Status:** COMPILATION VERIFIED - Ready for testing
-- **Priority:** MEDIUM
+- **Testbench:** `modelsim/ps2_keyboard_tb.sv`
+- **Script:** `modelsim/run_ps2_keyboard_test.sh`
+- **Tests:** 18/18 passing (100%)
+- **Status:** FULLY FUNCTIONAL
 
-**Fixes Applied:**
+**Tests Cover:**
+- Initial status read (FIFO empty, speaker control, error flags)
+- ACK signal timing (registered acknowledgment)
+- Speaker control (speaker_data and speaker_gate_en signals)
+- FIFO flush command
+- Chip select requirement
+- Byte select functionality (upper/lower byte access)
+- Sequential read operations
+- Speaker pattern control
+
+**Icarus Verilog Compatibility Fixes:**
 1. ✅ **BitSync.sv** - Added conditional compilation
    - Uses generic 2-stage synchronizer for simulation (`ICARUS`, `SIMULATION` defines)
    - Uses Altera primitive for FPGA synthesis
    - Removed Altera library dependency for testing
 
-2. ✅ **PS2Host.sv** - Fixed Icarus Verilog compatibility
-   - Replaced enum ternary operators with if-else statements
+2. ✅ **PS2Host.sv** - Fixed enum ternary operators
+   - Replaced with if-else statements (lines 110-175)
    - Icarus Verilog is strict about enum type matching in ternary operators
-   - State machine logic now compiles cleanly
 
-3. ✅ **KeyboardController.sv** - Fixed Icarus Verilog compatibility
-   - Same ternary operator issues as PS2Host
-   - Converted to if-else statements for better simulator compatibility
+3. ✅ **KeyboardController.sv** - Fixed enum ternary operators
+   - Replaced with if-else statements (lines 56-87)
 
-**Compilation Status:**
-- ✓ Compiles successfully with Icarus Verilog + `-DICARUS` flag
-- ✓ All dependencies resolved (no Altera primitives)
-- ✓ Ready for testbench development
-- Note: Full PS/2 protocol testing requires complex timing simulation
+4. ✅ **PS2KeyboardController.sv** - Fixed Icarus Verilog timing issues
+   - Added internal signals for speaker control (speaker_data_internal, speaker_gate_en_internal)
+   - Fixed data_m_data_out assignment with if-else instead of ternary
+   - Testbench adds #1 delay after clock edge for non-blocking assignment completion
 
-**Assessment:**
-- Controllers are from proven s80x86 project, likely functional
-- Interface testing now possible with open-source tools
-- Full protocol testing would be complex (timing-sensitive)
+**Notes:**
+- Full PS/2 protocol testing (bit-level timing) not included - focuses on CPU interface
+- Keyboard initialization may start immediately, so tx_busy can be high initially
+- All tests pass with Icarus Verilog
 
-### 12. PS/2 Mouse Controller (Now Testable)
+### 12. PS/2 Mouse Controller ✓
 - **Files:**
   - `Quartus/rtl/ps2/PS2MouseController.sv`
-  - `Quartus/rtl/ps2/PS2Host.sv` (fixed)
-  - `Quartus/rtl/CPU/cdc/BitSync.sv` (fixed)
-- **Status:** COMPILATION VERIFIED - Ready for testing
-- **Priority:** LOW
-- **Note:** Benefits from same fixes as Keyboard Controller (shared PS2Host module)
+  - `Quartus/rtl/ps2/PS2Host.sv` (shared with keyboard)
+  - `Quartus/rtl/CPU/cdc/BitSync.sv` (shared)
+- **Testbench:** `modelsim/ps2_mouse_tb.sv`
+- **Script:** `modelsim/run_ps2_mouse_test.sh`
+- **Tests:** 14/14 passing (100%)
+- **Status:** FULLY FUNCTIONAL
+
+**Tests Cover:**
+- Initial status read (FIFO empty, tx_busy, error flags)
+- ACK signal timing (registered acknowledgment)
+- Write command (send byte to mouse)
+- Read status after TX start
+- FIFO flush command
+- Multiple status reads
+- Byte select functionality (upper/lower byte access)
+- Chip select requirement
+- Sequential read operations
+- Write multiple commands
+
+**Notes:**
+- Benefits from same Icarus Verilog compatibility fixes as Keyboard Controller
+- Shares PS2Host module for PS/2 protocol handling
+- Full PS/2 protocol testing (bit-level timing) not included - focuses on CPU interface
+- All tests pass with Icarus Verilog
 
 ### 13. CPU Core Components (Partially Tested)
 - **Files:**
