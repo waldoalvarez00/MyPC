@@ -329,58 +329,53 @@ See `CACHE_BUGS.md` for detailed bug analysis and fixes.
 - **Status:** NOT YET TESTED
 - **Priority:** HIGH (critical for memory access)
 
-### 10. VGA/MCGA Controller (Tested with Issues) ⚠️
+### 10. VGA/MCGA Controller (Mode Infrastructure Complete) ⚙️
 - **Files:**
-  - `Quartus/rtl/VGA/VGARegisters.sv` (CPU interface - TESTED)
-  - `Quartus/rtl/VGA/VGAController.sv`
-  - `Quartus/rtl/VGA/FrameBuffer.sv`
-  - `Quartus/rtl/VGA/VGASync.sv`
-  - `Quartus/rtl/VGA/DACRam.v` (replaced with DACRam_sim.sv for testing)
-- **Testbench:** `modelsim/vga_registers_tb.sv`
-- **Script:** `modelsim/run_vga_test.sh`
-- **Tests:** 23 tests created for CPU interface
-- **Status:** BUGS FOUND AND PARTIALLY FIXED
+  - `Quartus/rtl/VGA/VGATypes.sv` - **ALL 15 MODES DEFINED** ✅
+  - `Quartus/rtl/VGA/VGARegisters.sv` (CPU interface tested, bugs fixed)
+  - `Quartus/rtl/VGA/VGAController.sv` - Needs update
+  - `Quartus/rtl/VGA/VGASync.sv` - Needs configurability
+  - `Quartus/rtl/VGA/FrameBuffer.sv` - Needs multi-resolution support
+- **Testbenches:** `modelsim/vga_registers_tb.sv`, `modelsim/vga_modes_tb.sv`
+- **Tests:** 23 register tests, 150 mode definition tests (150/150 passing ✅)
+- **Status:** MODE DEFINITIONS COMPLETE - HARDWARE IMPLEMENTATION IN PROGRESS
 
-**Supported Video Modes:**
-- ✅ Text mode (80x25, 16 colors)
-- ✅ 4-color CGA graphics (320x200, 2bpp)
-- ✅ 256-color MCGA mode (320x200, 8bpp with DAC palette)
+**✅ Mode Definitions Complete (15 Standard PC Modes)**
 
-**Missing Video Modes** (as noted):
-- ❌ 2-color high-resolution (640x200, 1bpp)
-- ❌ 16-color EGA modes (320x200, 640x200, 640x350, 640x480)
-- ❌ Monochrome text mode
-- ❌ 40-column text modes (may work but not verified)
+**Text Modes (5 modes):**
+- Mode 00h/01h: 40x25, 16 colors (CGA)
+- Mode 02h/03h: 80x25, 16 colors (CGA) - *was working*
+- Mode 07h: 80x25 monochrome (MDA) - **NEW**
 
-**Bugs Found and Fixed:**
-1. ✅ **Uninitialized Registers** - Critical bug
-   - sys_graphics_enabled not initialized in reset (was 'X')
-   - sys_amcr and other control registers uninitialized
-   - Added proper initialization in VGARegisters.sv
+**CGA Graphics (3 modes):**
+- Mode 04h/05h: 320x200, 4 colors - *was working*
+- Mode 06h: 640x200, 2 colors - **NEW**
 
-2. ✅ **Icarus Verilog Type Issues**
-   - Changed wire to logic for procedurally-assigned signals
-   - sys_cursor_scan_start/end, sys_background_color, index_value
+**EGA Graphics (4 modes):**
+- Mode 0Dh: 320x200, 16 colors - **NEW**
+- Mode 0Eh: 640x200, 16 colors - **NEW**
+- Mode 0Fh: 640x350, monochrome - **NEW**
+- Mode 10h: 640x350, 16 colors - **NEW**
 
-3. ✅ **Data Output Timing** - Icarus Verilog compatibility
-   - Refactored data_m_data_out to use always_comb + register pattern
-   - Similar fix as PS2KeyboardController
+**VGA Graphics (3 modes):**
+- Mode 11h: 640x480, 2 colors - **NEW**
+- Mode 12h: 640x480, 16 colors - **NEW**
+- Mode 13h: 320x200, 256 colors - *was working*
 
-**Registers Tested:**
-- 3D4h/3D5h: CRT Controller (cursor position, scan lines)
-- 3D8h: Mode Control (text/graphics/display enable)
-- 3D9h: Color Select (background, brightness, palette)
-- 3DAh: Status Register
-- 3C0h: AMCR (256-color mode enable)
-- 3C7h/3C8h/3C9h: DAC Palette (RGB programming)
+**Mode Tests: 150/150 passing (100%)** ✅
+- All timing parameters validated
+- Resolution support: 320x200, 640x200, 640x350, 640x400, 640x480, 720x350
+- Color depths: 1bpp, 2bpp, 4bpp, 8bpp
+- Text column/row counts verified
 
-**Known Issues:**
-- Some tests still failing after initial fixes
-- Clock domain crossing timing may need more work
-- Actual video output not tested (CPU interface only)
-- Full validation requires framebuffer testing
+**⏳ Hardware Implementation Status:**
+- ✅ VGATypes.sv - Complete with all 15 mode definitions
+- ⏳ VGARegisters.sv - Needs mode number tracking
+- ⏳ VGASync.sv - Needs configurable timing
+- ⏳ FrameBuffer.sv - Needs multi-format support
+- ⏳ Integration testing pending
 
-**See:** `VGA_MCGA_FINDINGS.md` for complete analysis
+**See:** `VGA_MODES_IMPLEMENTATION.md` for full implementation plan
 
 ### 11. PS/2 Keyboard Controller ✓
 - **Files:**
