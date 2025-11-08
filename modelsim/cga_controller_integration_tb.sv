@@ -222,8 +222,8 @@ task test_video_signals(input string test_name);
         initial_hsync_count = hsync_count;
         initial_vsync_count = vsync_count;
 
-        // Wait for multiple frames
-        repeat(200000) @(posedge clk_vga_cga);
+        // Wait for multiple frames (CRTC runs at 1/32 speed, need ~1M clocks per frame)
+        repeat(2000000) @(posedge clk_vga_cga);
 
         $display("  HSYNCs generated: %0d", hsync_count - initial_hsync_count);
         $display("  VSYNCs generated: %0d", vsync_count - initial_vsync_count);
@@ -457,7 +457,7 @@ initial begin
     $display("================================================================");
     // Prime the CRTC with a simple mode to initialize internal state
     set_mode_03h();
-    repeat(50000) @(posedge clk_vga_cga);
+    repeat(1000000) @(posedge clk_vga_cga);  // Much longer wait
     $display("  CRTC primed and ready");
 
     $display("");
@@ -469,16 +469,12 @@ initial begin
     $display("");
     $display("Setting Mode 03h: 80x25 text, 16 colors");
     set_mode_03h();
-    $display("  Waiting for CRTC to stabilize...");
-    repeat(20000) @(posedge clk_vga_cga);
     test_video_signals("Mode 03h video signals");
 
     // Test 4: Mode 06h - 640x200, 2 colors (should work with R4=127)
     $display("");
     $display("Setting Mode 06h: 640x200, 2 colors");
     set_mode_06h();
-    $display("  Waiting for CRTC to stabilize...");
-    repeat(20000) @(posedge clk_vga_cga);
     test_video_signals("Mode 06h video signals");
 
     // Now test potentially problematic modes
@@ -486,16 +482,12 @@ initial begin
     $display("");
     $display("Setting Mode 01h: 40x25 text, 16 colors");
     set_mode_01h();
-    $display("  Waiting for CRTC to stabilize...");
-    repeat(20000) @(posedge clk_vga_cga);
     test_video_signals("Mode 01h video signals");
 
     // Test 6: Mode 04h - 320x200, 4 colors
     $display("");
     $display("Setting Mode 04h: 320x200, 4 colors");
     set_mode_04h();
-    $display("  Waiting for CRTC to stabilize...");
-    repeat(20000) @(posedge clk_vga_cga);
     test_video_signals("Mode 04h video signals");
 
     // Skip Mode 05h and mode switching tests to save time
@@ -534,7 +526,7 @@ end
 
 // Timeout
 initial begin
-    #100000000;  // 100ms timeout
+    #5000000000;  // 5 second timeout (much longer for slow CRTC)
     $display("");
     $display("ERROR: Test timeout!");
     $display("Tests completed: %0d/%0d", tests_passed + tests_failed, tests_run);

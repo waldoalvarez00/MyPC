@@ -264,10 +264,10 @@ end
 // vertical output
 reg vde, vde_r;
 reg VSYNC_r;
+reg [3:0] vsc = 4'd0;          // VSYNC counter (moved from local to module-level, init to 0)
+reg       vsync_allow = 1'b1;  // VSYNC enable flag (moved from local to module-level, init to 1)
 always @(posedge CLOCK) VSYNC <= VSYNC_r; // delay the same as HSYNC to not confuse the GA
 always @(posedge CLOCK) begin
-	reg  [3:0] vsc;
-	reg        vsync_allow;
 
 	if(~nRESET) begin
 		vsc    <= 0;
@@ -283,7 +283,12 @@ always @(posedge CLOCK) begin
 		end
 
 		if(row_new) begin
-			if((frame_new & row !=0) | row_next != row) vsync_allow <= 1;
+			if((frame_new & row !=0) | row_next != row) begin
+				vsync_allow <= 1;
+				`ifdef ICARUS
+				$display("[%0t] UM6845R: row_new, setting vsync_allow=1, row=%0d, row_next=%0d", $time, row, row_next);
+				`endif
+			end
 			if(frame_new)                  begin vde <= 1; vde_r <= 1; end
 			if(row_next == R6_v_displayed) begin vde <= 0; vde_r <= 0; end
 		end
@@ -293,6 +298,9 @@ always @(posedge CLOCK) begin
 				VSYNC_r <= 1;
 				// Don't allow a new vsync until a new row (Onescreen Colonies) or the R7 is written (PHX)
 				vsync_allow <= 0;
+				`ifdef ICARUS
+				$display("[%0t] UM6845R: VSYNC GENERATED! row=%0d, row_next=%0d, R7=%0d, clearing vsync_allow", $time, row, row_next, R7_v_sync_pos);
+				`endif
 				vsc <= (CRTC_TYPE ? 4'd0 : R3_v_sync_width) - 1'd1;
 			end
 			else VSYNC_r <= 0;
@@ -307,6 +315,9 @@ always @(posedge CLOCK) begin
 
 	if (ENABLE & RS & ~nCS & ~R_nW & addr == 5'd07) begin
 		vsync_allow <= 1;
+		`ifdef ICARUS
+		$display("[%0t] UM6845R: Writing R7=%0d, setting vsync_allow=1, current row=%0d", $time, DI[6:0], row);
+		`endif
 		if (row == DI[6:0] && !VSYNC_r) begin
 			// TODO: extra conditions for CRTC0
 			VSYNC_r <= 1;
