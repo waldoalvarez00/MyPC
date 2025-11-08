@@ -24,6 +24,8 @@ echo ""
 iverilog -g2012 -DICARUS \
     -o "$RESULTS_DIR/vga_registers_tb" \
     -s vga_registers_tb \
+    -I../Quartus/rtl/VGA \
+    -I../Quartus/rtl/CPU/cdc \
     ../Quartus/rtl/VGA/VGARegisters.sv \
     ../Quartus/rtl/VGA/VGATypes.sv \
     DACRam_sim.sv \
