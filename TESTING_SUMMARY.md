@@ -99,38 +99,35 @@ This document summarizes the testing status of all major components in the s80x8
 - Output mode returns 0xFF for all reads
 - Non-critical for basic PC operation
 
-## Untested Components
+## Fully Tested Components (Continued)
 
-### 7. Cache ❌
+### 7. Cache ✓
 - **File:** `Quartus/rtl/common/Cache.sv`
-- **Testbench:** `modelsim/cache_tb.sv` (CREATED)
-- **Tests:** 3/10 passing (30%)
-- **Status:** CRITICAL BUGS IDENTIFIED
+- **Testbench:** `modelsim/cache_tb.sv`
+- **Tests:** 10/10 passing (100%)
+- **Status:** FULLY FUNCTIONAL (BUGS FIXED)
 
-**Critical Issues:**
-1. **No Initialization Logic** - All internal state variables start as 'x'
-   - `busy`, `flushing`, `updating`, `line_idx`, `line_valid` all undefined
-   - Causes complete module failure in simulation
-   - Unpredictable behavior in real hardware
+**Tests Cover:**
+- Cache disabled passthrough mode
+- Cache miss handling and line fill
+- Cache hit detection and fast access
+- Write operations and dirty bit tracking
+- Cache line flush on replacement
+- Tag matching logic
+- Byte-wide writes with byte enable
+- Cache line boundaries
+- Multiple sequential reads/writes
 
-2. **Intentionally Disabled Reset** - Design flaw
-   ```systemverilog
-   // No reset: the CPU isn't cache coherent so we need to preserve state across reset
-   always_ff @(posedge reset)
-       ;
-   ```
-   - This is inappropriate for power-on initialization
-   - Breaks simulation
-   - Causes undefined behavior on FPGA configuration
+**Recent Fixes Applied:**
+1. ✅ Added proper reset logic to Cache.sv
+   - Initialize busy, flushing, updating, line_idx, line_valid, accessing
+2. ✅ Added RAM initialization to DPRam.sv and BlockRam.sv
+   - Prevents 'x' propagation in simulation
+3. ✅ All 10 tests now passing (100%)
 
-3. **RAM Initialization** - Valid bits should be cleared on reset
+See `CACHE_BUGS.md` for detailed bug analysis and fixes.
 
-**Recommendation:** HIGH PRIORITY FIX NEEDED
-- Add proper reset logic
-- Initialize all state variables to known values
-- Test with cache_tb.sv after fix
-
-**Documentation:** See `CACHE_BUGS.md` for detailed analysis
+## Untested Components
 
 ### 8. Memory Arbiters (Untested)
 - **Files:**

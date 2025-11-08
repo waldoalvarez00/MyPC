@@ -68,23 +68,6 @@ Cache #(.lines(512)) dut (
     .m_bytesel      (m_bytesel)
 );
 
-// WORKAROUND: Force initialization of cache internal state
-// The cache module intentionally doesn't reset its state, but this causes
-// issues in simulation where variables start as 'x'
-initial begin
-    force dut.busy = 1'b0;
-    force dut.flushing = 1'b0;
-    force dut.updating = 1'b0;
-    force dut.line_idx = 3'b0;
-    force dut.line_valid = 8'b0;
-    #1;  // Wait 1 time unit
-    release dut.busy;
-    release dut.flushing;
-    release dut.updating;
-    release dut.line_idx;
-    release dut.line_valid;
-end
-
 // Clock generation: 50 MHz
 initial begin
     clk = 0;
@@ -107,11 +90,9 @@ always @(posedge clk) begin
             if (m_wr_en) begin
                 // Write to memory
                 memory[m_addr[19:1]] <= m_data_out;
-                $display("  [MEM] Write addr=0x%05X, data=0x%04X", m_addr, m_data_out);
             end else begin
                 // Read from memory
                 m_data_in <= memory[m_addr[19:1]];
-                $display("  [MEM] Read addr=0x%05X, data=0x%04X", m_addr, memory[m_addr[19:1]]);
             end
         end
     end else if (m_access && m_ack) begin
@@ -134,24 +115,19 @@ begin
     c_access = 1'b0;
     @(posedge clk);
     c_access = 1'b1;
-    $display("  [CPU] Read request addr=0x%05X", addr);
     @(posedge clk);
 
     while (!c_ack && timeout < 100) begin
         @(posedge clk);
         timeout = timeout + 1;
-        if (timeout % 10 == 0)
-            $display("  [CPU] Waiting for ack... timeout=%0d, c_ack=%b, m_access=%b, m_ack=%b", timeout, c_ack, m_access, m_ack);
     end
 
     if (c_ack) begin
         data = c_data_in;
         hit = 1'b1;
-        $display("  [CPU] Read complete: data=0x%04X", data);
     end else begin
         data = 16'hXXXX;
         hit = 1'b0;
-        $display("  [CPU] Read timeout!");
     end
 
     c_access = 1'b0;
@@ -242,7 +218,6 @@ initial begin
     enabled = 1;
     repeat(10) @(posedge clk);
     $display("  [PASS] Cache enabled");
-    $display("  [DEBUG] m_access=%b, m_ack=%b, c_ack=%b", m_access, m_ack, c_ack);
     pass_count++;
 
     $display("");
@@ -251,9 +226,7 @@ initial begin
     begin
         reg [15:0] rdata;
         reg hit;
-        $display("  [DEBUG] Before read: m_access=%b, c_access=%b", m_access, c_access);
         cpu_read(19'h00001, rdata, hit);
-        $display("  [DEBUG] After read: rdata=0x%04X, m_access=%b, m_ack=%b, c_ack=%b", rdata, m_access, m_ack, c_ack);
         if (rdata == 16'h0001) begin
             $display("  [PASS] Cache miss handled: data=0x%04X", rdata);
             pass_count++;

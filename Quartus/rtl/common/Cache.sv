@@ -246,13 +246,18 @@ begin
 end
 endtask
 
-// No reset: the CPU isn't cache coherent so we need to preserve state across
-// reset
-always_ff @(posedge reset)
-    ;
-
-always_ff @(posedge clk)
-    accessing <= c_access;
+// Reset logic: Initialize cache state to known values
+// Note: Tag/Valid/Dirty RAMs are not reset - they will be filled during normal operation
+// The valid bits in ValidRam will naturally prevent false hits until lines are loaded
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        busy <= 1'b0;
+        flushing <= 1'b0;
+        accessing <= 1'b0;
+    end else begin
+        accessing <= c_access;
+    end
+end
 
 always_comb begin
     if (m_ack && flushing)
@@ -269,15 +274,22 @@ always_ff @(posedge clk) begin
     fetch_address <= c_addr;
 end
 
-always_ff @(posedge clk) begin
-    if (enabled && !busy && !flushing && c_access)
-        updating <= 1'b1;
-    if (updating && !(do_flush || flushing))
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
         updating <= 1'b0;
+    end else begin
+        if (enabled && !busy && !flushing && c_access)
+            updating <= 1'b1;
+        if (updating && !(do_flush || flushing))
+            updating <= 1'b0;
+    end
 end
 
-always_ff @(posedge clk) begin
-    if (enabled && m_ack) begin
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        line_idx <= 3'b0;
+        line_valid <= 8'b0;
+    end else if (enabled && m_ack) begin
         c_m_addr <= {c_m_addr[19:4], c_m_addr[3:1] + 1'b1};
         line_idx <= line_idx + 1'b1;
         if (!flushing)

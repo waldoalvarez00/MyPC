@@ -38,6 +38,12 @@ logic [width-1:0] ram[0:words-1] /* synthesis syn_ramstyle = "no_rw_check,M9K"*/
 logic [width-1:0] ram[0:words-1] /* synthesis syn_ramstyle = "no_rw_check"*/;
 `endif
 
+// Initialize RAM to 0 for simulation (synthesis tools will ignore this)
+initial begin
+    for (int i = 0; i < words; i = i + 1)
+        ram[i] = {width{1'b0}};
+end
+
 logic [width-1:0] r_a, r_b, bypass_a_val, bypass_b_val;
 logic bypass_a, bypass_b;
 
