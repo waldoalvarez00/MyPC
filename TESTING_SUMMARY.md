@@ -7,16 +7,16 @@ This document summarizes the testing status of all major components in the s80x8
 
 | Category | Components | Tests | Passed | Failed | Rate |
 |----------|-----------|-------|--------|--------|------|
-| Fully Functional | 6 | 94 | 94 | 0 | 100% |
+| Fully Functional | 9 | 122 | 122 | 0 | 100% |
 | Partially Functional | 1 | 17 | 6 | 11 | 35% |
 | Testing Challenges | 2 | 20 | 9 | 11 | 45% |
-| **TOTAL TESTED** | **9** | **131** | **109** | **22** | **83%** |
+| **TOTAL TESTED** | **12** | **159** | **137** | **22** | **86%** |
 
 **Components by Status:**
-- ✅ **6 Fully Functional** (100% pass): Timer, PIC, DMA, Floppy/SD, UART, Cache
+- ✅ **9 Fully Functional** (100% pass): Timer, PIC, DMA, Floppy/SD, UART, Cache, DMAArbiter, IDArbiter, SDRAM Config
 - ⚠️ **1 Partially Functional** (35% pass): PPI (input mode works, output mode not implemented)
-- ⚠️ **2 With Testing Challenges**: SDRAM (timing issues), MemArbiter (87% pass - functional)
-- 🔲 **Multiple Untested**: VGA, Keyboard/Mouse, Other Arbiters, SDRAM Config
+- ⚠️ **2 With Testing Challenges**: SDRAM Controller (timing issues), MemArbiter (87% pass - functional)
+- 🔲 **Untested**: MCGA Controller, Keyboard/Mouse Controllers, MemArbiterExtend
 
 ## Tested Components (100% Pass Rate)
 
@@ -191,16 +191,84 @@ See `CACHE_BUGS.md` for detailed bug analysis and fixes.
 - Write and read operations on both buses
 - No deadlocks or hangs under rapid requests
 
+### 10. DMAArbiter ✓
+- **File:** `Quartus/rtl/DMAArbiter.sv`
+- **Testbench:** `modelsim/dma_arbiter_tb.sv`
+- **Tests:** 10/10 passing (100%)
+- **Status:** FULLY FUNCTIONAL
+
+**Tests Cover:**
+- DMA bus memory and I/O accesses
+- Data bus memory and I/O accesses
+- Sequential request handling (A then B)
+- Write operations from both buses
+- Simultaneous requests (B has priority)
+- IO signal propagation (ioq routing)
+- Rapid sequential requests
+- No deadlocks or timing issues
+
+**Functionality Verified:**
+- Proper arbitration between DMA and Data buses
+- Correct I/O vs memory signal routing
+- Data bus priority for simultaneous requests
+- All control signals properly routed
+
+### 11. IDArbiter ✓
+- **File:** `Quartus/rtl/IDArbiter.sv`
+- **Testbench:** `modelsim/id_arbiter_tb.sv`
+- **Tests:** 10/10 passing (100%)
+- **Status:** FULLY FUNCTIONAL
+
+**Bug Fixed:**
+- ✅ Fixed port declarations - outputs must be declared as `logic` when assigned in `always_comb` blocks
+- This was a synthesis/simulation portability issue preventing testing with Icarus Verilog
+
+**Tests Cover:**
+- Instruction bus requests
+- Data bus requests
+- Alternating requests (round-robin fairness)
+- Write operations from both buses
+- Simultaneous requests (fairness testing)
+- Sequential instruction fetches
+- Sequential data accesses
+- Rapid interleaved requests
+- Bus busy signal (q_b) verification
+
+**Functionality Verified:**
+- Round-robin arbitration with fairness tracking
+- State machine transitions (IDLE, SERVING_A, SERVING_B)
+- Last-served tracking for fair scheduling
+- Correct signal multiplexing based on granted bus
+
+### 12. SDRAM Config Register ✓
+- **File:** `Quartus/rtl/sdram/SDRAMConfigRegister.sv`
+- **Testbench:** `modelsim/sdram_config_tb.sv`
+- **Tests:** 8/8 passing (100%)
+- **Status:** FULLY FUNCTIONAL
+
+**Tests Cover:**
+- Read when config_done = 0 (returns 0x0000)
+- Read when config_done = 1 (returns 0x0001)
+- Multiple consistent reads
+- ACK signal assertion during access
+- No ACK when not accessed
+- CS (chip select) requirement
+- Write attempts (read-only register)
+- Config_done status transitions (0→1→0)
+
+**Functionality Verified:**
+- Simple status register correctly reports SDRAM initialization status
+- Read-only behavior (writes ignored)
+- Proper acknowledgment signaling
+- Chip select requirement enforced
+
 ## Untested Components
 
-### 10. Other Memory Arbiters (Untested)
+### 13. Memory Arbiter Extended (Untested)
 - **Files:**
-  - `Quartus/rtl/DMAArbiter.sv` - DMA bus arbiter
-  - `Quartus/rtl/IDArbiter.sv` - I/O/DMA arbiter
-  - `Quartus/rtl/DMAArbiter.sv` - DMA arbiter
-  - `Quartus/rtl/MemArbiterExtend.sv` - Extended arbiter
+  - `Quartus/rtl/MemArbiterExtend.sv` - Extended memory arbiter
 - **Status:** NOT YET TESTED
-- **Priority:** MEDIUM
+- **Priority:** LOW (other arbiters tested and working)
 
 **Note:** MemArbiter.sv has proper reset logic and appears well-designed
 
