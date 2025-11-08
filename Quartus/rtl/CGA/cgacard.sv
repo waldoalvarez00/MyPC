@@ -77,15 +77,16 @@ module cgacard(
 	 
 	 wire [7:0] CGA_CRTC_DOUT;
 
-    cga cga1 
+    cga cga1
     (
         .clk                        (clk_vga_cga),
+        .reset                      (reset),          // ADDED: Pass reset signal
         .clkdiv                     (clkdiv),
         .bus_a                      (data_m_addr),
         .bus_ior_l                  (~(regaccess & ~data_m_wr_en)),
         .bus_iow_l                  (~(regaccess &  data_m_wr_en)),
-       
-		  
+
+
 		  .ack_signal                 (regack),
 		  
         .bus_d                      (data_m_data_in[7:0]),
