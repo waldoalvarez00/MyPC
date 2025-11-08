@@ -106,6 +106,7 @@ end
 task cpu_write(input [19:1] addr, input [15:0] data, input [1:0] bytesel);
     begin
         @(posedge clk);
+        #1;  // Small delay to avoid race with always_ff blocks
         cs = 1'b1;
         data_m_access = 1'b1;
         data_m_wr_en = 1'b1;
@@ -115,6 +116,7 @@ task cpu_write(input [19:1] addr, input [15:0] data, input [1:0] bytesel);
 
         wait(data_m_ack == 1'b1);
         @(posedge clk);
+        #1;  // Small delay before clearing
 
         cs = 1'b0;
         data_m_access = 1'b0;
@@ -127,6 +129,7 @@ endtask
 task cpu_read(input [19:1] addr, input [1:0] bytesel, output [15:0] data);
     begin
         @(posedge clk);
+        #1;  // Small delay to avoid race with always_ff blocks
         cs = 1'b1;
         data_m_access = 1'b1;
         data_m_wr_en = 1'b0;

@@ -125,30 +125,7 @@ reg [1:0] dac_rd_offs;
 
 reg vga_send;
 
-// Fix: Add reset initialization for uninitialized registers
-initial begin
-    sys_amcr = 8'h00;
-    sys_palette_sel = 1'b0;
-    sys_bright_colors = 1'b0;
-    cursor_mode = 2'b00;
-    active_index = 4'h0;
-    sys_cursor_pos = 15'h0000;
-    dac_wr_idx = 8'h00;
-    dac_rd_idx = 8'h00;
-    dac_wr_offs = 2'b00;
-    dac_rd_offs = 2'b00;
-    dac_component_rg = 12'h000;
-    hres_mode = 1'b1;
-    graphics_320 = 1'b0;
-    bw_mode = 1'b0;
-    mode_640 = 1'b0;
-    blink_enabled = 1'b0;
-    crtc_horiz_display_end = 8'd79;     // Default: 80 columns - 1
-    crtc_vert_display_end_low = 8'd191; // Default: 200 lines - 1 (low byte)
-    crtc_overflow = 8'h00;
-    crtc_max_scan_line = 5'd7;          // Default: 8-line characters
-    active_index = 6'h0;
-end
+// Reset initialization moved to always_ff blocks to avoid driver conflicts in Icarus Verilog
 
 // Mode detection logic
 // Detect current video mode based on register settings
@@ -420,33 +397,42 @@ DACRam DACRam(.clock_a(clk),
 				  
 				  
 
-always_ff @(posedge clk) begin
-    if (sel_dac_wr_idx) begin
-        dac_wr_idx <= data_m_data_in[7:0];
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        dac_wr_idx <= 8'h00;
+        dac_rd_idx <= 8'h00;
         dac_wr_offs <= 2'b00;
-    end
-
-    if (sel_dac_rd_idx) begin
-        dac_rd_idx <= data_m_data_in[15:8];
         dac_rd_offs <= 2'b00;
-    end
-
-    if (sel_dac & data_m_wr_en) begin
-        if (dac_wr_offs == 2'b10) begin
-            dac_wr_idx <= dac_wr_idx + 1'b1;
+        dac_component_rg <= 12'h000;
+    end else begin
+        if (sel_dac_wr_idx & dac_ack_edge) begin
+            dac_wr_idx <= data_m_data_in[7:0];
             dac_wr_offs <= 2'b00;
-        end else begin
-            dac_component_rg <= {dac_component_rg[5:0], data_m_data_in[13:8]};
-            dac_wr_offs <= dac_wr_offs + 1'b1;
         end
-    end
 
-    if (sel_dac & ~data_m_wr_en) begin
-        if (dac_rd_offs == 2'b10) begin
-            dac_rd_idx <= dac_rd_idx + 1'b1;
+        if (sel_dac_rd_idx & dac_ack_edge) begin
+            dac_rd_idx <= data_m_data_in[15:8];
             dac_rd_offs <= 2'b00;
-        end else begin
-            dac_rd_offs <= dac_rd_offs + 1'b1;
+        end
+
+        // Only increment on rising edge of ACK to prevent multiple increments
+        if (sel_dac & data_m_wr_en & dac_ack_edge) begin
+            if (dac_wr_offs == 2'b10) begin
+                dac_wr_idx <= dac_wr_idx + 1'b1;
+                dac_wr_offs <= 2'b00;
+            end else begin
+                dac_component_rg <= {dac_component_rg[5:0], data_m_data_in[13:8]};
+                dac_wr_offs <= dac_wr_offs + 1'b1;
+            end
+        end
+
+        if (sel_dac & ~data_m_wr_en & dac_ack_edge) begin
+            if (dac_rd_offs == 2'b10) begin
+                dac_rd_idx <= dac_rd_idx + 1'b1;
+                dac_rd_offs <= 2'b00;
+            end else begin
+                dac_rd_offs <= dac_rd_offs + 1'b1;
+            end
         end
     end
 end
@@ -456,8 +442,17 @@ end
 
 
 
-always_ff @(posedge clk) begin
-    if (data_m_wr_en & sel_value) begin
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        crtc_horiz_display_end <= 8'd79;     // Default: 80 columns - 1
+        crtc_vert_display_end_low <= 8'd191; // Default: 200 lines - 1 (low byte)
+        crtc_overflow <= 8'h00;
+        crtc_max_scan_line <= 5'd7;          // Default: 8-line characters
+        cursor_mode <= 2'b00;
+        sys_cursor_scan_start <= 3'b000;
+        sys_cursor_scan_end <= 3'b000;
+        sys_cursor_pos <= 15'h0000;
+    end else if (data_m_wr_en & sel_value) begin
         case (index)
         6'h01: crtc_horiz_display_end <= data_m_data_in[15:8];      // Horizontal Display End
         6'h07: crtc_overflow <= data_m_data_in[15:8];               // Overflow register
@@ -477,10 +472,15 @@ end
 
 
 
-always_ff @(posedge clk) begin
-    if (data_m_wr_en & sel_color)
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        sys_palette_sel <= 1'b0;
+        sys_bright_colors <= 1'b0;
+        sys_background_color <= 4'h0;
+    end else if (data_m_wr_en & sel_color) begin
         {sys_palette_sel, sys_bright_colors, sys_background_color} <=
             data_m_data_in[13:8];
+    end
 end
 
 
@@ -519,14 +519,18 @@ always_ff @(posedge clk or posedge reset)
 				
 				
 				
-always_ff @(posedge clk)
-    if (sel_index & data_m_wr_en)
+always_ff @(posedge clk or posedge reset)
+    if (reset)
+        active_index <= 6'h0;
+    else if (sel_index & data_m_wr_en)
         active_index <= data_m_data_in[5:0];  // 6 bits for VGA CRTC
 
 		  
 		  
-always_ff @(posedge clk)
-    if (sel_amcr & data_m_wr_en)
+always_ff @(posedge clk or posedge reset)
+    if (reset)
+        sys_amcr <= 8'h00;
+    else if (sel_amcr & data_m_wr_en)
         sys_amcr <= data_m_data_in[7:0];
 
 		  
@@ -542,7 +546,7 @@ always_comb begin
     6'h09: index_value = {3'b0, crtc_max_scan_line};
     6'h0a: index_value = {2'b0, cursor_mode, 1'b0, sys_cursor_scan_start};
     6'h0b: index_value = {5'b0, sys_cursor_scan_end};
-    6'h0e: index_value = {2'b0, sys_cursor_pos[13:8]};
+    6'h0e: index_value = {1'b0, sys_cursor_pos[14:8]};  // 7 bits [14:8], bit 7 unused
     6'h0f: index_value = sys_cursor_pos[7:0];
     6'h12: index_value = crtc_vert_display_end_low;
     default: index_value = 8'b0;
@@ -595,6 +599,20 @@ end
 always_ff @(posedge clk) begin
     data_m_data_out <= data_out_comb;
 end
+
+// Track ACK state to detect rising edge for DAC offset increment
+reg data_m_ack_prev;
+
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        data_m_ack_prev <= 1'b0;
+    end else begin
+        data_m_ack_prev <= data_m_ack;
+    end
+end
+
+// Only increment DAC offsets on rising edge of ACK
+wire dac_ack_edge = data_m_ack && !data_m_ack_prev;
 
 always_ff @(posedge clk)
     data_m_ack <= data_m_access && cs;

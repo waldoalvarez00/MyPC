@@ -43,6 +43,11 @@ module floppy_tb;
     integer pass_count = 0;
     integer fail_count = 0;
 
+    // Test variables (Icarus-compatible - declared at module level)
+    logic [7:0] dor_val;
+    logic [7:0] msr_val;
+    logic [7:0] dir_val;
+
     // Clock generation: 50 MHz (20ns period)
     parameter CLK_PERIOD = 20;
     initial begin
@@ -162,7 +167,6 @@ module floppy_tb;
         #(CLK_PERIOD * 5);
 
         // Test 1b: Read DOR back
-        logic [7:0] dor_val;
         io_read_reg(3'h2, dor_val);
         check_result("DOR Write/Read", 8'b0000_0100, dor_val);
 
@@ -170,7 +174,6 @@ module floppy_tb;
         $display("---------------------------------------------------");
 
         // Test 2a: Read MSR - should show RQM=1 (ready for command)
-        logic [7:0] msr_val;
         io_read_reg(3'h4, msr_val);
         $display("MSR Initial State: 0x%02h (RQM=%b, DIO=%b, BUSY=%b)",
                  msr_val, msr_val[7], msr_val[6], msr_val[4]);
@@ -234,7 +237,6 @@ module floppy_tb;
         $display("---------------------------------------------------");
 
         // Test 5a: Read DIR - bit 7 is disk change signal
-        logic [7:0] dir_val;
         io_read_reg(3'h7, dir_val);
         $display("DIR Value: 0x%02h (DSKCHG=%b)", dir_val, dir_val[7]);
 
