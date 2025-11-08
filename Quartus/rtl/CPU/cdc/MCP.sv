@@ -54,8 +54,11 @@ SyncPulse       AAckPulse(.clk(clk_a),
                           // verilator lint_on PINCONNECTEMPTY
                           );
 
-always_ff @(posedge clk_a)
-    a_en <= a_en ^ a_load;
+always_ff @(posedge clk_a or posedge reset)
+    if (reset)
+        a_en <= 1'b0;
+    else
+        a_en <= a_en ^ a_load;
 
 always_ff @(posedge clk_a or posedge reset) begin
     if (reset)
