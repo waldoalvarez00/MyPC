@@ -205,15 +205,16 @@ always_comb begin
 
         end else if (graphics_320) begin
             // 320x200 graphics modes
-            if (is_40_col || (crtc_horiz_display_end <= 8'd41)) begin
-                // CGA 320x200 modes
+            // Check both CRTC register and mode control register for 40-column mode
+            if (is_40_col || (crtc_horiz_display_end <= 8'd41) || !hres_mode) begin
+                // CGA 320x200 modes (40 columns)
                 if (bw_mode) begin
                     sys_mode_num = MODE_05H;  // 320x200, 4 grays
                 end else begin
                     sys_mode_num = MODE_04H;  // 320x200, 4 colors
                 end
             end else begin
-                // EGA 320x200, 16 colors
+                // EGA 320x200, 16 colors (80 columns)
                 sys_mode_num = MODE_0DH;
             end
 
