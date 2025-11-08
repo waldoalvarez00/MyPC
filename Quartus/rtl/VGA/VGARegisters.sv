@@ -78,13 +78,20 @@ logic [7:0] index_value;
 
 reg [1:0] cursor_mode;
 reg display_enabled;
-reg text_enabled;
+reg hres_mode;           // Bit 0: 1=80 columns, 0=40 columns
+reg graphics_320;        // Bit 1: 1=320-wide graphics
+reg bw_mode;             // Bit 2: 1=B&W, 0=color
+reg mode_640;            // Bit 4: 1=640-wide graphics
+reg blink_enabled;       // Bit 5: blinking enabled
 reg sys_graphics_enabled;
 reg sys_bright_colors;
 reg sys_cursor_enabled;
 reg sys_palette_sel;
 reg [7:0] sys_amcr;
 wire sys_256_color = sys_amcr == 8'h41;
+
+// Compatibility aliases
+wire text_enabled = hres_mode;  // For backward compatibility
 
 reg [14:0] sys_cursor_pos;
 wire load_vga_cursor;
@@ -125,6 +132,11 @@ initial begin
     dac_wr_offs = 2'b00;
     dac_rd_offs = 2'b00;
     dac_component_rg = 12'h000;
+    hres_mode = 1'b1;
+    graphics_320 = 1'b0;
+    bw_mode = 1'b0;
+    mode_640 = 1'b0;
+    blink_enabled = 1'b0;
 end
 
 // Mode detection logic
@@ -132,28 +144,46 @@ end
 logic [7:0] sys_mode_num;
 
 always_comb begin
-    // Default to mode 03h (80x25 text)
+    // Default to mode 03h (80x25 text color)
     sys_mode_num = MODE_03H;
 
     // Mode detection based on register combinations
     if (sys_256_color) begin
         // Mode 13h: 320x200, 256 colors (MCGA/VGA)
         sys_mode_num = MODE_13H;
-    end else if (sys_graphics_enabled) begin
-        // Graphics modes
-        if (text_enabled) begin
-            // This shouldn't happen, but default to text
-            sys_mode_num = MODE_03H;
+    end else if (mode_640) begin
+        // Mode 06h: 640x200, 2 colors (CGA hi-res graphics)
+        sys_mode_num = MODE_06H;
+    end else if (graphics_320) begin
+        // CGA 320x200 graphics modes
+        if (bw_mode) begin
+            // Mode 05h: 320x200, 4 grays (B&W palette)
+            sys_mode_num = MODE_05H;
         end else begin
-            // Determine graphics mode based on resolution hints
-            // This is simplified - real BIOS uses more register state
-            // For now, assume mode 04h (CGA 320x200, 4 colors)
+            // Mode 04h: 320x200, 4 colors
             sys_mode_num = MODE_04H;
         end
-    end else if (text_enabled) begin
-        // Text modes - determine based on mode register
-        // Mode 03h is most common (80x25 color text)
-        sys_mode_num = MODE_03H;
+    end else begin
+        // Text modes (not graphics_320 and not mode_640)
+        if (hres_mode) begin
+            // 80-column text modes
+            if (bw_mode) begin
+                // Mode 02h: 80x25 text, B&W
+                sys_mode_num = MODE_02H;
+            end else begin
+                // Mode 03h: 80x25 text, 16 colors
+                sys_mode_num = MODE_03H;
+            end
+        end else begin
+            // 40-column text modes
+            if (bw_mode) begin
+                // Mode 00h: 40x25 text, B&W
+                sys_mode_num = MODE_00H;
+            end else begin
+                // Mode 01h: 40x25 text, 16 colors
+                sys_mode_num = MODE_01H;
+            end
+        end
     end
 end
 
@@ -380,12 +410,23 @@ end
 
 always_ff @(posedge clk or posedge reset)
     if (reset) begin
-        text_enabled <= 1'b1;
+        hres_mode <= 1'b1;           // Default: 80 columns
+        graphics_320 <= 1'b0;
+        bw_mode <= 1'b0;             // Default: color
         display_enabled <= 1'b1;
+        mode_640 <= 1'b0;
+        blink_enabled <= 1'b0;
         sys_graphics_enabled <= 1'b0;  // Fix: Initialize to 0 (text mode)
-    end else if (sel_mode && data_m_wr_en)
-        {display_enabled, sys_graphics_enabled, text_enabled} <=
-            {data_m_data_in[3], data_m_data_in[1], data_m_data_in[0]};
+    end else if (sel_mode && data_m_wr_en) begin
+        hres_mode <= data_m_data_in[0];
+        graphics_320 <= data_m_data_in[1];
+        bw_mode <= data_m_data_in[2];
+        display_enabled <= data_m_data_in[3];
+        mode_640 <= data_m_data_in[4];
+        blink_enabled <= data_m_data_in[5];
+        // Set sys_graphics_enabled for compatibility
+        sys_graphics_enabled <= data_m_data_in[1] | data_m_data_in[4];
+    end
 
 // 3D8 Mode Port
 // 0 - 80/40 alpha mode
@@ -443,8 +484,9 @@ always_comb begin
             data_out_comb[7:0] = {4'b0, active_index};
 
         if (sel_mode)
-            data_out_comb[7:0] = {4'b0, display_enabled, 1'b0,
-                                  sys_graphics_enabled, text_enabled};
+            data_out_comb[7:0] = {2'b0, blink_enabled, mode_640,
+                                  display_enabled, bw_mode,
+                                  graphics_320, hres_mode};
         if (sel_status)
             data_out_comb[7:0] = status;
 
