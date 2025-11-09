@@ -24,6 +24,10 @@ module FPU_RegisterStack(
     // Stack operations
     input wire push,                    // Push operation (decrement SP)
     input wire pop,                     // Pop operation (increment SP)
+    input wire inc_ptr,                 // Increment stack pointer (FINCSTP)
+    input wire dec_ptr,                 // Decrement stack pointer (FDECSTP)
+    input wire free_reg,                // Mark register as empty (FFREE)
+    input wire [2:0] free_index,        // Index of register to free
 
     // Data interface
     input wire [79:0] data_in,          // Data to write
@@ -118,7 +122,7 @@ module FPU_RegisterStack(
             stack_overflow <= 1'b0;
             stack_underflow <= 1'b0;
 
-            // Calculate new stack pointer based on push/pop
+            // Calculate new stack pointer based on push/pop/inc/dec
             new_stack_ptr = stack_ptr;
             if (push) begin
                 new_stack_ptr = stack_ptr - 3'd1;
@@ -137,10 +141,21 @@ module FPU_RegisterStack(
                 tags[physical_reg(3'd0)] <= 2'b11;
 
                 new_stack_ptr = stack_ptr + 3'd1;
+            end else if (inc_ptr) begin
+                // FINCSTP: Increment stack pointer (no data transfer)
+                new_stack_ptr = stack_ptr + 3'd1;
+            end else if (dec_ptr) begin
+                // FDECSTP: Decrement stack pointer (no data transfer)
+                new_stack_ptr = stack_ptr - 3'd1;
             end
 
             // Update stack pointer
             stack_ptr <= new_stack_ptr;
+
+            // Handle FFREE: Mark register as empty
+            if (free_reg) begin
+                tags[physical_reg(free_index)] <= 2'b11;  // Empty tag
+            end
 
             // Handle write operation
             // For push+write: use NEW stack pointer (write to new ST(0) after push)

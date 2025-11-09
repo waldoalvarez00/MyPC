@@ -1,15 +1,15 @@
 #!/bin/bash
-# Compile and run transcendental function testbench
+# Compile and run stack management testbench
 
 set -e  # Exit on error
 
-echo "Compiling transcendental function testbench..."
+echo "Compiling stack management testbench..."
 
 cd /home/user/MyPC/Quartus/rtl/FPU8087
 
 # Compile with Icarus Verilog
-iverilog -g2009 -Wall -o tb_transcendental.vvp \
-    tb_transcendental.v \
+iverilog -g2009 -Wall -o tb_stack_mgmt.vvp \
+    tb_stack_mgmt.v \
     FPU_Core.v \
     FPU_ArithmeticUnit.v \
     FPU_Transcendental.v \
@@ -47,18 +47,18 @@ iverilog -g2009 -Wall -o tb_transcendental.vvp \
     Normalizer.v \
     BarrelShifter.v \
     MathConstants.v \
-    2>&1 | tee compile.log
+    2>&1 | tee stack_mgmt_compile.log
 
 if [ $? -eq 0 ]; then
     echo ""
     echo "Compilation successful!"
     echo ""
     echo "Running simulation..."
-    vvp tb_transcendental.vvp | tee simulation.log
+    vvp tb_stack_mgmt.vvp | tee stack_mgmt_test.log
     echo ""
-    echo "Simulation complete. Check simulation.log for results."
+    echo "Simulation complete. Check stack_mgmt_test.log for results."
 else
     echo ""
-    echo "Compilation failed! Check compile.log for errors."
+    echo "Compilation failed! Check stack_mgmt_compile.log for errors."
     exit 1
 fi

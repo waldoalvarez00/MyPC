@@ -39,6 +39,12 @@ module FPU_Core(
     input wire [31:0] int_data_in,      // Integer data input
     output reg [31:0] int_data_out,     // Integer data output
 
+    // Memory operand format information (from decoder)
+    input wire        has_memory_op,    // Instruction uses memory operand
+    input wire [1:0]  operand_size,     // Memory operand size (0=word, 1=dword, 2=qword, 3=tbyte)
+    input wire        is_integer,       // Memory operand is integer format
+    input wire        is_bcd,           // Memory operand is BCD format
+
     // Control/Status interface
     input wire [15:0] control_in,       // Control word input
     input wire        control_write,    // Write control word
@@ -107,6 +113,11 @@ module FPU_Core(
     localparam INST_FTST        = 8'h63;  // Test ST(0) against 0.0
     localparam INST_FXAM        = 8'h64;  // Examine ST(0) and set condition codes
 
+    // Stack management instructions
+    localparam INST_FINCSTP     = 8'h70;  // Increment stack pointer
+    localparam INST_FDECSTP     = 8'h71;  // Decrement stack pointer
+    localparam INST_FFREE       = 8'h72;  // Mark register as empty
+
     // Control instructions
     localparam INST_FLDCW       = 8'hF0;  // Load control word
     localparam INST_FSTCW       = 8'hF1;  // Store control word
@@ -129,6 +140,10 @@ module FPU_Core(
     reg [2:0]   stack_write_reg;
     reg         stack_write_enable;
     reg [2:0]   stack_read_sel;
+    reg         stack_inc_ptr;     // Increment stack pointer (FINCSTP)
+    reg         stack_dec_ptr;     // Decrement stack pointer (FDECSTP)
+    reg         stack_free_reg;    // Mark register as free (FFREE)
+    reg [2:0]   stack_free_index;  // Index of register to free
 
     FPU_RegisterStack register_stack (
         .clk(clk),
@@ -145,7 +160,11 @@ module FPU_Core(
         .stack_ptr(stack_pointer),
         .tag_word(tag_word),
         .stack_overflow(stack_overflow),
-        .stack_underflow(stack_underflow)
+        .stack_underflow(stack_underflow),
+        .inc_ptr(stack_inc_ptr),
+        .dec_ptr(stack_dec_ptr),
+        .free_reg(stack_free_reg),
+        .free_index(stack_free_index)
     );
 
     // Control Word
@@ -321,6 +340,7 @@ module FPU_Core(
     localparam STATE_FSINCOS_PUSH  = 4'd6;  // Second cycle of FSINCOS writeback
     localparam STATE_FXCH_WRITE2   = 4'd7;  // Second cycle of FXCH writeback
     localparam STATE_FCOMPP_POP2   = 4'd8;  // Second cycle of FCOMPP (second pop)
+    localparam STATE_MEM_CONVERT   = 4'd9;  // Memory operand format conversion
 
     reg [3:0] state;
     reg [7:0] current_inst;
@@ -333,6 +353,19 @@ module FPU_Core(
     reg signed [31:0] temp_int32;
     reg [31:0] temp_fp32;
     reg [63:0] temp_fp64;
+
+    // Captured memory operand format flags (from inputs, captured in STATE_DECODE)
+    reg       captured_has_memory_op;
+    reg [1:0] captured_operand_size;
+    reg       captured_is_integer;
+    reg       captured_is_bcd;
+
+    // Memory conversion tracking
+    reg       mem_conv_active;         // Memory conversion in progress
+    reg       mem_conv_stage2;         // Second stage of two-stage conversion (BCD)
+    reg [1:0] mem_conv_size;           // Size of memory operand being converted
+    reg       mem_conv_is_load;        // True for load (FLD), false for store (FST)
+    reg [63:0] temp_uint64;            // Temporary storage for BCD two-stage conversion
 
     //=================================================================
     // State Machine
@@ -354,6 +387,19 @@ module FPU_Core(
             temp_int32 <= 32'd0;
             temp_fp32 <= 32'd0;
             temp_fp64 <= 64'd0;
+
+            // Initialize captured memory format flags
+            captured_has_memory_op <= 1'b0;
+            captured_operand_size <= 2'd0;
+            captured_is_integer <= 1'b0;
+            captured_is_bcd <= 1'b0;
+
+            // Initialize memory conversion tracking
+            mem_conv_active <= 1'b0;
+            mem_conv_stage2 <= 1'b0;
+            mem_conv_size <= 2'd0;
+            mem_conv_is_load <= 1'b0;
+            temp_uint64 <= 64'd0;
 
             // Initialize all stack control signals
             stack_push <= 1'b0;
@@ -410,6 +456,9 @@ module FPU_Core(
             stack_push <= 1'b0;
             stack_pop <= 1'b0;
             stack_write_enable <= 1'b0;
+            stack_inc_ptr <= 1'b0;
+            stack_dec_ptr <= 1'b0;
+            stack_free_reg <= 1'b0;
             // Note: arith_enable is NOT defaulted to 0, it's explicitly managed
 
             case (state)
@@ -422,6 +471,14 @@ module FPU_Core(
                         ready <= 1'b0;
                         error <= 1'b0;
                         status_set_busy <= 1'b1;
+
+                        // Capture memory operation format flags immediately
+                        // (they may be cleared by testbench before STATE_DECODE/EXECUTE)
+                        captured_has_memory_op <= has_memory_op;
+                        captured_operand_size <= operand_size;
+                        captured_is_integer <= is_integer;
+                        captured_is_bcd <= is_bcd;
+
                         state <= STATE_DECODE;
                     end
                 end
@@ -430,9 +487,30 @@ module FPU_Core(
                     // Capture operands and set up for execution
                     temp_operand_a <= st0;
                     temp_operand_b <= stack_read_data;
-                    temp_int32 <= int_data_in;
-                    temp_fp32 <= data_in[31:0];
-                    temp_fp64 <= data_in[63:0];
+
+                    // Handle memory operand format based on decoder flags (already captured in STATE_IDLE)
+                    if (has_memory_op) begin
+                        // Memory operand - capture based on size and type
+                        case (operand_size)
+                            2'd0: temp_int32 <= {{16{data_in[15]}}, data_in[15:0]};  // Sign-extend 16-bit
+                            2'd1: temp_int32 <= data_in[31:0];                         // 32-bit
+                            2'd2: begin                                                 // 64-bit
+                                temp_fp64 <= data_in[63:0];
+                            end
+                            2'd3: begin                                                 // 80-bit
+                                // 80-bit operand - already in correct format
+                            end
+                        endcase
+
+                        // Store FP32/FP64 separately
+                        temp_fp32 <= data_in[31:0];
+                        temp_fp64 <= data_in[63:0];
+                    end else begin
+                        // Register operand - use default
+                        temp_int32 <= int_data_in;
+                        temp_fp32 <= data_in[31:0];
+                        temp_fp64 <= data_in[63:0];
+                    end
 
                     // Set pop flag
                     do_pop_after <= (current_inst == INST_FADDP) ||
@@ -892,15 +970,39 @@ module FPU_Core(
 
                         // Non-arithmetic instructions
                         INST_FLD: begin
-                            temp_result <= data_in;
-                            state <= STATE_WRITEBACK;
+                            if (captured_has_memory_op && (captured_operand_size != 2'd3 || captured_is_bcd)) begin
+                                // Memory operand that needs format conversion
+                                // Set up conversion and transition to STATE_MEM_CONVERT
+                                $display("[DEBUG] INST_FLD: Memory op, needs conversion. operand_size=%d, is_integer=%b, is_bcd=%b",
+                                        captured_operand_size, captured_is_integer, captured_is_bcd);
+                                mem_conv_active <= 1'b1;
+                                mem_conv_stage2 <= 1'b0;
+                                mem_conv_size <= captured_operand_size;
+                                mem_conv_is_load <= 1'b1;
+                                state <= STATE_MEM_CONVERT;
+                            end else begin
+                                // No conversion needed (FP80 or register operand)
+                                $display("[DEBUG] INST_FLD: No conversion needed. has_memory_op=%b, operand_size=%d",
+                                        captured_has_memory_op, captured_operand_size);
+                                temp_result <= data_in;
+                                state <= STATE_WRITEBACK;
+                            end
                         end
 
                         INST_FST: begin
-                            // Read from stack and output to data_out
-                            // temp_operand_b contains stack_read_data which is ST(current_index)
-                            data_out <= (current_index == 0) ? temp_operand_a : temp_operand_b;
-                            state <= STATE_DONE;
+                            if (captured_has_memory_op && (captured_operand_size != 2'd3 || captured_is_bcd)) begin
+                                // Memory operand that needs format conversion
+                                // Set up conversion and transition to STATE_MEM_CONVERT
+                                mem_conv_active <= 1'b1;
+                                mem_conv_stage2 <= 1'b0;
+                                mem_conv_size <= captured_operand_size;
+                                mem_conv_is_load <= 1'b0;  // Store operation
+                                state <= STATE_MEM_CONVERT;
+                            end else begin
+                                // No conversion needed (FP80 or register operand)
+                                data_out <= (current_index == 0) ? temp_operand_a : temp_operand_b;
+                                state <= STATE_DONE;
+                            end
                         end
 
                         INST_FXCH: begin
@@ -915,6 +1017,26 @@ module FPU_Core(
 
                         INST_FCLEX: begin
                             status_clear_exc <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+
+                        // Stack management instructions
+                        INST_FINCSTP: begin
+                            // Increment stack pointer (no data transfer)
+                            stack_inc_ptr <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+
+                        INST_FDECSTP: begin
+                            // Decrement stack pointer (no data transfer)
+                            stack_dec_ptr <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+
+                        INST_FFREE: begin
+                            // Mark register ST(i) as empty
+                            stack_free_reg <= 1'b1;
+                            stack_free_index <= current_index;
                             state <= STATE_DONE;
                         end
 
@@ -1061,6 +1183,197 @@ module FPU_Core(
                             state <= STATE_DONE;
                         end
                     endcase
+                end
+
+                STATE_MEM_CONVERT: begin
+                    // Memory operand format conversion state
+                    // Handles conversions for FLD (load) and FST (store) operations
+                    $display("[DEBUG] STATE_MEM_CONVERT: is_load=%b, is_bcd=%b, is_integer=%b, size=%d, arith_enable=%b, arith_done=%b, arith_op=%d",
+                            mem_conv_is_load, captured_is_bcd, captured_is_integer, mem_conv_size, arith_enable, arith_done, arith_operation);
+
+                    if (mem_conv_is_load) begin
+                        // ===== LOAD OPERATIONS (memory → FP80) =====
+
+                        if (captured_is_bcd) begin
+                            // BCD → FP80 (two-stage conversion)
+                            if (~mem_conv_stage2) begin
+                                // Stage 1: BCD → Binary (uint64)
+                                if (~bcd2bin_done) begin
+                                    if (~bcd2bin_enable) begin
+                                        bcd2bin_bcd_in <= {data_in[79:0]};  // BCD is 80-bit, use data_in directly (stable for BCD)
+                                        bcd2bin_enable <= 1'b1;
+                                    end
+                                end else begin
+                                    bcd2bin_enable <= 1'b0;
+                                    temp_uint64 <= bcd2bin_binary_out;
+                                    mem_conv_stage2 <= 1'b1;  // Move to stage 2
+                                end
+                            end else begin
+                                // Stage 2: Binary → FP80
+                                if (~arith_done) begin
+                                    if (~arith_enable) begin
+                                        arith_operation <= 5'd16;  // OP_UINT64_TO_FP
+                                        arith_uint64_in <= temp_uint64;
+                                        arith_uint64_sign_in <= 1'b0;  // Positive for now
+                                        arith_enable <= 1'b1;
+                                    end
+                                end else begin
+                                    arith_enable <= 1'b0;
+                                    temp_result <= arith_result;
+                                    mem_conv_active <= 1'b0;
+                                    state <= STATE_WRITEBACK;
+                                end
+                            end
+                        end else if (captured_is_integer) begin
+                            // Integer → FP80 conversion
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    case (mem_conv_size)
+                                        2'd0: begin  // int16 → FP80
+                                            arith_operation <= 4'd4;  // OP_INT16_TO_FP
+                                            arith_int16_in <= data_in[15:0];
+                                        end
+                                        2'd1: begin  // int32 → FP80
+                                            arith_operation <= 4'd5;  // OP_INT32_TO_FP
+                                            arith_int32_in <= data_in[31:0];
+                                        end
+                                        2'd2: begin  // int64 → FP80 (use uint64 converter)
+                                            arith_operation <= 5'd16;  // OP_UINT64_TO_FP
+                                            arith_uint64_in <= data_in[63:0];
+                                            arith_uint64_sign_in <= 1'b0;  // Sign handling needed
+                                        end
+                                        default: begin
+                                            // Invalid size for integer
+                                            error <= 1'b1;
+                                            state <= STATE_DONE;
+                                        end
+                                    endcase
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                arith_enable <= 1'b0;
+                                temp_result <= arith_result;
+                                mem_conv_active <= 1'b0;
+                                state <= STATE_WRITEBACK;
+                            end
+                        end else begin
+                            // Float → FP80 conversion
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    $display("[DEBUG] Starting float conversion: size=%d, temp_fp32=%h, op=%d",
+                                            mem_conv_size, temp_fp32, (mem_conv_size == 2'd1) ? 4'd8 : 4'd9);
+                                    case (mem_conv_size)
+                                        2'd1: begin  // FP32 → FP80
+                                            arith_operation <= 4'd8;  // OP_FP32_TO_FP80
+                                            arith_fp32_in <= temp_fp32;  // Use captured value from STATE_DECODE
+                                        end
+                                        2'd2: begin  // FP64 → FP80
+                                            arith_operation <= 4'd9;  // OP_FP64_TO_FP80
+                                            arith_fp64_in <= temp_fp64;  // Use captured value from STATE_DECODE
+                                        end
+                                        default: begin
+                                            // Invalid size for float (word not valid, tbyte already FP80)
+                                            error <= 1'b1;
+                                            state <= STATE_DONE;
+                                        end
+                                    endcase
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                $display("[DEBUG] FP load conversion done! arith_result=%h, temp_fp32=%h", arith_result, temp_fp32);
+                                arith_enable <= 1'b0;
+                                temp_result <= arith_result;
+                                mem_conv_active <= 1'b0;
+                                state <= STATE_WRITEBACK;
+                            end
+                        end
+
+                    end else begin
+                        // ===== STORE OPERATIONS (FP80 → memory) =====
+                        // Always use temp_operand_a which contains ST(0)
+
+                        if (captured_is_bcd) begin
+                            // FP80 → BCD (two-stage conversion)
+                            if (~mem_conv_stage2) begin
+                                // Stage 1: FP80 → uint64
+                                if (~arith_done) begin
+                                    if (~arith_enable) begin
+                                        arith_operation <= 5'd17;  // OP_FP_TO_UINT64
+                                        arith_operand_a <= temp_operand_a;
+                                        arith_enable <= 1'b1;
+                                    end
+                                end else begin
+                                    arith_enable <= 1'b0;
+                                    temp_uint64 <= arith_uint64_out;
+                                    mem_conv_stage2 <= 1'b1;  // Move to stage 2
+                                end
+                            end else begin
+                                // Stage 2: uint64 → BCD
+                                if (~bin2bcd_done) begin
+                                    if (~bin2bcd_enable) begin
+                                        bin2bcd_binary_in <= temp_uint64;
+                                        bin2bcd_sign_in <= 1'b0;  // For now, assume positive
+                                        bin2bcd_enable <= 1'b1;
+                                    end
+                                end else begin
+                                    bin2bcd_enable <= 1'b0;
+                                    data_out <= bin2bcd_bcd_out;
+                                    mem_conv_active <= 1'b0;
+                                    state <= STATE_DONE;
+                                end
+                            end
+                        end else if (captured_is_integer) begin
+                            // FP80 → Integer conversion
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    arith_operand_a <= temp_operand_a;
+                                    case (mem_conv_size)
+                                        2'd0: arith_operation <= 4'd6;  // OP_FP_TO_INT16
+                                        2'd1: arith_operation <= 4'd7;  // OP_FP_TO_INT32
+                                        2'd2: arith_operation <= 5'd17;  // OP_FP_TO_UINT64
+                                        default: begin
+                                            error <= 1'b1;
+                                            state <= STATE_DONE;
+                                        end
+                                    endcase
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                arith_enable <= 1'b0;
+                                case (mem_conv_size)
+                                    2'd0: data_out[15:0] <= arith_int16_out;
+                                    2'd1: data_out[31:0] <= arith_int32_out;
+                                    2'd2: data_out[63:0] <= arith_uint64_out;
+                                endcase
+                                mem_conv_active <= 1'b0;
+                                state <= STATE_DONE;
+                            end
+                        end else begin
+                            // FP80 → Float conversion
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    arith_operand_a <= temp_operand_a;
+                                    case (mem_conv_size)
+                                        2'd1: arith_operation <= 4'd10;  // OP_FP80_TO_FP32
+                                        2'd2: arith_operation <= 4'd11;  // OP_FP80_TO_FP64
+                                        default: begin
+                                            error <= 1'b1;
+                                            state <= STATE_DONE;
+                                        end
+                                    endcase
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                arith_enable <= 1'b0;
+                                case (mem_conv_size)
+                                    2'd1: data_out[31:0] <= arith_fp32_out;
+                                    2'd2: data_out[63:0] <= arith_fp64_out;
+                                endcase
+                                mem_conv_active <= 1'b0;
+                                state <= STATE_DONE;
+                            end
+                        end
+                    end
                 end
 
                 STATE_WRITEBACK: begin

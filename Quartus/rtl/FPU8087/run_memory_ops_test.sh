@@ -1,15 +1,15 @@
 #!/bin/bash
-# Compile and run transcendental function testbench
+# Compile and run memory operations testbench
 
 set -e  # Exit on error
 
-echo "Compiling transcendental function testbench..."
+echo "Compiling memory operations testbench..."
 
 cd /home/user/MyPC/Quartus/rtl/FPU8087
 
 # Compile with Icarus Verilog
-iverilog -g2009 -Wall -o tb_transcendental.vvp \
-    tb_transcendental.v \
+iverilog -g2009 -Wall -o tb_memory_ops.vvp \
+    tb_memory_ops.v \
     FPU_Core.v \
     FPU_ArithmeticUnit.v \
     FPU_Transcendental.v \
@@ -47,18 +47,18 @@ iverilog -g2009 -Wall -o tb_transcendental.vvp \
     Normalizer.v \
     BarrelShifter.v \
     MathConstants.v \
-    2>&1 | tee compile.log
+    2>&1 | tee memory_ops_compile.log
 
 if [ $? -eq 0 ]; then
     echo ""
     echo "Compilation successful!"
     echo ""
     echo "Running simulation..."
-    vvp tb_transcendental.vvp | tee simulation.log
+    vvp tb_memory_ops.vvp | tee memory_ops_test.log
     echo ""
-    echo "Simulation complete. Check simulation.log for results."
+    echo "Simulation complete. Check memory_ops_test.log for results."
 else
     echo ""
-    echo "Compilation failed! Check compile.log for errors."
+    echo "Compilation failed! Check memory_ops_compile.log for errors."
     exit 1
 fi

@@ -25,7 +25,13 @@ module FPU_Core_Wrapper(
 
     // Control
     input wire [15:0] if_control_reg,
-    input wire        if_control_update
+    input wire        if_control_update,
+
+    // Memory Operation Format (from interface)
+    input wire        if_has_memory_op,
+    input wire [1:0]  if_operand_size,
+    input wire        if_is_integer,
+    input wire        if_is_bcd
 );
 
     //=================================================================

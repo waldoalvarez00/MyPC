@@ -35,6 +35,7 @@ class Opcode(IntEnum):
 
 class MicroOp(IntEnum):
     """Micro-operations (used when opcode == EXEC)"""
+    # Basic operations (0x0-0xF)
     LOAD           = 0x1
     STORE          = 0x2
     SET_CONST      = 0x3
@@ -50,6 +51,18 @@ class MicroOp(IntEnum):
     COMPARE        = 0xD  # Compare temp_fp_a with temp_fp_b, set flags
     REG_OPS        = 0xE  # immediate: 0=READ_STATUS, 1=READ_CONTROL, 2=READ_TAG, 3=WRITE_STATUS
     ROUND          = 0xF
+
+    # Hardware unit interface operations (0x10-0x1F) - NEW!
+    CALL_ARITH     = 0x10  # Start arithmetic operation
+    WAIT_ARITH     = 0x11  # Wait for arithmetic completion
+    LOAD_ARITH_RES = 0x12  # Load result from arithmetic unit
+    CALL_STACK     = 0x13  # Execute stack operation
+    WAIT_STACK     = 0x14  # Wait for stack completion
+    LOAD_STACK_REG = 0x15  # Load from stack register
+    STORE_STACK_REG= 0x16  # Store to stack register
+    SET_STATUS     = 0x17  # Set status flags
+    GET_STATUS     = 0x18  # Get status flags
+    GET_CC         = 0x19  # Get condition codes
 
 
 # ============================================================================
@@ -143,6 +156,7 @@ class FPUState:
     temp_fp: ExtendedFloat = None  # 80-bit FP
     temp_fp_a: ExtendedFloat = None  # Operand A
     temp_fp_b: ExtendedFloat = None  # Operand B
+    temp_result: ExtendedFloat = None  # Result storage
 
     # Math constant index
     math_const_index: int = 0
@@ -150,11 +164,22 @@ class FPUState:
     # Loop register
     loop_reg: int = 0
 
+    # Hardware unit simulation state (NEW)
+    arith_busy: bool = False
+    arith_result: ExtendedFloat = None
+    arith_cycles_remaining: int = 0
+    arith_cc_less: bool = False
+    arith_cc_equal: bool = False
+    arith_cc_greater: bool = False
+    arith_cc_unordered: bool = False
+
     def __init__(self):
         self.stack = [ExtendedFloat(0) for _ in range(8)]
         self.temp_fp = ExtendedFloat(0)
         self.temp_fp_a = ExtendedFloat(0)
         self.temp_fp_b = ExtendedFloat(0)
+        self.temp_result = ExtendedFloat(0)
+        self.arith_result = ExtendedFloat(0)
 
     @property
     def stack_top(self) -> int:
@@ -191,6 +216,9 @@ class MicrosequencerSimulator:
         # CPU bus interface
         self.cpu_data_in = 0
         self.cpu_data_out = 0
+
+        # Initialize microcode subroutine library
+        self._init_microcode_subroutines()
 
     def _init_math_constants(self) -> List[ExtendedFloat]:
         """Initialize mathematical constants"""
@@ -238,6 +266,61 @@ class MicrosequencerSimulator:
 
         return constants
 
+    def _init_microcode_subroutines(self):
+        """
+        Initialize microcode subroutine library.
+        Matches MicroSequencer_Extended.v ROM initialization.
+
+        Format: {opcode[31:28], micro_op[27:23], immediate[22:15], next_addr[14:0]}
+        """
+        OPCODE_EXEC = 0x1
+        OPCODE_RET = 0x4
+        MOP_CALL_ARITH = 0x10
+        MOP_WAIT_ARITH = 0x11
+        MOP_LOAD_ARITH_RES = 0x12
+
+        # Program 0: FADD (0x0100-0x0103)
+        self.microcode_rom[0x0100] = (OPCODE_EXEC << 28) | (MOP_CALL_ARITH << 23) | (0 << 15) | 0x0101
+        self.microcode_rom[0x0101] = (OPCODE_EXEC << 28) | (MOP_WAIT_ARITH << 23) | (0 << 15) | 0x0102  # Fixed: advance to 0x0102 when done
+        self.microcode_rom[0x0102] = (OPCODE_EXEC << 28) | (MOP_LOAD_ARITH_RES << 23) | (0 << 15) | 0x0103
+        self.microcode_rom[0x0103] = (OPCODE_RET << 28) | (0 << 23) | (0 << 15) | 0
+
+        # Program 1: FSUB (0x0110-0x0113)
+        self.microcode_rom[0x0110] = (OPCODE_EXEC << 28) | (MOP_CALL_ARITH << 23) | (1 << 15) | 0x0111
+        self.microcode_rom[0x0111] = (OPCODE_EXEC << 28) | (MOP_WAIT_ARITH << 23) | (0 << 15) | 0x0112
+        self.microcode_rom[0x0112] = (OPCODE_EXEC << 28) | (MOP_LOAD_ARITH_RES << 23) | (0 << 15) | 0x0113
+        self.microcode_rom[0x0113] = (OPCODE_RET << 28) | (0 << 23) | (0 << 15) | 0
+
+        # Program 2: FMUL (0x0120-0x0123)
+        self.microcode_rom[0x0120] = (OPCODE_EXEC << 28) | (MOP_CALL_ARITH << 23) | (2 << 15) | 0x0121
+        self.microcode_rom[0x0121] = (OPCODE_EXEC << 28) | (MOP_WAIT_ARITH << 23) | (0 << 15) | 0x0122
+        self.microcode_rom[0x0122] = (OPCODE_EXEC << 28) | (MOP_LOAD_ARITH_RES << 23) | (0 << 15) | 0x0123
+        self.microcode_rom[0x0123] = (OPCODE_RET << 28) | (0 << 23) | (0 << 15) | 0
+
+        # Program 3: FDIV (0x0130-0x0133)
+        self.microcode_rom[0x0130] = (OPCODE_EXEC << 28) | (MOP_CALL_ARITH << 23) | (3 << 15) | 0x0131
+        self.microcode_rom[0x0131] = (OPCODE_EXEC << 28) | (MOP_WAIT_ARITH << 23) | (0 << 15) | 0x0132
+        self.microcode_rom[0x0132] = (OPCODE_EXEC << 28) | (MOP_LOAD_ARITH_RES << 23) | (0 << 15) | 0x0133
+        self.microcode_rom[0x0133] = (OPCODE_RET << 28) | (0 << 23) | (0 << 15) | 0
+
+        # Program 4: FSQRT (0x0140-0x0143)
+        self.microcode_rom[0x0140] = (OPCODE_EXEC << 28) | (MOP_CALL_ARITH << 23) | (12 << 15) | 0x0141
+        self.microcode_rom[0x0141] = (OPCODE_EXEC << 28) | (MOP_WAIT_ARITH << 23) | (0 << 15) | 0x0142
+        self.microcode_rom[0x0142] = (OPCODE_EXEC << 28) | (MOP_LOAD_ARITH_RES << 23) | (0 << 15) | 0x0143
+        self.microcode_rom[0x0143] = (OPCODE_RET << 28) | (0 << 23) | (0 << 15) | 0
+
+        # Program 5: FSIN (0x0150-0x0153)
+        self.microcode_rom[0x0150] = (OPCODE_EXEC << 28) | (MOP_CALL_ARITH << 23) | (13 << 15) | 0x0151
+        self.microcode_rom[0x0151] = (OPCODE_EXEC << 28) | (MOP_WAIT_ARITH << 23) | (0 << 15) | 0x0152
+        self.microcode_rom[0x0152] = (OPCODE_EXEC << 28) | (MOP_LOAD_ARITH_RES << 23) | (0 << 15) | 0x0153
+        self.microcode_rom[0x0153] = (OPCODE_RET << 28) | (0 << 23) | (0 << 15) | 0
+
+        # Program 6: FCOS (0x0160-0x0163)
+        self.microcode_rom[0x0160] = (OPCODE_EXEC << 28) | (MOP_CALL_ARITH << 23) | (14 << 15) | 0x0161
+        self.microcode_rom[0x0161] = (OPCODE_EXEC << 28) | (MOP_WAIT_ARITH << 23) | (0 << 15) | 0x0162
+        self.microcode_rom[0x0162] = (OPCODE_EXEC << 28) | (MOP_LOAD_ARITH_RES << 23) | (0 << 15) | 0x0163
+        self.microcode_rom[0x0163] = (OPCODE_RET << 28) | (0 << 23) | (0 << 15) | 0
+
     def load_hex_file(self, filename: str):
         """Load microcode from hex file"""
         try:
@@ -269,11 +352,18 @@ class MicrosequencerSimulator:
             raise
 
     def decode_instruction(self, instr: int) -> Tuple[int, int, int, int]:
-        """Decode a 32-bit microinstruction"""
+        """Decode a 32-bit microinstruction
+
+        Format (extended for hardware unit support):
+        [31:28] - opcode (4 bits)
+        [27:23] - micro_op (5 bits - extended!)
+        [22:15] - immediate (8 bits)
+        [14:0]  - next_addr (15 bits)
+        """
         opcode = (instr >> 28) & 0xF
-        micro_op = (instr >> 24) & 0xF
-        immediate = (instr >> 16) & 0xFF
-        next_addr = instr & 0xFFFF
+        micro_op = (instr >> 23) & 0x1F  # Extended to 5 bits
+        immediate = (instr >> 15) & 0xFF
+        next_addr = instr & 0x7FFF  # 15 bits
         return opcode, micro_op, immediate, next_addr
 
     def execute_instruction(self, instr: int) -> bool:
@@ -500,12 +590,153 @@ class MicrosequencerSimulator:
                 if self.verbose:
                     print(f"  WRITE_STATUS: 0x{self.fpu_state.status_word:04X}")
 
+        # =====================================================================
+        # Hardware Unit Interface Operations (NEW!)
+        # =====================================================================
+
+        elif micro_op == MicroOp.CALL_ARITH:
+            # Start arithmetic operation (simulates FPU_ArithmeticUnit)
+            arith_op = immediate & 0x1F
+            self._start_arithmetic_operation(arith_op)
+            if self.verbose:
+                print(f"  CALL_ARITH: op={arith_op} started")
+
+        elif micro_op == MicroOp.WAIT_ARITH:
+            # Wait for arithmetic completion
+            if self.fpu_state.arith_cycles_remaining > 0:
+                self.fpu_state.arith_cycles_remaining -= 1
+
+            if self.fpu_state.arith_cycles_remaining == 0:
+                # Arithmetic complete - advance to next instruction
+                self.fpu_state.arith_busy = False
+                if self.verbose:
+                    print(f"  WAIT_ARITH: complete, result={self.fpu_state.arith_result}")
+                # Will advance to next_addr at end of function
+            else:
+                # Still waiting - loop at current PC
+                self.pc = self.pc
+                if self.verbose:
+                    print(f"  WAIT_ARITH: waiting ({self.fpu_state.arith_cycles_remaining} cycles left)")
+                return  # Don't advance PC - return early to loop
+
+        elif micro_op == MicroOp.LOAD_ARITH_RES:
+            # Load result from arithmetic unit
+            self.fpu_state.temp_result = self.fpu_state.arith_result
+            if self.verbose:
+                print(f"  LOAD_ARITH_RES: temp_result = {self.fpu_state.temp_result}")
+
+        elif micro_op == MicroOp.LOAD_STACK_REG:
+            # Load from stack register
+            stack_idx = immediate & 0x7
+            self.fpu_state.temp_result = self.fpu_state.stack[stack_idx]
+            if self.verbose:
+                print(f"  LOAD_STACK_REG: ST({stack_idx}) = {self.fpu_state.temp_result}")
+
+        elif micro_op == MicroOp.STORE_STACK_REG:
+            # Store to stack register
+            stack_idx = immediate & 0x7
+            self.fpu_state.stack[stack_idx] = self.fpu_state.temp_result
+            if self.verbose:
+                print(f"  STORE_STACK_REG: ST({stack_idx}) = {self.fpu_state.temp_result}")
+
+        elif micro_op == MicroOp.GET_STATUS:
+            # Get status word
+            self.fpu_state.temp_reg = self.fpu_state.status_word & 0xFFFF
+            if self.verbose:
+                print(f"  GET_STATUS: 0x{self.fpu_state.status_word:04X}")
+
+        elif micro_op == MicroOp.SET_STATUS:
+            # Set status word
+            self.fpu_state.status_word = self.fpu_state.temp_reg & 0xFFFF
+            if self.verbose:
+                print(f"  SET_STATUS: 0x{self.fpu_state.status_word:04X}")
+
+        elif micro_op == MicroOp.GET_CC:
+            # Get condition codes
+            self.fpu_state.temp_reg = (
+                (1 if self.fpu_state.arith_cc_less else 0) |
+                ((1 if self.fpu_state.arith_cc_equal else 0) << 1) |
+                ((1 if self.fpu_state.arith_cc_greater else 0) << 2) |
+                ((1 if self.fpu_state.arith_cc_unordered else 0) << 3)
+            )
+            if self.verbose:
+                print(f"  GET_CC: L={self.fpu_state.arith_cc_less} "
+                      f"E={self.fpu_state.arith_cc_equal} "
+                      f"G={self.fpu_state.arith_cc_greater} "
+                      f"U={self.fpu_state.arith_cc_unordered}")
+
         else:
             if self.verbose:
                 print(f"  Unknown micro-op: {micro_op}")
 
         # Default: advance to next address
         self.pc = next_addr
+
+    def _start_arithmetic_operation(self, arith_op: int):
+        """
+        Simulate starting an arithmetic operation (FPU_Arith met Unit).
+        Maps operation codes to FP operations and sets busy state.
+
+        Operation codes match FPU_ArithmeticUnit.v:
+        0=ADD, 1=SUB, 2=MUL, 3=DIV, 4=INT16_TO_FP, 5=INT32_TO_FP,
+        6=FP_TO_INT16, 7=FP_TO_INT32, 8=FP32_TO_FP80, 9=FP64_TO_FP80,
+        10=FP80_TO_FP32, 11=FP80_TO_FP64, 12=SQRT, 13=SIN, 14=COS
+        """
+        import math
+
+        self.fpu_state.arith_busy = True
+
+        a_val = self.fpu_state.temp_fp_a.to_float()
+        b_val = self.fpu_state.temp_fp_b.to_float()
+        result = 0.0
+
+        # Map operation code to arithmetic function
+        if arith_op == 0:  # ADD
+            result = a_val + b_val
+            self.fpu_state.arith_cycles_remaining = 3
+        elif arith_op == 1:  # SUB
+            result = a_val - b_val
+            self.fpu_state.arith_cycles_remaining = 3
+        elif arith_op == 2:  # MUL
+            result = a_val * b_val
+            self.fpu_state.arith_cycles_remaining = 5
+        elif arith_op == 3:  # DIV
+            if b_val == 0:
+                result = float('inf') if a_val >= 0 else float('-inf')
+            else:
+                result = a_val / b_val
+            self.fpu_state.arith_cycles_remaining = 10
+        elif arith_op == 12:  # SQRT
+            if a_val < 0:
+                result = float('nan')
+            else:
+                result = math.sqrt(a_val)
+            self.fpu_state.arith_cycles_remaining = 8
+        elif arith_op == 13:  # SIN
+            result = math.sin(a_val)
+            self.fpu_state.arith_cycles_remaining = 15
+        elif arith_op == 14:  # COS
+            result = math.cos(a_val)
+            self.fpu_state.arith_cycles_remaining = 15
+        else:
+            # Unsupported operation - just pass through
+            result = a_val
+            self.fpu_state.arith_cycles_remaining = 1
+
+        # Store result and set condition codes
+        self.fpu_state.arith_result = ExtendedFloat.from_float(result)
+
+        # Update condition codes (for comparison operations)
+        if math.isnan(a_val) or math.isnan(b_val) or math.isnan(result):
+            self.fpu_state.arith_cc_unordered = True
+            self.fpu_state.arith_cc_less = False
+            self.fpu_state.arith_cc_equal = False
+            self.fpu_state.arith_cc_greater = False
+        else:
+            self.fpu_state.arith_cc_unordered = False
+            self.fpu_state.arith_cc_less = (a_val < b_val)
+            self.fpu_state.arith_cc_equal = (a_val == b_val)
+            self.fpu_state.arith_cc_greater = (a_val > b_val)
 
     def run(self, start_addr: int = 0) -> bool:
         """Run microcode starting at given address"""
