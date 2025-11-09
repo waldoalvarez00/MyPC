@@ -103,6 +103,7 @@ module tb_transcendental;
     // Initialize FPU
     task init_fpu;
         begin
+            $display("[INIT] Starting FPU initialization...");
             reset = 1;
             execute = 0;
             instruction = 8'h00;
@@ -116,15 +117,16 @@ module tb_transcendental;
             reset = 0;
             #(CLK_PERIOD * 2);
 
-            if (VERBOSE)
-                $display("[INIT] FPU initialized");
+            $display("[INIT] FPU initialized, ready=%b", ready);
         end
     endtask
 
     // Load value onto FP stack
     task load_value;
         input [79:0] value;
+        integer timeout_cycles;
         begin
+            $display("[LOAD] Loading value 0x%020X, ready=%b", value, ready);
             @(posedge clk);
             data_in = value;
             instruction = INST_FLD;
@@ -132,12 +134,20 @@ module tb_transcendental;
             @(posedge clk);
             execute = 0;
 
-            // Wait for ready
-            wait(ready == 1);
-            @(posedge clk);
+            // Wait for ready with timeout
+            timeout_cycles = 0;
+            while (ready == 0 && timeout_cycles < 1000) begin
+                @(posedge clk);
+                timeout_cycles = timeout_cycles + 1;
+            end
 
-            if (VERBOSE)
-                $display("[LOAD] Loaded value 0x%020X onto stack", value);
+            if (timeout_cycles >= 1000) begin
+                $display("[ERROR] LOAD timeout after %0d cycles", timeout_cycles);
+                $finish;
+            end
+
+            @(posedge clk);
+            $display("[LOAD] Load completed in %0d cycles", timeout_cycles);
         end
     endtask
 
@@ -187,22 +197,32 @@ module tb_transcendental;
     task execute_transcendental;
         input [7:0] inst;
         input string inst_name;
+        integer timeout_cycles;
         begin
+            $display("[EXEC] Executing %s (0x%02X), ready=%b", inst_name, inst, ready);
             @(posedge clk);
             instruction = inst;
             execute = 1;
             @(posedge clk);
             execute = 0;
 
-            if (VERBOSE)
-                $display("[EXEC] Executing %s", inst_name);
+            // Wait for ready with timeout (transcendental functions may take long)
+            timeout_cycles = 0;
+            while (ready == 0 && timeout_cycles < 10000) begin
+                @(posedge clk);
+                timeout_cycles = timeout_cycles + 1;
+                if (timeout_cycles % 1000 == 0)
+                    $display("[EXEC] Still waiting... %0d cycles", timeout_cycles);
+            end
 
-            // Wait for ready (may take many cycles for transcendental functions)
-            wait(ready == 1);
+            if (timeout_cycles >= 10000) begin
+                $display("[ERROR] %s timeout after %0d cycles", inst_name, timeout_cycles);
+                $display("[ERROR] ready=%b, error=%b", ready, error);
+                $finish;
+            end
+
             @(posedge clk);
-
-            if (VERBOSE)
-                $display("[EXEC] %s completed", inst_name);
+            $display("[EXEC] %s completed in %0d cycles", inst_name, timeout_cycles);
         end
     endtask
 
@@ -473,6 +493,10 @@ module tb_transcendental;
         passed_tests = 0;
         failed_tests = 0;
         error_count = 0;
+
+        // Enable waveform dump for debugging
+        $dumpfile("transcendental_waves.vcd");
+        $dumpvars(0, tb_transcendental);
 
         $display("\n" + "=" * 80);
         $display("Transcendental Functions Testbench");
