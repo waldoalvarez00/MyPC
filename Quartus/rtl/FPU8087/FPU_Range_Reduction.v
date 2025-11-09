@@ -92,11 +92,97 @@ module FPU_Range_Reduction(
     reg angle_negative;
 
     //=================================================================
-    // Simplified range reduction (for now)
-    //
-    // Full implementation would use iterative subtraction or
-    // Payne-Hanek reduction for very large angles.
-    // This version handles angles up to ±4π directly.
+    // FP Comparison Helper Function
+    // Returns 1 if a >= b (both assumed positive normalized)
+    //=================================================================
+    function fp_gte;
+        input [79:0] a;
+        input [79:0] b;
+        reg [14:0] exp_a, exp_b;
+        reg [63:0] mant_a, mant_b;
+        begin
+            exp_a = a[78:64];
+            exp_b = b[78:64];
+            mant_a = a[63:0];
+            mant_b = b[63:0];
+
+            if (exp_a > exp_b)
+                fp_gte = 1'b1;
+            else if (exp_a < exp_b)
+                fp_gte = 1'b0;
+            else
+                fp_gte = (mant_a >= mant_b);
+        end
+    endfunction
+
+    //=================================================================
+    // FP Subtraction Helper Function (a - b, both positive)
+    // Simplified subtraction for normalized positive values
+    //=================================================================
+    function [79:0] fp_sub;
+        input [79:0] a;
+        input [79:0] b;
+        reg [14:0] exp_a, exp_b;
+        reg [63:0] mant_a, mant_b;
+        reg [14:0] exp_diff;
+        reg [63:0] mant_b_shifted;
+        reg [63:0] result_mant;
+        reg [14:0] result_exp;
+        integer shift_amt;
+        begin
+            exp_a = a[78:64];
+            exp_b = b[78:64];
+            mant_a = a[63:0];
+            mant_b = b[63:0];
+
+            // Handle same exponent case (most common for our constants)
+            if (exp_a == exp_b) begin
+                result_exp = exp_a;
+                result_mant = mant_a - mant_b;
+
+                // Normalize result if needed (leading 1 might have shifted)
+                if (result_mant[63] == 1'b0 && result_mant != 64'd0) begin
+                    // Find leading 1 and normalize
+                    shift_amt = 0;
+                    while (result_mant[63] == 1'b0 && shift_amt < 63) begin
+                        result_mant = result_mant << 1;
+                        shift_amt = shift_amt + 1;
+                    end
+                    result_exp = result_exp - shift_amt;
+                end
+
+                fp_sub = {1'b0, result_exp, result_mant};
+            end else if (exp_a > exp_b) begin
+                // a > b: align mantissas
+                exp_diff = exp_a - exp_b;
+                if (exp_diff < 64)
+                    mant_b_shifted = mant_b >> exp_diff;
+                else
+                    mant_b_shifted = 64'd0;
+
+                result_mant = mant_a - mant_b_shifted;
+                result_exp = exp_a;
+
+                // Normalize if needed
+                if (result_mant[63] == 1'b0 && result_mant != 64'd0) begin
+                    shift_amt = 0;
+                    while (result_mant[63] == 1'b0 && shift_amt < 63) begin
+                        result_mant = result_mant << 1;
+                        shift_amt = shift_amt + 1;
+                    end
+                    result_exp = result_exp - shift_amt;
+                end
+
+                fp_sub = {1'b0, result_exp, result_mant};
+            end else begin
+                // This shouldn't happen if a >= b
+                fp_sub = FP80_ZERO;
+            end
+        end
+    endfunction
+
+    //=================================================================
+    // Range Reduction State Machine
     //=================================================================
 
     always @(posedge clk or posedge reset) begin
@@ -141,42 +227,111 @@ module FPU_Range_Reduction(
                         error <= 1'b1;
                         state <= STATE_DONE;
                     end else begin
-                        // Normal angle, proceed to reduction
-                        state <= STATE_REDUCE_2PI;
+                        // Normal angle, proceed to quadrant determination
+                        state <= STATE_DETERMINE_QUAD;
                     end
                 end
 
                 STATE_REDUCE_2PI: begin
-                    // Simplified: assume angle is already in reasonable range
-                    // Full implementation would use Payne-Hanek reduction
-                    // For now, we just handle angles < 4π by direct comparison
-
-                    // This is a simplified placeholder
-                    // Real implementation needs FP comparison and subtraction
+                    // For angles in [0, 2π), this is a no-op
+                    // Future: implement modulo 2π for very large angles
                     state <= STATE_DETERMINE_QUAD;
                 end
 
                 STATE_DETERMINE_QUAD: begin
-                    // Determine quadrant based on angle magnitude
-                    // Simplified logic using exponent and mantissa comparison
+                    // Determine which octant and reduce to [-π/4, π/4]
+                    // Handle angles in [0, 2π) range
 
-                    // Compare with π/4, π/2, 3π/4, π, etc.
-                    // This is greatly simplified - real version needs FP compare
+                    // Octant mapping:
+                    // [0, π/4): Quadrant I, no reduction needed
+                    // [π/4, π/2): Quadrant I, reduce by subtracting from π/2, swap
+                    // [π/2, 3π/4): Quadrant II, subtract π/2, swap
+                    // [3π/4, π): Quadrant II, subtract from π
+                    // [π, 5π/4): Quadrant III, subtract π
+                    // [5π/4, 3π/2): Quadrant III, subtract from 3π/2, swap
+                    // [3π/2, 7π/4): Quadrant IV, subtract 3π/2, swap
+                    // [7π/4, 2π): Quadrant IV, subtract from 2π
 
-                    // For demonstration, assume angle is small (< π/2)
-                    // and set quadrant I
-                    quadrant <= 2'd0;
-                    swap_sincos <= 1'b0;
-                    negate_sin <= angle_negative;
-                    negate_cos <= 1'b0;
+                    if (!fp_gte(angle_abs, FP80_PI_OVER_4)) begin
+                        // [0, π/4): Use angle as-is
+                        angle_out <= angle_abs;
+                        swap_sincos <= 1'b0;
+                        negate_sin <= angle_negative;
+                        negate_cos <= 1'b0;
+                    end else if (!fp_gte(angle_abs, FP80_PI_OVER_2)) begin
+                        // [π/4, π/2): angle' = π/2 - angle, swap sin/cos
+                        angle_out <= fp_sub(FP80_PI_OVER_2, angle_abs);
+                        swap_sincos <= 1'b1;
+                        negate_sin <= angle_negative;
+                        negate_cos <= 1'b0;
+                    end else if (!fp_gte(angle_abs, FP80_PI)) begin
+                        // [π/2, π): angle' = angle - π/2, swap, negate cos
+                        angle_temp <= fp_sub(angle_abs, FP80_PI_OVER_2);
 
-                    state <= STATE_REDUCE_TO_PI4;
+                        // Determine if closer to π/2 or π
+                        if (!fp_gte(fp_sub(angle_abs, FP80_PI_OVER_2), FP80_PI_OVER_4)) begin
+                            // [π/2, 3π/4): angle' = angle - π/2, swap
+                            angle_out <= fp_sub(angle_abs, FP80_PI_OVER_2);
+                            swap_sincos <= 1'b1;
+                            negate_sin <= angle_negative;
+                            negate_cos <= 1'b1;  // Quadrant II: cos is negative
+                        end else begin
+                            // [3π/4, π): angle' = π - angle
+                            angle_out <= fp_sub(FP80_PI, angle_abs);
+                            swap_sincos <= 1'b0;
+                            negate_sin <= angle_negative;
+                            negate_cos <= 1'b1;  // Quadrant II: cos is negative
+                        end
+                    end else if (!fp_gte(angle_abs, FP80_3PI_OVER_2)) begin
+                        // [π, 3π/2): Quadrant III - subtract π
+                        angle_temp <= fp_sub(angle_abs, FP80_PI);
+
+                        if (!fp_gte(fp_sub(angle_abs, FP80_PI), FP80_PI_OVER_4)) begin
+                            // [π, 5π/4): angle' = angle - π
+                            angle_out <= fp_sub(angle_abs, FP80_PI);
+                            swap_sincos <= 1'b0;
+                            negate_sin <= ~angle_negative;  // Flip sign in QIII
+                            negate_cos <= 1'b1;  // Quadrant III: cos is negative
+                        end else begin
+                            // [5π/4, 3π/2): angle' = 3π/2 - angle, swap
+                            angle_out <= fp_sub(FP80_3PI_OVER_2, angle_abs);
+                            swap_sincos <= 1'b1;
+                            negate_sin <= ~angle_negative;  // Flip sign in QIII
+                            negate_cos <= 1'b1;  // Quadrant III: cos is negative
+                        end
+                    end else if (!fp_gte(angle_abs, FP80_2PI)) begin
+                        // [3π/2, 2π): Quadrant IV - subtract 3π/2
+                        angle_temp <= fp_sub(angle_abs, FP80_3PI_OVER_2);
+
+                        if (!fp_gte(fp_sub(angle_abs, FP80_3PI_OVER_2), FP80_PI_OVER_4)) begin
+                            // [3π/2, 7π/4): angle' = angle - 3π/2, swap
+                            angle_out <= fp_sub(angle_abs, FP80_3PI_OVER_2);
+                            swap_sincos <= 1'b1;
+                            negate_sin <= ~angle_negative;  // Flip sign in QIV
+                            negate_cos <= 1'b0;  // Quadrant IV: cos is positive
+                        end else begin
+                            // [7π/4, 2π): angle' = 2π - angle
+                            angle_out <= fp_sub(FP80_2PI, angle_abs);
+                            swap_sincos <= 1'b0;
+                            negate_sin <= ~angle_negative;  // Flip sign in QIV
+                            negate_cos <= 1'b0;  // Quadrant IV: cos is positive
+                        end
+                    end else begin
+                        // angle >= 2π: use modulo (simplified: just wrap once)
+                        angle_temp <= fp_sub(angle_abs, FP80_2PI);
+                        // Recursively reduce (in real implementation, loop)
+                        // For now, assume angle < 4π
+                        angle_out <= fp_sub(angle_abs, FP80_2PI);
+                        swap_sincos <= 1'b0;
+                        negate_sin <= angle_negative;
+                        negate_cos <= 1'b0;
+                    end
+
+                    state <= STATE_DONE;
                 end
 
                 STATE_REDUCE_TO_PI4: begin
-                    // Map to [-π/4, π/4]
-                    // Simplified: just use absolute value for now
-                    angle_out <= angle_abs;
+                    // This state is now handled in DETERMINE_QUAD
                     state <= STATE_DONE;
                 end
 
