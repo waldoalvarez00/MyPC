@@ -643,6 +643,10 @@ module FPU_Core(
                             (status_underflow & ~mask_underflow) |
                             (status_precision & ~mask_precision);
 
+                    // Clear arithmetic operation to prevent done signal from persisting
+                    // Setting to invalid operation (15) ensures all unit done signals go to 0
+                    arith_operation <= 4'd15;
+
                     state <= STATE_IDLE;
                 end
 

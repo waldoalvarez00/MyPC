@@ -376,7 +376,7 @@ module tb_fpu_core;
         load_int32(32'd7);
         #10;
         $display("  Before FADDP: ST(0)=%h, ST(1)=%h", dut.st0, dut.st1);
-        exec_instruction(INST_FADDP, 3'd0);
+        exec_instruction(INST_FADDP, 3'd1);  // Use stack_index=1 for ST(1)
         #10;
         // Expected: 12.0 = 1100 = 1.5 * 2^3 = 0x4002C000000000000000
         expected_fp80 = 80'h4002C000000000000000;
@@ -468,11 +468,12 @@ module tb_fpu_core;
         #10;
 
         // ST(0) should be 8, ST(1) should be 7
-        if (dut.st0[78:64] == 15'h4001) begin  // exp for 8.0 = 16384 = 0x4001
-            $display("  PASS: Loaded 8 values on stack, ST(0) has exponent %h", dut.st0[78:64]);
+        // 8.0 = 1.0 * 2^3, exp = 3 + 16383 = 16386 = 0x4002
+        if (dut.st0[78:64] == 15'h4002) begin
+            $display("  PASS: Loaded 8 values on stack, ST(0) = 8.0");
             pass_count = pass_count + 1;
         end else begin
-            $display("  FAIL: ST(0) = %h", dut.st0);
+            $display("  FAIL: ST(0) = %h, expected exp=0x4002 for 8.0", dut.st0);
             fail_count = fail_count + 1;
         end
 
@@ -499,11 +500,11 @@ module tb_fpu_core;
         #10;
         load_int32(32'd5);
         #10;
-        exec_instruction(INST_FMUL, 3'd1);  // ST(0) = 20
+        exec_instruction(INST_FMUL, 3'd1);  // ST(0) = 20, ST(1) = 4, ST(2) = 6
         #10;
 
-        // Add results: 6 + 20 = 26
-        exec_instruction(INST_FADD, 3'd1);
+        // Add results: ST(0) + ST(2) = 20 + 6 = 26
+        exec_instruction(INST_FADD, 3'd2);  // Use stack_index=2 to add ST(2)
         #10;
 
         // Expected: 26.0 = 11010 = 1.625 * 2^4 = 0x4003D000000000000000
