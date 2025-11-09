@@ -53,9 +53,10 @@ module FPU_CORDIC_Wrapper(
     localparam MODE_ROTATION  = 1'b0;
     localparam MODE_VECTORING = 1'b1;
 
-    // CORDIC gain K ≈ 0.6072529350088812
-    // In FP80 format: sign=0, exp=0x3FFE, mant=0x9B74EDA8_1F6EB000
-    localparam FP80_CORDIC_GAIN = 80'h3FFE_9B74EDA81F6EB000;
+    // CORDIC gain K ≈ 1.646760258121 (accumulated from iterations)
+    // To get direct sin/cos output, start with x = 1/K ≈ 0.6072529350088812
+    // In FP80 format: sign=0, exp=0x3FFE, mant=0x9B74EDA81F6EB000
+    localparam FP80_CORDIC_SCALE = 80'h3FFE_9B74EDA81F6EB000;  // 1/K for pre-scaling
 
     // Constants
     localparam FP80_ZERO = 80'h0000_0000000000000000;
@@ -105,8 +106,11 @@ module FPU_CORDIC_Wrapper(
     // Arctangent Table
     //=================================================================
 
-    reg [5:0] atan_index;
+    wire [5:0] atan_index;
     wire [79:0] atan_value;
+
+    // Connect iteration_count directly to atan table for combinational lookup
+    assign atan_index = iteration_count;
 
     FPU_Atan_Table atan_table (
         .index(atan_index),
@@ -157,9 +161,10 @@ module FPU_CORDIC_Wrapper(
                 result = 64'd0;
             end else begin
                 // Normalized value
-                // Compute shift amount: exp - bias - 62 (for Q2.62)
-                // Bias = 16383, Q2.62 means 62 fractional bits
-                shift_amount = exponent - 16383 - 62;
+                // FP80: value = mantissa * 2^(exp - bias - 63) [mantissa has binary point after bit 63]
+                // Q2.62: value_Q = value * 2^62
+                // So: value_Q = mantissa * 2^(exp - bias - 63 + 62) = mantissa * 2^(exp - bias - 1)
+                shift_amount = exponent - 16384;  // exponent - bias - 1, where bias=16383
 
                 if (shift_amount >= 0) begin
                     result = mantissa << shift_amount;
@@ -177,7 +182,7 @@ module FPU_CORDIC_Wrapper(
     //=================================================================
     // Fixed-Point to FP80 Conversion
     //
-    // Simplified conversion for demonstration.
+    // Converts Q2.62 fixed-point to FP80
     //=================================================================
 
     function [79:0] fixed_to_fp80;
@@ -187,6 +192,7 @@ module FPU_CORDIC_Wrapper(
         reg [63:0] mantissa;
         reg [63:0] abs_val;
         integer leading_zeros;
+        integer i;
         begin
             if (fixed_val == 64'd0) begin
                 fixed_to_fp80 = FP80_ZERO;
@@ -194,21 +200,28 @@ module FPU_CORDIC_Wrapper(
                 sign = fixed_val[63];
                 abs_val = sign ? -fixed_val : fixed_val;
 
-                // Find leading one position (simplified)
-                // This should be a priority encoder in real implementation
-                leading_zeros = 0;
-                if (abs_val[63] == 1'b1) leading_zeros = 0;
-                else if (abs_val[62] == 1'b1) leading_zeros = 1;
-                else if (abs_val[61] == 1'b1) leading_zeros = 2;
-                // ... (full implementation needs complete priority encoder)
-                else leading_zeros = 63;
+                // Find leading one position (priority encoder)
+                leading_zeros = 64;
+                for (i = 63; i >= 0; i = i - 1) begin
+                    if (abs_val[i] == 1'b1) begin
+                        leading_zeros = 63 - i;
+                        i = -1;  // Break loop
+                    end
+                end
 
                 // Normalize mantissa
                 mantissa = abs_val << leading_zeros;
 
-                // Compute exponent: Q2.62 has 62 fractional bits
-                // Exponent = 16383 + 62 - leading_zeros - 1
-                exponent = 16383 + 62 - leading_zeros;
+                // Compute exponent
+                // Q2.62 value represents: fixed_val / 2^62
+                // FP80 mantissa has binary point after bit 63
+                // FP80 value = mantissa * 2^(exp - bias - 63)
+                // We want: mantissa * 2^(exp - bias - 63) = abs_val * 2^-62
+                // After normalization: mantissa[63]=1, mantissa = abs_val << leading_zeros
+                // So: (abs_val << leading_zeros) * 2^(exp - 16383 - 63) = abs_val * 2^-62
+                // => exp - 16446 = -62 - leading_zeros
+                // => exp = 16384 - leading_zeros
+                exponent = 16384 - leading_zeros;
 
                 fixed_to_fp80 = {sign, exponent, mantissa};
             end
@@ -271,8 +284,9 @@ module FPU_CORDIC_Wrapper(
 
                 STATE_CONVERT_INPUT: begin
                     if (cordic_mode == MODE_ROTATION) begin
-                        // Rotation mode: x = K, y = 0, z = angle
-                        x_cordic <= fp80_to_fixed(FP80_CORDIC_GAIN);
+                        // Rotation mode: x = 1/K, y = 0, z = angle
+                        // Pre-scaling by 1/K gives direct cos(θ), sin(θ) output
+                        x_cordic <= fp80_to_fixed(FP80_CORDIC_SCALE);
                         y_cordic <= 64'd0;
                         z_cordic <= fp80_to_fixed(angle_reduced);
                     end else begin
@@ -295,8 +309,7 @@ module FPU_CORDIC_Wrapper(
                     x_shifted = x_cordic >>> iteration_count;  // Arithmetic right shift
                     y_shifted = y_cordic >>> iteration_count;
 
-                    // Convert atan table value to fixed-point
-                    atan_index = iteration_count;
+                    // Convert atan table value to fixed-point (atan_index is wired to iteration_count)
                     atan_fixed = fp80_to_fixed(atan_value);
 
                     // CORDIC micro-rotation
@@ -353,7 +366,6 @@ module FPU_CORDIC_Wrapper(
 
                 STATE_QUAD_CORRECT: begin
                     // Apply quadrant corrections
-                    // (Simplified - real implementation needs FP negate operation)
                     if (result_negate_sin) begin
                         sin_out[79] <= ~sin_out[79];  // Flip sign bit
                     end
