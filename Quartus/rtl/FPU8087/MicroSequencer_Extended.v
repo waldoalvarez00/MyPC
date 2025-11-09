@@ -412,21 +412,23 @@ module MicroSequencer_Extended (
 
         //-------------------------------------------------------------
         // Program 5: FSIN - Sine
-        // Address: 0x01C0-0x01C3 (moved to avoid SQRT overlap)
+        // Address: 0x01C0-0x01C4 (moved to avoid SQRT overlap)
         //-------------------------------------------------------------
-        microcode_rom[16'h01C0] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd13, 15'h01C1};     // Call SIN (op=13)
-        microcode_rom[16'h01C1] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h01C2};      // Wait, advance to 0x01C2 when done
-        microcode_rom[16'h01C2] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h01C3};  // Load result
-        microcode_rom[16'h01C3] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h01C0] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h01C1};          // Load temp_fp_a from data_in
+        microcode_rom[16'h01C1] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd13, 15'h01C2};     // Call SIN (op=13)
+        microcode_rom[16'h01C2] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h01C3};      // Wait, advance to 0x01C3 when done
+        microcode_rom[16'h01C3] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h01C4};  // Load result
+        microcode_rom[16'h01C4] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
         //-------------------------------------------------------------
         // Program 6: FCOS - Cosine
-        // Address: 0x01D0-0x01D3 (moved to avoid SQRT overlap)
+        // Address: 0x01D0-0x01D4 (moved to avoid SQRT overlap)
         //-------------------------------------------------------------
-        microcode_rom[16'h01D0] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd14, 15'h01D1};     // Call COS (op=14)
-        microcode_rom[16'h01D1] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h01D2};      // Wait, advance to 0x01D2 when done
-        microcode_rom[16'h01D2] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h01D3};  // Load result
-        microcode_rom[16'h01D3] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h01D0] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h01D1};          // Load temp_fp_a from data_in
+        microcode_rom[16'h01D1] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd14, 15'h01D2};     // Call COS (op=14)
+        microcode_rom[16'h01D2] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h01D3};      // Wait, advance to 0x01D3 when done
+        microcode_rom[16'h01D3] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h01D4};  // Load result
+        microcode_rom[16'h01D4] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
         //-------------------------------------------------------------
         // Program 9: FPREM - Partial Remainder
