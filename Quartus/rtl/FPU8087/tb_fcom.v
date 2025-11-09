@@ -121,6 +121,12 @@ module tb_fcom;
         exec_compare(INST_FCOM, 3'd1);
         check_condition_codes(3'b111, "Unordered (NaN)", 4);  // Expected: C3=1, C2=1, C0=1
 
+        // Reset stack to prevent overflow
+        #10;
+        reset = 1;
+        #20 reset = 0;
+        #10;
+
         // Test 5: FTST with positive value
         $display("\nTest 5: FTST - Positive value (2.0 > 0.0)");
         load_value(FP_TWO);   // ST(0) = 2.0
@@ -138,6 +144,12 @@ module tb_fcom;
         load_value(FP_ZERO);  // ST(0) = 0.0
         exec_ftst();
         check_condition_codes(3'b100, "Equal to zero", 7);
+
+        // Reset stack before FXAM tests
+        #10;
+        reset = 1;
+        #20 reset = 0;
+        #10;
 
         // Test 8: FXAM with zero
         $display("\nTest 8: FXAM - Zero");
@@ -200,6 +212,12 @@ module tb_fcom;
         else
             $display("  FAIL - Expected C1=1 for negative number");
 
+        // Reset stack before comparison tests
+        #10;
+        reset = 1;
+        #20 reset = 0;
+        #10;
+
         // Test 14: FCOMP (compare and pop)
         $display("\nTest 14: FCOMP - Compare and pop");
         load_value(FP_ONE);   // ST(0) = 1.0
@@ -217,7 +235,7 @@ module tb_fcom;
         $display("  DEBUG: After loading 0.5, st0=0x%020X, st1=0x%020X",
                  dut.st0, dut.st1);
         $display("  Before FCOMPP: Stack has 2 values");
-        exec_compare(INST_FCOMPP, 3'd0);  // FCOMPP always compares ST(0) with ST(1)
+        exec_compare(INST_FCOMPP, 3'd1);  // FCOMPP compares ST(0) with ST(1) - need index 1!
         check_condition_codes(3'b001, "0.5 < 1.0", 15);
         $display("  After FCOMPP: Stack should be empty (popped both)");
 
