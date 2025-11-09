@@ -147,10 +147,10 @@ module tb_hybrid_execution();
     wire [79:0] micro_data_out;
     wire       micro_instruction_complete;
 
-    // Microsequencer's temp registers (for setup)
+    // Microsequencer's debug outputs (connected to internal registers)
+    wire [79:0] micro_temp_result;
     wire [79:0] micro_temp_fp_a;
     wire [79:0] micro_temp_fp_b;
-    wire [79:0] micro_temp_result;
 
     MicroSequencer_Extended microseq (
         .clk(clk),
@@ -160,6 +160,11 @@ module tb_hybrid_execution();
         .data_in(micro_data_in),
         .data_out(micro_data_out),
         .instruction_complete(micro_instruction_complete),
+
+        // Debug outputs
+        .debug_temp_result(micro_temp_result),
+        .debug_temp_fp_a(micro_temp_fp_a),
+        .debug_temp_fp_b(micro_temp_fp_b),
 
         // Connect to multiplexed arithmetic unit signals
         .arith_operation(micro_arith_operation),
@@ -265,14 +270,10 @@ module tb_hybrid_execution();
             //=============================================================
             // Method 2: Microcode Execution
             //=============================================================
-            // Note: We can't easily set temp_fp_a/b externally without
-            // modifying MicroSequencer_Extended to expose them.
-            // For now, we'll test that the microsequencer can be started
-            // and completes. Full operand testing would require
-            // additional interface signals.
+            // Now with full operand loading via MOP_LOAD_A/MOP_LOAD_B
 
             $display("\n[Microcode Execution]");
-            $display("  (Limited test - microsequencer infrastructure validation)");
+            $display("  Loading operands A=0x%020X, B=0x%020X", operand_a_val, operand_b_val);
 
             use_microcode_path = 1'b1;  // Select microcode mode
 
@@ -287,11 +288,23 @@ module tb_hybrid_execution();
                 default: micro_program_index = 4'd0;
             endcase
 
+            // Provide operand A on data bus for LOAD_A instruction
+            micro_data_in <= operand_a_val;
+
             @(posedge clk);
             micro_start <= 1'b1;
 
             @(posedge clk);
             micro_start <= 1'b0;
+
+            // Wait for LOAD_A to execute (2-3 cycles)
+            repeat(3) @(posedge clk);
+
+            // Now provide operand B for LOAD_B instruction
+            micro_data_in <= operand_b_val;
+
+            // Wait a bit for LOAD_B to execute
+            repeat(2) @(posedge clk);
 
             // Wait for completion
             // Note: SQRT needs ~1425 cycles + microcode overhead
@@ -302,8 +315,9 @@ module tb_hybrid_execution();
             end
 
             if (micro_instruction_complete) begin
+                micro_result = micro_temp_result;
                 $display("  Microcode complete (cycles=%0d)", cycles);
-                $display("  Note: Result verification requires exposing temp_result");
+                $display("  Microcode result: 0x%020X", micro_result);
             end else begin
                 $display("  ERROR: Microcode execution timeout!");
                 fail_count = fail_count + 1;
@@ -315,14 +329,20 @@ module tb_hybrid_execution();
             // Comparison
             //=============================================================
             $display("\n[Results]");
-            $display("  Expected: 0x%020X", expected_result);
-            $display("  Direct:   0x%020X", direct_result);
+            $display("  Expected:  0x%020X", expected_result);
+            $display("  Direct:    0x%020X", direct_result);
+            $display("  Microcode: 0x%020X", micro_result);
 
-            if (direct_result == expected_result) begin
-                $display("  ✓ PASS: Direct execution matches expected");
+            if (direct_result == expected_result && micro_result == expected_result) begin
+                $display("  ✓ PASS: Both execution paths match expected");
                 pass_count = pass_count + 1;
             end else begin
-                $display("  ✗ FAIL: Direct execution mismatch!");
+                if (direct_result != expected_result) begin
+                    $display("  ✗ FAIL: Direct execution mismatch!");
+                end
+                if (micro_result != expected_result) begin
+                    $display("  ✗ FAIL: Microcode execution mismatch!");
+                end
                 fail_count = fail_count + 1;
             end
 

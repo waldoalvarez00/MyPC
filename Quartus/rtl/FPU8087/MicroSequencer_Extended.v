@@ -26,6 +26,11 @@ module MicroSequencer_Extended (
     input wire [79:0] data_in,
     output reg [79:0] data_out,
 
+    // Debug/test interface - expose internal registers
+    output wire [79:0] debug_temp_result,
+    output wire [79:0] debug_temp_fp_a,
+    output wire [79:0] debug_temp_fp_b,
+
     // ===== Interfaces to FPU_Core Hardware Units (REUSE EXISTING) =====
 
     // Interface to FPU_ArithmeticUnit
@@ -80,11 +85,13 @@ module MicroSequencer_Extended (
     localparam OPCODE_RET    = 4'h4;
     localparam OPCODE_HALT   = 4'hF;
 
-    // Basic micro-operations (0x0-0xF)
-    localparam MOP_LOAD           = 4'h1;  // Load from data bus
-    localparam MOP_STORE          = 4'h2;  // Store to data bus
-    localparam MOP_MOVE_TEMP      = 4'h3;  // Move between temp registers
-    localparam MOP_LOAD_IMM       = 4'h4;  // Load immediate value
+    // Basic micro-operations (0x00-0x0F) - 5-bit encoding
+    localparam MOP_LOAD           = 5'h01;  // Load from data bus
+    localparam MOP_STORE          = 5'h02;  // Store to data bus
+    localparam MOP_MOVE_TEMP      = 5'h03;  // Move between temp registers
+    localparam MOP_LOAD_IMM       = 5'h04;  // Load immediate value
+    localparam MOP_LOAD_A         = 5'h05;  // Load data_in into temp_fp_a
+    localparam MOP_LOAD_B         = 5'h06;  // Load data_in into temp_fp_b
 
     // Hardware unit call operations (0x10-0x1F) - NEW!
     localparam MOP_CALL_ARITH     = 5'h10; // Start arithmetic operation
@@ -167,6 +174,11 @@ module MicroSequencer_Extended (
     reg [79:0] temp_fp_a;       // Operand A (80-bit FP)
     reg [79:0] temp_fp_b;       // Operand B (80-bit FP)
     reg [79:0] temp_result;     // Result storage
+
+    // Expose internal registers for debug/test
+    assign debug_temp_result = temp_result;
+    assign debug_temp_fp_a = temp_fp_a;
+    assign debug_temp_fp_b = temp_fp_b;
     reg [63:0] temp_reg;        // General purpose temp
     reg [31:0] loop_reg;        // Loop counter
     reg [2:0]  temp_stack_idx;  // Stack index
@@ -192,50 +204,63 @@ module MicroSequencer_Extended (
     initial begin
         //-------------------------------------------------------------
         // Program 0: FADD - Floating Point Addition
-        // Address: 0x0100-0x0107
-        // Assumes: operands already in temp_fp_a, temp_fp_b
+        // Address: 0x0100-0x0105
+        // Loads operands from data_in, then performs addition
         // Returns: result in temp_result
         //-------------------------------------------------------------
-        microcode_rom[16'h0100] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd0, 15'h0101};      // Call ADD (op=0)
-        microcode_rom[16'h0101] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0102};      // Wait, advance to 0x0102 when done
-        microcode_rom[16'h0102] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0103};  // Load result
-        microcode_rom[16'h0103] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h0100] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0101};          // Load temp_fp_a from data_in
+        microcode_rom[16'h0101] = {OPCODE_EXEC, MOP_LOAD_B, 8'd0, 15'h0102};          // Load temp_fp_b from data_in
+        microcode_rom[16'h0102] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd0, 15'h0103};      // Call ADD (op=0)
+        microcode_rom[16'h0103] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0104};      // Wait, advance to 0x0104 when done
+        microcode_rom[16'h0104] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0105};  // Load result
+        microcode_rom[16'h0105] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
         //-------------------------------------------------------------
         // Program 1: FSUB - Floating Point Subtraction
-        // Address: 0x0110-0x0113
+        // Address: 0x0110-0x0115
+        // Loads operands from data_in, then performs subtraction
         //-------------------------------------------------------------
-        microcode_rom[16'h0110] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd1, 15'h0111};      // Call SUB (op=1)
-        microcode_rom[16'h0111] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0112};      // Wait, advance to 0x0112 when done
-        microcode_rom[16'h0112] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0113};  // Load result
-        microcode_rom[16'h0113] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h0110] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0111};          // Load temp_fp_a from data_in
+        microcode_rom[16'h0111] = {OPCODE_EXEC, MOP_LOAD_B, 8'd0, 15'h0112};          // Load temp_fp_b from data_in
+        microcode_rom[16'h0112] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd1, 15'h0113};      // Call SUB (op=1)
+        microcode_rom[16'h0113] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0114};      // Wait, advance to 0x0114 when done
+        microcode_rom[16'h0114] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0115};  // Load result
+        microcode_rom[16'h0115] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
         //-------------------------------------------------------------
         // Program 2: FMUL - Floating Point Multiplication
-        // Address: 0x0120-0x0123
+        // Address: 0x0120-0x0125
+        // Loads operands from data_in, then performs multiplication
         //-------------------------------------------------------------
-        microcode_rom[16'h0120] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h0121};      // Call MUL (op=2)
-        microcode_rom[16'h0121] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0122};      // Wait, advance to 0x0122 when done
-        microcode_rom[16'h0122] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0123};  // Load result
-        microcode_rom[16'h0123] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h0120] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0121};          // Load temp_fp_a from data_in
+        microcode_rom[16'h0121] = {OPCODE_EXEC, MOP_LOAD_B, 8'd0, 15'h0122};          // Load temp_fp_b from data_in
+        microcode_rom[16'h0122] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h0123};      // Call MUL (op=2)
+        microcode_rom[16'h0123] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0124};      // Wait, advance to 0x0124 when done
+        microcode_rom[16'h0124] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0125};  // Load result
+        microcode_rom[16'h0125] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
         //-------------------------------------------------------------
         // Program 3: FDIV - Floating Point Division
-        // Address: 0x0130-0x0133
+        // Address: 0x0130-0x0135
+        // Loads operands from data_in, then performs division
         //-------------------------------------------------------------
-        microcode_rom[16'h0130] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd3, 15'h0131};      // Call DIV (op=3)
-        microcode_rom[16'h0131] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0132};      // Wait, advance to 0x0132 when done
-        microcode_rom[16'h0132] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0133};  // Load result
-        microcode_rom[16'h0133] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h0130] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0131};          // Load temp_fp_a from data_in
+        microcode_rom[16'h0131] = {OPCODE_EXEC, MOP_LOAD_B, 8'd0, 15'h0132};          // Load temp_fp_b from data_in
+        microcode_rom[16'h0132] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd3, 15'h0133};      // Call DIV (op=3)
+        microcode_rom[16'h0133] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0134};      // Wait, advance to 0x0134 when done
+        microcode_rom[16'h0134] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0135};  // Load result
+        microcode_rom[16'h0135] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
         //-------------------------------------------------------------
         // Program 4: FSQRT - Square Root
-        // Address: 0x0140-0x0143
+        // Address: 0x0140-0x0144
+        // Loads operand from data_in, then performs square root
         //-------------------------------------------------------------
-        microcode_rom[16'h0140] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd12, 15'h0141};     // Call SQRT (op=12)
-        microcode_rom[16'h0141] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0142};      // Wait, advance to 0x0142 when done
-        microcode_rom[16'h0142] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0143};  // Load result
-        microcode_rom[16'h0143] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h0140] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0141};          // Load temp_fp_a from data_in
+        microcode_rom[16'h0141] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd12, 15'h0142};     // Call SQRT (op=12)
+        microcode_rom[16'h0142] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0143};      // Wait, advance to 0x0143 when done
+        microcode_rom[16'h0143] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0144};  // Load result
+        microcode_rom[16'h0144] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
         //-------------------------------------------------------------
         // Program 5: FSIN - Sine
@@ -422,6 +447,20 @@ module MicroSequencer_Extended (
                                     data_out <= temp_result;
                                     pc <= {1'b0, next_addr};
                                     state <= STATE_FETCH;
+                                end
+
+                                MOP_LOAD_A: begin
+                                    temp_fp_a <= data_in;
+                                    pc <= {1'b0, next_addr};
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ] LOAD_A: loaded 0x%020X into temp_fp_a", data_in);
+                                end
+
+                                MOP_LOAD_B: begin
+                                    temp_fp_b <= data_in;
+                                    pc <= {1'b0, next_addr};
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ] LOAD_B: loaded 0x%020X into temp_fp_b", data_in);
                                 end
 
                                 //-------------------------------------
