@@ -202,12 +202,22 @@ module FPU_IEEE754_Divide(
                         result_exp = {2'b00, exp_a} - {2'b00, exp_b} + 17'sd16383;
 
                         // Perform division: mant_a / mant_b
-                        // Create extended dividend with gradual bit tapering for proper quotient computation
-                        // This ensures the algorithm works even when mant_a < mant_b
-                        dividend = {mant_a, mant_a >> 1};  // Upper: mant_a, Lower: mant_a/2
                         divisor = mant_b;
                         quotient = 67'd0;
-                        div_count = 7'd0;
+
+                        // When mant_a < mant_b, use extended precision dividend
+                        // Place mant_a in both upper and lower halves for continuous precision through shifts
+                        if (mant_a >= mant_b) begin
+                            // Standard case: quotient leading 1 should be at bit 66 or 65
+                            dividend = {mant_a, 64'd0};
+                            div_count = 7'd0;
+                        end else begin
+                            // mant_a < mant_b: use extended precision to ensure some iterations succeed
+                            // Lower bits = right-shifted mant_a to provide gradual precision
+                            dividend = {mant_a, mant_a >> 1};
+                            div_count = 7'd0;
+                            result_exp = result_exp - 17'sd1;  // Adjust for effective alignment
+                        end
 
                         state <= STATE_NORMALIZE;
                     end
