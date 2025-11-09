@@ -195,9 +195,9 @@ class MicrosequencerSimulator:
     def _init_math_constants(self) -> List[ExtendedFloat]:
         """Initialize mathematical constants"""
         import math
-        constants = [ExtendedFloat(0)] * 32
+        constants = [ExtendedFloat(0)] * 64  # Expanded to 64 entries
 
-        # Common constants
+        # Common constants (indices 0-9)
         constants[0] = ExtendedFloat.from_float(math.pi)       # π
         constants[1] = ExtendedFloat.from_float(math.e)        # e
         constants[2] = ExtendedFloat.from_float(0.0)           # 0.0
@@ -205,13 +205,36 @@ class MicrosequencerSimulator:
         constants[4] = ExtendedFloat.from_float(2.0)           # 2.0
         constants[5] = ExtendedFloat.from_float(3.0)           # 3.0
         constants[6] = ExtendedFloat.from_float(math.pi/4)     # π/4
-        constants[7] = ExtendedFloat.from_float(math.log(2))   # ln(2)
+        constants[7] = ExtendedFloat.from_float(math.log(2))   # ln(2) ≈ 0.693147
         constants[8] = ExtendedFloat.from_float(0.5)           # 0.5
         constants[9] = ExtendedFloat.from_float(0.6072529350088812)  # K (CORDIC scaling factor)
 
-        # Arctangent table for CORDIC (atan(2^-i) for i=0 to 15)
+        # Additional useful constants (indices 10-15)
+        constants[10] = ExtendedFloat.from_float(1.0 / math.log(2))  # 1/ln(2) ≈ 1.442695 (for log2)
+        constants[11] = ExtendedFloat.from_float(math.log10(2))      # log10(2) ≈ 0.301030
+        constants[12] = ExtendedFloat.from_float(1.0 / 6.0)          # 1/6 (for Taylor series)
+        constants[13] = ExtendedFloat.from_float(1.0 / 24.0)         # 1/24 (for Taylor series)
+        constants[14] = ExtendedFloat.from_float(1.0 / 120.0)        # 1/120 (for Taylor series)
+        constants[15] = ExtendedFloat.from_float(1.0 / 720.0)        # 1/720 (for Taylor series)
+
+        # Arctangent table for CORDIC (atan(2^-i) for i=0 to 15) (indices 16-31)
         for i in range(16):
             constants[16 + i] = ExtendedFloat.from_float(math.atan(2.0 ** (-i)))
+
+        # Extended arctangent table (indices 32-47) for higher precision
+        for i in range(16, 32):
+            constants[32 + (i - 16)] = ExtendedFloat.from_float(math.atan(2.0 ** (-i)))
+
+        # Polynomial coefficients and other constants (indices 48-63)
+        # These can be used for various approximations
+        constants[48] = ExtendedFloat.from_float(math.sqrt(2))       # √2 ≈ 1.414214
+        constants[49] = ExtendedFloat.from_float(1.0 / math.sqrt(2)) # 1/√2 ≈ 0.707107
+        constants[50] = ExtendedFloat.from_float(math.pi / 2)        # π/2
+        constants[51] = ExtendedFloat.from_float(2.0 * math.pi)      # 2π
+        constants[52] = ExtendedFloat.from_float(math.log(10))       # ln(10) ≈ 2.302585
+        constants[53] = ExtendedFloat.from_float(1.0 / 3.0)          # 1/3
+        constants[54] = ExtendedFloat.from_float(1.0 / 5.0)          # 1/5
+        constants[55] = ExtendedFloat.from_float(1.0 / 7.0)          # 1/7
 
         return constants
 

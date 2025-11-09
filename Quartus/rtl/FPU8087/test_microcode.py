@@ -370,6 +370,91 @@ def test_example8_tangent(verbose=False):
 
 
 # ============================================================================
+# Test 11: Arctangent (example9_atan.asm)
+# ============================================================================
+
+def test_example9_atan(verbose=False):
+    """Test arctangent (FPATAN) implementation"""
+    test = MicrocodeTest(
+        "Example 9: Arctangent (FPATAN)",
+        "examples/example9.hex"
+    )
+
+    @test.setup
+    def setup(sim):
+        """Setup: Provide y value for atan(y)"""
+        # Input: y = 1.0, expect atan(1) = π/4 ≈ 0.785398
+        value = ExtendedFloat.from_float(1.0)
+        sim.cpu_data_in = value.bits
+
+    @test.verify
+    def verify(sim):
+        """Verify: Check arctangent computation completed"""
+        # Program should have halted
+        assert sim.halted, "Arctangent program should have completed"
+
+        # Loop counter should be 0 after all iterations
+        assert sim.fpu_state.loop_reg == 0, \
+            f"All CORDIC iterations should complete, loop_reg = {sim.fpu_state.loop_reg}"
+
+    return test.run(verbose=verbose)
+
+
+# ============================================================================
+# Test 12: Exponential (example10_exp.asm)
+# ============================================================================
+
+def test_example10_exp(verbose=False):
+    """Test exponential (F2XM1) implementation"""
+    test = MicrocodeTest(
+        "Example 10: Exponential (F2XM1)",
+        "examples/example10.hex"
+    )
+
+    @test.setup
+    def setup(sim):
+        """Setup: Provide x value for 2^x - 1"""
+        # Input: x = 0.5, expect 2^0.5 - 1 ≈ 0.414214
+        value = ExtendedFloat.from_float(0.5)
+        sim.cpu_data_in = value.bits
+
+    @test.verify
+    def verify(sim):
+        """Verify: Check exponential computation completed"""
+        # Program should have halted
+        assert sim.halted, "Exponential program should have completed"
+
+    return test.run(verbose=verbose)
+
+
+# ============================================================================
+# Test 13: Logarithm (example11_log.asm)
+# ============================================================================
+
+def test_example11_log(verbose=False):
+    """Test logarithm (FYL2X) implementation"""
+    test = MicrocodeTest(
+        "Example 11: Logarithm (FYL2X)",
+        "examples/example11.hex"
+    )
+
+    @test.setup
+    def setup(sim):
+        """Setup: Provide x value for log2(x)"""
+        # Input: x = 8.0, expect log2(8) = 3.0
+        value = ExtendedFloat.from_float(8.0)
+        sim.cpu_data_in = value.bits
+
+    @test.verify
+    def verify(sim):
+        """Verify: Check logarithm computation completed"""
+        # Program should have halted
+        assert sim.halted, "Logarithm program should have completed"
+
+    return test.run(verbose=verbose)
+
+
+# ============================================================================
 # Test Runner
 # ============================================================================
 
@@ -392,6 +477,9 @@ def run_all_tests(verbose=False):
         ("Example 6: CORDIC Sin/Cos", test_example6_sincos),
         ("Example 7: Square Root", test_example7_sqrt),
         ("Example 8: Tangent", test_example8_tangent),
+        ("Example 9: Arctangent", test_example9_atan),
+        ("Example 10: Exponential", test_example10_exp),
+        ("Example 11: Logarithm", test_example11_log),
         ("Register Operations", test_register_operations),
         ("Math Constants", test_math_constants),
     ]
