@@ -40,8 +40,8 @@ module tb_bcd;
     // Test 3: 123
     localparam BCD_123 = 80'h0_00_000000000000000123;
 
-    // Test 4: -456
-    localparam BCD_NEG456 = 80'h8_00_000000000000000456;
+    // Test 4: -456 (bit 79 set for negative)
+    localparam BCD_NEG456 = 80'h80000000000000000456;
 
     // Test 5: Large number: 999,999,999,999,999,999 (max 18 digits)
     localparam BCD_MAX = 80'h0_00_999999999999999999;

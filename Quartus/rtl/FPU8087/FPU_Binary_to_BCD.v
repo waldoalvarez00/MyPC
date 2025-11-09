@@ -43,6 +43,7 @@ module FPU_Binary_to_BCD(
     reg [6:0] bit_count;        // 0-63 (64 bits to process)
     reg [63:0] binary_shift;    // Shifting binary value
     reg [71:0] bcd_digits;      // 18 BCD digits (4 bits each)
+    reg [71:0] bcd_adjusted;    // Temporary for adjusted BCD digits
 
     //=================================================================
     // Add 3 to BCD digits >= 5 (for double-dabble algorithm)
@@ -113,11 +114,14 @@ module FPU_Binary_to_BCD(
 
                 STATE_CONVERT: begin
                     if (bit_count > 0) begin
+                        // Double-dabble algorithm:
                         // Step 1: Adjust BCD digits (add 3 if >= 5)
-                        bcd_digits <= adjust_bcd_digits(bcd_digits);
+                        bcd_adjusted = adjust_bcd_digits(bcd_digits);
 
                         // Step 2: Shift left BCD and insert MSB of binary
-                        bcd_digits <= {bcd_digits[70:0], binary_shift[63]};
+                        bcd_digits <= {bcd_adjusted[70:0], binary_shift[63]};
+
+                        // Step 3: Shift left binary
                         binary_shift <= {binary_shift[62:0], 1'b0};
 
                         // Decrement bit counter
