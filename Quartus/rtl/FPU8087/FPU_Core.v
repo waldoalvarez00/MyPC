@@ -249,12 +249,13 @@ module FPU_Core(
     // Execution State Machine
     //=================================================================
 
-    localparam STATE_IDLE       = 3'd0;
-    localparam STATE_DECODE     = 3'd1;
-    localparam STATE_EXECUTE    = 3'd2;
-    localparam STATE_WRITEBACK  = 3'd3;
-    localparam STATE_STACK_OP   = 3'd4;
-    localparam STATE_DONE       = 3'd5;
+    localparam STATE_IDLE          = 3'd0;
+    localparam STATE_DECODE        = 3'd1;
+    localparam STATE_EXECUTE       = 3'd2;
+    localparam STATE_WRITEBACK     = 3'd3;
+    localparam STATE_STACK_OP      = 3'd4;
+    localparam STATE_DONE          = 3'd5;
+    localparam STATE_FSINCOS_PUSH  = 3'd6;  // Second cycle of FSINCOS writeback
 
     reg [2:0] state;
     reg [7:0] current_inst;
@@ -662,7 +663,8 @@ module FPU_Core(
 
                         INST_FST: begin
                             // Read from stack and output to data_out
-                            data_out <= temp_operand_a;  // temp_operand_a contains ST(i)
+                            // temp_operand_b contains stack_read_data which is ST(current_index)
+                            data_out <= (current_index == 0) ? temp_operand_a : temp_operand_b;
                             state <= STATE_DONE;
                         end
 
@@ -691,6 +693,7 @@ module FPU_Core(
                             stack_write_reg <= 3'd0;
                             stack_data_in <= temp_result;
                             stack_write_enable <= 1'b1;
+                            state <= STATE_DONE;
                         end
 
                         // Arithmetic operations: write to ST(0)
@@ -698,6 +701,7 @@ module FPU_Core(
                             stack_write_reg <= 3'd0;
                             stack_data_in <= temp_result;
                             stack_write_enable <= 1'b1;
+                            state <= STATE_DONE;
                         end
 
                         // Transcendental operations (single result): write to ST(0)
@@ -705,30 +709,29 @@ module FPU_Core(
                             stack_write_reg <= 3'd0;
                             stack_data_in <= temp_result;
                             stack_write_enable <= 1'b1;
+                            state <= STATE_DONE;
                         end
 
-                        // FSINCOS: Special case - pushes both sin and cos
+                        // FSINCOS: Special case - returns both sin and cos
                         // Intel 8087 behavior:
                         //   Input:  ST(0) = θ
                         //   Output: ST(0) = cos(θ), ST(1) = sin(θ)
-                        // Implementation: Write sin to ST(1), push cos to ST(0)
+                        // Implementation (two cycles):
+                        //   Cycle 1: Write sin(θ) to ST(1)
+                        //   Cycle 2: Write cos(θ) to ST(0)
                         INST_FSINCOS: begin
                             if (has_secondary_result) begin
-                                // Write sin(θ) to ST(1) position (where it will be after push)
+                                // Write sin(θ) to ST(1)
                                 stack_write_reg <= 3'd1;
-                                stack_data_in <= temp_result;              // sin(θ)
+                                stack_data_in <= temp_result;            // sin(θ)
                                 stack_write_enable <= 1'b1;
-                                // Push cos(θ) onto stack (becomes new ST(0))
-                                stack_push <= 1'b1;
-                                // Note: The push operation should be handled first by the register stack,
-                                // then the write. This way sin goes to the correct ST(1) position.
-                                // TODO: Verify register stack handles push+write correctly in same cycle
-                                // May need to use temp_result_secondary for cos after verifying behavior
+                                state <= STATE_FSINCOS_PUSH;  // Go to second write
                             end else begin
                                 // Fallback if no secondary result (shouldn't happen for FSINCOS)
                                 stack_write_reg <= 3'd0;
                                 stack_data_in <= temp_result;
                                 stack_write_enable <= 1'b1;
+                                state <= STATE_DONE;
                             end
                         end
 
@@ -738,19 +741,28 @@ module FPU_Core(
                             stack_data_in <= temp_result;
                             stack_write_enable <= 1'b1;
                             stack_pop <= 1'b1;
+                            state <= STATE_DONE;
                         end
 
                         // Store and pop
                         INST_FSTP, INST_FISTP16, INST_FISTP32,
                         INST_FSTP32, INST_FSTP64: begin
                             stack_pop <= 1'b1;
+                            state <= STATE_DONE;
                         end
 
                         default: begin
                             // No stack operation
+                            state <= STATE_DONE;
                         end
                     endcase
+                end
 
+                STATE_FSINCOS_PUSH: begin
+                    // Second cycle of FSINCOS: write cos(θ) to ST(0)
+                    stack_write_reg <= 3'd0;
+                    stack_data_in <= temp_result_secondary;  // cos(θ)
+                    stack_write_enable <= 1'b1;
                     state <= STATE_DONE;
                 end
 
