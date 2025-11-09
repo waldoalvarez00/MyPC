@@ -152,6 +152,7 @@ module tb_fcom;
         // Test 9: FXAM with normal number
         $display("\nTest 9: FXAM - Normal number");
         load_value(FP_ONE);
+        $display("  DEBUG: After loading FP_ONE, dut.st0 = 0x%020X", dut.st0);
         exec_fxam();
         $display("  C3 C2 C1 C0 = %b %b %b %b", cc_c3, cc_c2, cc_c1, cc_c0);
         if (cc_c3 == 1'b0 && cc_c2 == 1'b1 && cc_c0 == 1'b0)
@@ -211,7 +212,10 @@ module tb_fcom;
         // Test 15: FCOMPP (compare and pop twice)
         $display("\nTest 15: FCOMPP - Compare and pop twice");
         load_value(FP_ONE);   // ST(0) = 1.0
+        $display("  DEBUG: After loading 1.0, st0=0x%020X", dut.st0);
         load_value(FP_HALF);  // ST(0) = 0.5, ST(1) = 1.0
+        $display("  DEBUG: After loading 0.5, st0=0x%020X, st1=0x%020X",
+                 dut.st0, dut.st1);
         $display("  Before FCOMPP: Stack has 2 values");
         exec_compare(INST_FCOMPP, 3'd0);  // FCOMPP always compares ST(0) with ST(1)
         check_condition_codes(3'b001, "0.5 < 1.0", 15);
