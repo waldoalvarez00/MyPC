@@ -202,9 +202,9 @@ module FPU_IEEE754_Divide(
                         result_exp = {2'b00, exp_a} - {2'b00, exp_b} + 17'sd16383;
 
                         // Perform division: mant_a / mant_b
-                        // We need extra precision for guard/round/sticky bits
-                        // Shift dividend left by 67 bits to get 67-bit quotient
-                        dividend = {mant_a, 64'd0};  // 128-bit dividend
+                        // Create extended dividend with gradual bit tapering for proper quotient computation
+                        // This ensures the algorithm works even when mant_a < mant_b
+                        dividend = {mant_a, mant_a >> 1};  // Upper: mant_a, Lower: mant_a/2
                         divisor = mant_b;
                         quotient = 67'd0;
                         div_count = 7'd0;
@@ -217,24 +217,35 @@ module FPU_IEEE754_Divide(
                     // Perform iterative division (67 iterations for 67-bit quotient)
                     if (div_count < 7'd67) begin
                         // Non-restoring division algorithm (simplified)
+                        if (div_count == 7'd0) begin
+                            $display("[DIV_DEBUG] START iteration: dividend[127:64]=0x%016X, divisor=0x%016X, div_count=%0d",
+                                     dividend[127:64], divisor, div_count);
+                        end
                         if (dividend[127:64] >= divisor) begin
                             dividend[127:64] = dividend[127:64] - divisor;
                             quotient[66 - div_count] = 1'b1;
+                            if (div_count < 7'd5) $display("[DIV_DEBUG] Iter %0d: HIT, quotient bit %0d set", div_count, 66 - div_count);
+                        end else begin
+                            if (div_count < 7'd5) $display("[DIV_DEBUG] Iter %0d: MISS, dividend[127:64]=0x%016X < divisor=0x%016X",
+                                                          div_count, dividend[127:64], divisor);
                         end
                         dividend = dividend << 1;
                         div_count = div_count + 7'd1;
                     end else begin
                         // Division complete
                         result_mant = quotient;
+                        $display("[DIV_DEBUG] quotient=0x%017X, bit[66]=%b, bit[65]=%b", quotient, quotient[66], quotient[65]);
 
                         // Check if normalization is needed
                         // The quotient should have the integer bit at position 66
                         if (result_mant[66]) begin
                             // Already normalized
+                            $display("[DIV_DEBUG] Already normalized at bit 66");
                         end else if (result_mant[65]) begin
                             // Need to shift left by 1
                             result_mant = result_mant << 1;
                             result_exp = result_exp - 17'sd1;
+                            $display("[DIV_DEBUG] Shifted left by 1, new mant=0x%017X, exp=%0d", result_mant, result_exp);
                         end else begin
                             // Find leading 1 and shift
                             integer i;
@@ -250,6 +261,7 @@ module FPU_IEEE754_Divide(
                             if (shift_amount > 0 && shift_amount < 67) begin
                                 result_mant = result_mant << shift_amount;
                                 result_exp = result_exp - shift_amount;
+                                $display("[DIV_DEBUG] Shifted left by %0d, new mant=0x%017X, exp=%0d", shift_amount, result_mant, result_exp);
                             end
                         end
 
@@ -335,6 +347,8 @@ module FPU_IEEE754_Divide(
 
                 STATE_PACK: begin
                     // Pack result
+                    $display("[DIV_DEBUG] PACK: sign=%b, exp=0x%04X, mant[63:0]=0x%016X, mant[66:64]=0b%03b",
+                             result_sign, result_exp[14:0], result_mant[63:0], result_mant[66:64]);
                     result <= {result_sign, result_exp[14:0], result_mant[63:0]};
                     done <= 1'b1;
                     state <= STATE_IDLE;
