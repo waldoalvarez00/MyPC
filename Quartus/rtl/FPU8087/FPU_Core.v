@@ -730,6 +730,91 @@ module FPU_Core(
                             end
                         end
 
+                        INST_FPTAN: begin
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    arith_operation <= 5'd18;  // OP_TAN
+                                    arith_operand_a <= temp_operand_a;
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                // Store tan and 1.0 (for compatibility with 8087)
+                                temp_result <= arith_result;              // tan(θ)
+                                temp_result_secondary <= arith_result_secondary;  // 1.0
+                                has_secondary_result <= arith_has_secondary;
+                                status_invalid <= arith_invalid;
+                                arith_enable <= 1'b0;
+                                state <= STATE_WRITEBACK;
+                            end
+                        end
+
+                        INST_FPATAN: begin
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    arith_operation <= 5'd19;  // OP_ATAN
+                                    arith_operand_a <= temp_operand_a;  // y (ST(1))
+                                    arith_operand_b <= temp_operand_b;  // x (ST(0))
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                temp_result <= arith_result;  // atan(y/x)
+                                has_secondary_result <= 1'b0;
+                                status_invalid <= arith_invalid;
+                                arith_enable <= 1'b0;
+                                state <= STATE_WRITEBACK;
+                            end
+                        end
+
+                        INST_F2XM1: begin
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    arith_operation <= 5'd20;  // OP_F2XM1
+                                    arith_operand_a <= temp_operand_a;
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                temp_result <= arith_result;  // 2^x - 1
+                                has_secondary_result <= 1'b0;
+                                status_invalid <= arith_invalid;
+                                arith_enable <= 1'b0;
+                                state <= STATE_WRITEBACK;
+                            end
+                        end
+
+                        INST_FYL2X: begin
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    arith_operation <= 5'd21;  // OP_FYL2X
+                                    arith_operand_a <= temp_operand_b;  // x (ST(0))
+                                    arith_operand_b <= temp_operand_a;  // y (ST(1))
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                temp_result <= arith_result;  // y × log₂(x)
+                                has_secondary_result <= 1'b0;
+                                status_invalid <= arith_invalid;
+                                arith_enable <= 1'b0;
+                                state <= STATE_WRITEBACK;
+                            end
+                        end
+
+                        INST_FYL2XP1: begin
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    arith_operation <= 5'd22;  // OP_FYL2XP1
+                                    arith_operand_a <= temp_operand_b;  // x (ST(0))
+                                    arith_operand_b <= temp_operand_a;  // y (ST(1))
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                temp_result <= arith_result;  // y × log₂(x+1)
+                                has_secondary_result <= 1'b0;
+                                status_invalid <= arith_invalid;
+                                arith_enable <= 1'b0;
+                                state <= STATE_WRITEBACK;
+                            end
+                        end
+
                         // BCD conversion instructions
                         INST_FBLD: begin
                             // Two-stage conversion: BCD → Binary (uint64) → FP80
@@ -1004,7 +1089,7 @@ module FPU_Core(
                         end
 
                         // Transcendental operations (single result): write to ST(0)
-                        INST_FSQRT, INST_FSIN, INST_FCOS: begin
+                        INST_FSQRT, INST_FSIN, INST_FCOS, INST_F2XM1: begin
                             stack_write_reg <= 3'd0;
                             stack_data_in <= temp_result;
                             stack_write_enable <= 1'b1;
@@ -1051,8 +1136,32 @@ module FPU_Core(
                             end
                         end
 
+                        // FPTAN: Special case - returns tan and 1.0
+                        // Intel 8087 behavior:
+                        //   Input:  ST(0) = θ
+                        //   Output: ST(0) = 1.0, ST(1) = tan(θ)
+                        // Implementation (two cycles):
+                        //   Cycle 1: Write tan(θ) to ST(1)
+                        //   Cycle 2: Write 1.0 to ST(0)
+                        INST_FPTAN: begin
+                            if (has_secondary_result) begin
+                                // Write tan(θ) to ST(1)
+                                stack_write_reg <= 3'd1;
+                                stack_data_in <= temp_result;            // tan(θ)
+                                stack_write_enable <= 1'b1;
+                                state <= STATE_FSINCOS_PUSH;  // Reuse same state for second write
+                            end else begin
+                                // Fallback if no secondary result
+                                stack_write_reg <= 3'd0;
+                                stack_data_in <= temp_result;
+                                stack_write_enable <= 1'b1;
+                                state <= STATE_DONE;
+                            end
+                        end
+
                         // Arithmetic with pop: write to ST(1) then pop
-                        INST_FADDP, INST_FSUBP, INST_FMULP, INST_FDIVP: begin
+                        INST_FADDP, INST_FSUBP, INST_FMULP, INST_FDIVP,
+                        INST_FPATAN, INST_FYL2X, INST_FYL2XP1: begin
                             stack_write_reg <= 3'd1;
                             stack_data_in <= temp_result;
                             stack_write_enable <= 1'b1;

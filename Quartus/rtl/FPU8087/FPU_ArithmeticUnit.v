@@ -91,6 +91,13 @@ module FPU_ArithmeticUnit(
     localparam OP_UINT64_TO_FP = 5'd16;  // UInt64 + sign → FP80
     localparam OP_FP_TO_UINT64 = 5'd17;  // FP80 → UInt64 + sign
 
+    // Advanced transcendental operations
+    localparam OP_TAN      = 5'd18;  // Tangent (FPTAN)
+    localparam OP_ATAN     = 5'd19;  // Arctangent (FPATAN)
+    localparam OP_F2XM1    = 5'd20;  // 2^x - 1
+    localparam OP_FYL2X    = 5'd21;  // y × log₂(x)
+    localparam OP_FYL2XP1  = 5'd22;  // y × log₂(x+1)
+
     //=================================================================
     // Arithmetic Units
     //=================================================================
@@ -324,8 +331,11 @@ module FPU_ArithmeticUnit(
     //=================================================================
 
     // Map operation codes to transcendental operation codes
-    wire [3:0] trans_operation = operation - 4'd12;  // Map 12-20 to 0-8
-    wire trans_enable = enable && (operation >= 4'd12 && operation <= 4'd15);
+    // Basic transcendentals: 12-15 → 0-3
+    // Advanced transcendentals: 18-22 → 4-8
+    wire [3:0] trans_operation = (operation >= 5'd18) ? (operation - 5'd14) : (operation - 4'd12);
+    wire trans_enable = enable && ((operation >= 4'd12 && operation <= 4'd15) ||
+                                     (operation >= 5'd18 && operation <= 5'd22));
 
     wire [79:0] trans_result_primary, trans_result_secondary;
     wire trans_has_secondary;
@@ -479,13 +489,15 @@ module FPU_ArithmeticUnit(
             end
 
             // Transcendental operations
-            OP_SQRT, OP_SIN, OP_COS, OP_SINCOS: begin
+            OP_SQRT, OP_SIN, OP_COS, OP_SINCOS,
+            OP_TAN, OP_ATAN, OP_F2XM1, OP_FYL2X, OP_FYL2XP1: begin
                 result = trans_result_primary;
                 result_secondary = trans_result_secondary;
                 has_secondary = trans_has_secondary;
                 done = trans_done;
                 flag_invalid = trans_error;
                 // Note: OP_SINCOS sets has_secondary=1 with cos(θ) in result_secondary
+                // Note: OP_TAN may set has_secondary for special implementations
             end
 
             default: begin
@@ -501,34 +513,32 @@ endmodule
 // TRANSCENDENTAL OPERATIONS INTEGRATION NOTES
 //=====================================================================
 //
-// Added Operations (4-bit operation code):
+// Basic Transcendental Operations (4-bit operation codes 12-15):
 // - OP_SQRT  (12): Square root
 // - OP_SIN   (13): Sine
 // - OP_COS   (14): Cosine
 // - OP_SINCOS(15): Both sine and cosine
 //
-// Additional transcendental operations (16-20) can be added when needed:
-// - OP_TAN    (16): Tangent
-// - OP_ATAN   (17): Arctangent
-// - OP_F2XM1  (18): 2^x - 1
-// - OP_FYL2X  (19): y × log₂(x)
-// - OP_FYL2XP1(20): y × log₂(x+1)
+// Advanced Transcendental Operations (5-bit operation codes 18-22):
+// - OP_TAN    (18): Tangent (FPTAN)
+// - OP_ATAN   (19): Arctangent (FPATAN)
+// - OP_F2XM1  (20): 2^x - 1
+// - OP_FYL2X  (21): y × log₂(x)
+// - OP_FYL2XP1(22): y × log₂(x+1)
 //
-// Note: These require 5-bit operation codes or extended encoding.
+// Special Multi-Result Operations:
+// - FSINCOS: Returns sin(angle) and cos(angle) in dual results
+// - FPTAN: Returns tan(angle) and pushes 1.0 (for compatibility)
 //
-// FSINCOS Special Handling:
-// The FSINCOS operation returns TWO results:
-// - result_primary: sin(angle)
-// - result_secondary: cos(angle)
-//
-// The FPU_Core instruction decoder must handle this by:
-// 1. Pushing sin result to stack
-// 2. Pushing cos result to stack
+// The FPU_Core instruction decoder must handle multi-result operations by:
+// 1. Pushing primary result to stack
+// 2. Pushing secondary result to stack (if has_secondary=1)
 // This requires special case logic in FPU_Core state machine.
 //
 // Integration Complete: ✅
 // - Transcendental unit instantiated
-// - Operation codes defined (12-15)
+// - Basic operation codes defined (12-15)
+// - Advanced operation codes defined (18-22)
 // - Output multiplexing extended
 // - Ready for FPU_Core instruction integration
 //=====================================================================

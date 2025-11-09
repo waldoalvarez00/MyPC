@@ -87,6 +87,7 @@ module FPU_Transcendental(
     // Polynomial Evaluator (for F2XM1/LOG2)
     reg poly_enable;
     reg [3:0] poly_select;
+    reg [79:0] poly_input;  // Muxed input for polynomial evaluator
     wire [79:0] poly_result;
     wire poly_done, poly_error;
 
@@ -95,7 +96,7 @@ module FPU_Transcendental(
         .reset(reset),
         .enable(poly_enable),
         .poly_select(poly_select),
-        .x_in(operand_a),
+        .x_in(poly_input),
         .result_out(poly_result),
         .done(poly_done),
         .error(poly_error)
@@ -117,30 +118,103 @@ module FPU_Transcendental(
     );
 
     //=================================================================
-    // Additional Operations Support
+    // Additional Arithmetic Units for Post-Processing
     //
     // Some operations require post-processing or multiple steps:
     // - FPTAN: Compute sin/cos, then divide sin/cos
     // - FYL2X: Compute log₂(x), then multiply by y
-    // - FYL2XP1: Compute log₂(x+1), then multiply by y
-    //
-    // These will need access to multiply/divide units
-    // (To be connected in full implementation)
+    // - FYL2XP1: Add 1 to x, compute log₂(x+1), then multiply by y
     //=================================================================
+
+    // Division Unit (for FPTAN)
+    reg div_enable;
+    reg [79:0] div_operand_a, div_operand_b;
+    wire [79:0] div_result;
+    wire div_done;
+    wire div_invalid, div_zero, div_overflow, div_underflow, div_inexact;
+
+    FPU_IEEE754_Divide div_unit (
+        .clk(clk),
+        .reset(reset),
+        .enable(div_enable),
+        .operand_a(div_operand_a),
+        .operand_b(div_operand_b),
+        .rounding_mode(2'b00),  // Round to nearest
+        .result(div_result),
+        .done(div_done),
+        .flag_invalid(div_invalid),
+        .flag_div_by_zero(div_zero),
+        .flag_overflow(div_overflow),
+        .flag_underflow(div_underflow),
+        .flag_inexact(div_inexact)
+    );
+
+    // Multiplication Unit (for FYL2X, FYL2XP1)
+    reg mul_enable;
+    reg [79:0] mul_operand_a, mul_operand_b;
+    wire [79:0] mul_result;
+    wire mul_done;
+    wire mul_invalid, mul_overflow, mul_underflow, mul_inexact;
+
+    FPU_IEEE754_Multiply mul_unit (
+        .clk(clk),
+        .reset(reset),
+        .enable(mul_enable),
+        .operand_a(mul_operand_a),
+        .operand_b(mul_operand_b),
+        .rounding_mode(2'b00),  // Round to nearest
+        .result(mul_result),
+        .done(mul_done),
+        .flag_invalid(mul_invalid),
+        .flag_overflow(mul_overflow),
+        .flag_underflow(mul_underflow),
+        .flag_inexact(mul_inexact)
+    );
+
+    // AddSub Unit (for FYL2XP1 - add 1 to x)
+    reg addsub_enable;
+    reg [79:0] addsub_operand_a, addsub_operand_b;
+    reg addsub_subtract;
+    wire [79:0] addsub_result;
+    wire addsub_done;
+    wire addsub_cmp_equal, addsub_cmp_less, addsub_cmp_greater;
+    wire addsub_invalid, addsub_overflow, addsub_underflow, addsub_inexact;
+
+    FPU_IEEE754_AddSub addsub_unit (
+        .clk(clk),
+        .reset(reset),
+        .enable(addsub_enable),
+        .operand_a(addsub_operand_a),
+        .operand_b(addsub_operand_b),
+        .subtract(addsub_subtract),
+        .rounding_mode(2'b00),  // Round to nearest
+        .result(addsub_result),
+        .done(addsub_done),
+        .cmp_equal(addsub_cmp_equal),
+        .cmp_less(addsub_cmp_less),
+        .cmp_greater(addsub_cmp_greater),
+        .flag_invalid(addsub_invalid),
+        .flag_overflow(addsub_overflow),
+        .flag_underflow(addsub_underflow),
+        .flag_inexact(addsub_inexact)
+    );
 
     //=================================================================
     // State Machine
     //=================================================================
 
-    localparam STATE_IDLE           = 3'd0;
-    localparam STATE_ROUTE_OP       = 3'd1;
-    localparam STATE_WAIT_CORDIC    = 3'd2;
-    localparam STATE_WAIT_POLY      = 3'd3;
-    localparam STATE_WAIT_SQRT      = 3'd4;
-    localparam STATE_POST_PROCESS   = 3'd5;
-    localparam STATE_DONE           = 3'd6;
+    localparam STATE_IDLE           = 4'd0;
+    localparam STATE_ROUTE_OP       = 4'd1;
+    localparam STATE_WAIT_CORDIC    = 4'd2;
+    localparam STATE_WAIT_POLY      = 4'd3;
+    localparam STATE_WAIT_SQRT      = 4'd4;
+    localparam STATE_POST_PROCESS   = 4'd5;
+    localparam STATE_WAIT_DIV       = 4'd6;  // For FPTAN division
+    localparam STATE_WAIT_MUL       = 4'd7;  // For FYL2X, FYL2XP1 multiply
+    localparam STATE_WAIT_ADD       = 4'd8;  // For FYL2XP1 add 1
+    localparam STATE_DONE           = 4'd9;
 
-    reg [2:0] state;
+    reg [3:0] state;
     reg [3:0] current_operation;
 
     //=================================================================
@@ -159,7 +233,18 @@ module FPU_Transcendental(
             cordic_mode <= 1'b0;
             poly_enable <= 1'b0;
             poly_select <= 4'd0;
+            poly_input <= FP80_ZERO;
             sqrt_enable <= 1'b0;
+            div_enable <= 1'b0;
+            div_operand_a <= FP80_ZERO;
+            div_operand_b <= FP80_ZERO;
+            mul_enable <= 1'b0;
+            mul_operand_a <= FP80_ZERO;
+            mul_operand_b <= FP80_ZERO;
+            addsub_enable <= 1'b0;
+            addsub_operand_a <= FP80_ZERO;
+            addsub_operand_b <= FP80_ZERO;
+            addsub_subtract <= 1'b0;
             current_operation <= 4'd0;
         end else begin
             case (state)
@@ -170,6 +255,9 @@ module FPU_Transcendental(
                     cordic_enable <= 1'b0;
                     poly_enable <= 1'b0;
                     sqrt_enable <= 1'b0;
+                    div_enable <= 1'b0;
+                    mul_enable <= 1'b0;
+                    addsub_enable <= 1'b0;
 
                     if (enable) begin
                         current_operation <= operation;
@@ -227,6 +315,7 @@ module FPU_Transcendental(
                             // 2^x - 1 via polynomial approximation
                             poly_enable <= 1'b1;
                             poly_select <= 4'd0;  // F2XM1 polynomial
+                            poly_input <= operand_a;
                             state <= STATE_WAIT_POLY;
                         end
 
@@ -234,15 +323,17 @@ module FPU_Transcendental(
                             // y × log₂(x): First compute log₂(x)
                             poly_enable <= 1'b1;
                             poly_select <= 4'd1;  // LOG2 polynomial
+                            poly_input <= operand_a;
                             state <= STATE_WAIT_POLY;
                         end
 
                         OP_FYL2XP1: begin
-                            // y × log₂(x+1): Need to add 1 to x first
-                            // For now, just compute log₂(x)
-                            poly_enable <= 1'b1;
-                            poly_select <= 4'd1;  // LOG2 polynomial
-                            state <= STATE_WAIT_POLY;
+                            // y × log₂(x+1): First add 1 to x
+                            addsub_enable <= 1'b1;
+                            addsub_operand_a <= operand_a;  // x
+                            addsub_operand_b <= FP80_ONE;   // 1.0
+                            addsub_subtract <= 1'b0;         // Add
+                            state <= STATE_WAIT_ADD;
                         end
 
                         default: begin
@@ -279,13 +370,14 @@ module FPU_Transcendental(
                                 end
 
                                 OP_TAN: begin
-                                    // Have sin and cos, need to divide
-                                    // For now, just return sin (incomplete)
-                                    result_primary <= cordic_sin_out;
-                                    result_secondary <= cordic_cos_out;
+                                    // Have sin and cos, now divide: tan = sin/cos
+                                    div_enable <= 1'b1;
+                                    div_operand_a <= cordic_sin_out;  // sin(θ)
+                                    div_operand_b <= cordic_cos_out;  // cos(θ)
+                                    // Note: Also push 1.0 per Intel spec (for compatibility)
+                                    result_secondary <= FP80_ONE;
                                     has_secondary <= 1'b1;
-                                    // TODO: Add division step
-                                    state <= STATE_DONE;
+                                    state <= STATE_WAIT_DIV;
                                 end
 
                                 OP_ATAN: begin
@@ -306,14 +398,17 @@ module FPU_Transcendental(
                             error <= 1'b1;
                             state <= STATE_DONE;
                         end else begin
-                            result_primary <= poly_result;
                             // FYL2X and FYL2XP1 need multiplication by y
                             if (current_operation == OP_FYL2X ||
                                 current_operation == OP_FYL2XP1) begin
-                                // TODO: Multiply result by operand_b
-                                // For now, just return log result
-                                state <= STATE_DONE;
+                                // Multiply log result by operand_b (y)
+                                mul_enable <= 1'b1;
+                                mul_operand_a <= poly_result;  // log₂(x) or log₂(x+1)
+                                mul_operand_b <= operand_b;    // y
+                                state <= STATE_WAIT_MUL;
                             end else begin
+                                // F2XM1 just returns result directly
+                                result_primary <= poly_result;
                                 state <= STATE_DONE;
                             end
                         end
@@ -334,9 +429,54 @@ module FPU_Transcendental(
                 end
 
                 STATE_POST_PROCESS: begin
-                    // Reserved for operations requiring post-processing
-                    // (e.g., FPTAN division, FYL2X multiplication)
+                    // Reserved for future use
                     state <= STATE_DONE;
+                end
+
+                STATE_WAIT_ADD: begin
+                    // Wait for addition to complete (FYL2XP1: x+1)
+                    addsub_enable <= 1'b0;
+                    if (addsub_done) begin
+                        if (addsub_invalid) begin
+                            error <= 1'b1;
+                            state <= STATE_DONE;
+                        end else begin
+                            // Now compute log₂(x+1) using the add result
+                            poly_enable <= 1'b1;
+                            poly_select <= 4'd1;  // LOG2 polynomial
+                            poly_input <= addsub_result;  // Pass (x+1) to polynomial
+                            state <= STATE_WAIT_POLY;
+                        end
+                    end
+                end
+
+                STATE_WAIT_DIV: begin
+                    // Wait for division to complete (FPTAN: sin/cos)
+                    div_enable <= 1'b0;
+                    if (div_done) begin
+                        if (div_invalid || div_zero) begin
+                            error <= 1'b1;
+                            state <= STATE_DONE;
+                        end else begin
+                            result_primary <= div_result;  // tan(θ)
+                            // result_secondary already set to 1.0
+                            state <= STATE_DONE;
+                        end
+                    end
+                end
+
+                STATE_WAIT_MUL: begin
+                    // Wait for multiplication to complete (FYL2X, FYL2XP1: log*y)
+                    mul_enable <= 1'b0;
+                    if (mul_done) begin
+                        if (mul_invalid) begin
+                            error <= 1'b1;
+                            state <= STATE_DONE;
+                        end else begin
+                            result_primary <= mul_result;  // y × log₂(x) or y × log₂(x+1)
+                            state <= STATE_DONE;
+                        end
+                    end
                 end
 
                 STATE_DONE: begin
