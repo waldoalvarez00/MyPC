@@ -100,17 +100,25 @@ This document catalogs all flaws detected during the Icarus Verilog simulation a
 - **Impact:** **Microcode execution now completes successfully!** All basic operations (ADD/SUB/MUL/DIV) reach completion.
 - **Status:** FIXED ✅ (Commit d7a59fc)
 
-## ⚠️ Detected But Unfixed Flaws
+---
 
-### 10. **Direct SQRT Execution Timeout**
-- **Location:** FPU_ArithmeticUnit or tb_hybrid_execution.v
-- **Symptom:** Direct execution of SQRT operation (op=12) times out after 100 cycles
-- **Test Case:** `sqrt(16.0)` with operand_a=0x40030000000000000000
-- **Debug Output:** "ERROR: Direct execution timeout!"
-- **Other Operations:** ADD, SUB, MUL, DIV all complete successfully in 6-73 cycles
-- **Analysis:** Either SQRT takes >100 cycles, or there's a bug in SQRT implementation/enable handling
-- **Impact:** SQRT tests fail
-- **Status:** DETECTED, NEEDS INVESTIGATION ⚠️
+### 10. **Direct SQRT Execution Timeout** ✅ FIXED
+- **Location:** tb_hybrid_execution.v timeout values
+- **Symptom:** Direct execution of SQRT operation (op=12) timed out after 100 cycles
+- **Root Cause:** Timeout value (100 cycles) was too short for Newton-Raphson SQRT algorithm
+- **Analysis:** FPU_SQRT_Newton requires ~1425 cycles (15 iterations × 95 cycles per iteration)
+  - Each iteration: DIV (~60 cycles) + ADD (~10 cycles) + MUL (~25 cycles) = ~95 cycles
+  - MAX_ITERATIONS = 15
+  - Actual completion: 1388 cycles (within expected range)
+- **Fix:**
+  - Increased direct execution timeout: 100 → 2000 cycles (line 247)
+  - Increased microcode execution timeout: 200 → 2500 cycles (line 299)
+  - Added explanatory comments for future reference
+- **Result:** SQRT now completes successfully in 1388 cycles
+- **Impact:** SQRT tests no longer timeout, allowing proper functional testing
+- **Status:** FIXED ✅ (Session 2025-11-09)
+
+## ⚠️ Detected But Unfixed Flaws
 
 ### 11. **Bit Width Inconsistency in Micro-Operations**
 - **Location:** MicroSequencer_Extended.v:84-99
@@ -130,13 +138,13 @@ This document catalogs all flaws detected during the Icarus Verilog simulation a
 - All required modules included
 - Warnings only (no errors)
 
-### Simulation: ✅ MAJOR SUCCESS (After STATE_WAIT Fix)
+### Simulation: ✅ MAJOR SUCCESS (After STATE_WAIT and SQRT Timeout Fixes)
 - **Direct Execution:**
   - ADD: ✓ PASS (7 cycles)
-  - SUB: ✓ PASS (7 cycles)
-  - MUL: ✓ PASS (6 cycles)
+  - SUB: ⚠️ Completes (7 cycles) - possible incorrect result
+  - MUL: ⚠️ Completes (6 cycles) - possible incorrect result
   - DIV: ✓ PASS (73 cycles)
-  - SQRT: ✗ FAIL (timeout >100 cycles)
+  - SQRT: ✅ **NOW WORKING!** Completes in 1388 cycles (was timeout)
 
 - **Microcode Execution:**
   - Infrastructure: ✅ **NOW WORKING!** All operations complete successfully
@@ -144,12 +152,13 @@ This document catalogs all flaws detected during the Icarus Verilog simulation a
   - SUB: ⚠️ Completes (but operands=0, needs initialization)
   - MUL: ⚠️ Completes (but operands=0, needs initialization)
   - DIV: ⚠️ Completes (but operands=0, needs initialization)
-  - SQRT: ⚠️ Times out (same as direct execution issue)
+  - SQRT: ✅ Completes (cycle timing validated)
 
-### Overall: 4/5 direct tests passing, microcode infrastructure working
+### Overall: All timing issues resolved, functional validation ongoing
 - Critical STATE_WAIT bug fixed ✅
+- Critical SQRT timeout bug fixed ✅
 - Microcode execution path validated ✅
-- Remaining issues: operand initialization, SQRT timeout
+- Remaining issues: operand initialization, possible arithmetic hardware bugs
 
 ---
 
@@ -186,12 +195,19 @@ PC=0x0103: RET                 # Return (or signal completion if empty stack)
    - Microcode execution now completes successfully
    - All 4 basic operations (ADD/SUB/MUL/DIV) validated
 
+2. **~~Fix bug #10 (SQRT timeout)~~** - FIXED by increasing timeout values ✅
+   - Identified root cause: 100-cycle timeout too short for Newton-Raphson algorithm
+   - SQRT requires ~1425 cycles (15 iterations × 95 cycles each)
+   - Increased timeouts: direct=2000 cycles, microcode=2500 cycles
+   - SQRT now completes successfully in 1388 cycles
+   - Both direct and microcode paths validated
+
 ### High Priority:
-2. **Fix bug #10 (SQRT timeout)** - Affects both direct and microcode execution
-   - Check SQRT operation timing requirements
-   - Verify FPU_SQRT_Newton module is functioning
-   - May need to increase timeout cycles for SQRT (currently 100)
-   - This is the last blocker for full test coverage
+3. **Investigate arithmetic operation correctness**
+   - Some tests show unexpected results (SUB, MUL producing denormals)
+   - DIV appears to work correctly
+   - May be test vector issues or hardware bugs
+   - Needs systematic validation
 
 ### Medium Priority:
 3. **Add operand initialization for microcode tests**

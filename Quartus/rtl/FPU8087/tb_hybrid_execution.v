@@ -242,8 +242,9 @@ module tb_hybrid_execution();
             direct_arith_enable <= 1'b0;
 
             // Wait for completion
+            // Note: SQRT needs ~1425 cycles (15 iterations × 95 cycles)
             cycles = 0;
-            while (!arith_done && cycles < 100) begin
+            while (!arith_done && cycles < 2000) begin
                 @(posedge clk);
                 cycles = cycles + 1;
             end
@@ -293,8 +294,9 @@ module tb_hybrid_execution();
             micro_start <= 1'b0;
 
             // Wait for completion
+            // Note: SQRT needs ~1425 cycles + microcode overhead
             cycles = 0;
-            while (!micro_instruction_complete && cycles < 200) begin
+            while (!micro_instruction_complete && cycles < 2500) begin
                 @(posedge clk);
                 cycles = cycles + 1;
             end
