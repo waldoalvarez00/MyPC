@@ -1188,8 +1188,8 @@ module FPU_Core(
                 STATE_MEM_CONVERT: begin
                     // Memory operand format conversion state
                     // Handles conversions for FLD (load) and FST (store) operations
-                    $display("[DEBUG] STATE_MEM_CONVERT: is_load=%b, is_bcd=%b, is_integer=%b, size=%d",
-                            mem_conv_is_load, captured_is_bcd, captured_is_integer, mem_conv_size);
+                    $display("[DEBUG] STATE_MEM_CONVERT: is_load=%b, is_bcd=%b, is_integer=%b, size=%d, arith_enable=%b, arith_done=%b, arith_op=%d",
+                            mem_conv_is_load, captured_is_bcd, captured_is_integer, mem_conv_size, arith_enable, arith_done, arith_operation);
 
                     if (mem_conv_is_load) begin
                         // ===== LOAD OPERATIONS (memory → FP80) =====
@@ -1200,7 +1200,7 @@ module FPU_Core(
                                 // Stage 1: BCD → Binary (uint64)
                                 if (~bcd2bin_done) begin
                                     if (~bcd2bin_enable) begin
-                                        bcd2bin_bcd_in <= data_in[79:0];
+                                        bcd2bin_bcd_in <= {data_in[79:0]};  // BCD is 80-bit, use data_in directly (stable for BCD)
                                         bcd2bin_enable <= 1'b1;
                                     end
                                 end else begin
@@ -1260,16 +1260,16 @@ module FPU_Core(
                             // Float → FP80 conversion
                             if (~arith_done) begin
                                 if (~arith_enable) begin
-                                    $display("[DEBUG] Starting float conversion: size=%d, data_in[31:0]=%h, op=%d",
-                                            mem_conv_size, data_in[31:0], (mem_conv_size == 2'd1) ? 4'd8 : 4'd9);
+                                    $display("[DEBUG] Starting float conversion: size=%d, temp_fp32=%h, op=%d",
+                                            mem_conv_size, temp_fp32, (mem_conv_size == 2'd1) ? 4'd8 : 4'd9);
                                     case (mem_conv_size)
                                         2'd1: begin  // FP32 → FP80
                                             arith_operation <= 4'd8;  // OP_FP32_TO_FP80
-                                            arith_fp32_in <= data_in[31:0];
+                                            arith_fp32_in <= temp_fp32;  // Use captured value from STATE_DECODE
                                         end
                                         2'd2: begin  // FP64 → FP80
                                             arith_operation <= 4'd9;  // OP_FP64_TO_FP80
-                                            arith_fp64_in <= data_in[63:0];
+                                            arith_fp64_in <= temp_fp64;  // Use captured value from STATE_DECODE
                                         end
                                         default: begin
                                             // Invalid size for float (word not valid, tbyte already FP80)
@@ -1280,6 +1280,7 @@ module FPU_Core(
                                     arith_enable <= 1'b1;
                                 end
                             end else begin
+                                $display("[DEBUG] FP load conversion done! arith_result=%h, temp_fp32=%h", arith_result, temp_fp32);
                                 arith_enable <= 1'b0;
                                 temp_result <= arith_result;
                                 mem_conv_active <= 1'b0;
