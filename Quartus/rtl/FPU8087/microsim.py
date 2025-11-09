@@ -39,17 +39,17 @@ class MicroOp(IntEnum):
     STORE          = 0x2
     SET_CONST      = 0x3
     ACCESS_CONST   = 0x4
-    ADD_SUB        = 0x5
-    SHIFT_LEFT_BIT = 0x6
-    LOOP_INIT      = 0x7
-    LOOP_DEC       = 0x8
-    ABS            = 0x9
-    ROUND          = 0xA
-    NORMALIZE      = 0xB
-    READ_STATUS    = 0xC
-    READ_CONTROL   = 0xD
-    READ_TAG       = 0xE
-    WRITE_STATUS   = 0xF
+    ADD_SUB        = 0x5  # immediate[0]: 0=add, 1=sub
+    MUL            = 0x6  # Multiply temp_fp_a * temp_fp_b
+    DIV            = 0x7  # Divide temp_fp_a / temp_fp_b
+    SHIFT          = 0x8  # immediate[0]: 0=left, 1=right; immediate[7:1]=amount
+    LOOP_INIT      = 0x9
+    LOOP_DEC       = 0xA
+    ABS            = 0xB
+    NORMALIZE      = 0xC
+    COMPARE        = 0xD  # Compare temp_fp_a with temp_fp_b, set flags
+    REG_OPS        = 0xE  # immediate: 0=READ_STATUS, 1=READ_CONTROL, 2=READ_TAG, 3=WRITE_STATUS
+    ROUND          = 0xF
 
 
 # ============================================================================
@@ -200,13 +200,18 @@ class MicrosequencerSimulator:
         # Common constants
         constants[0] = ExtendedFloat.from_float(math.pi)       # π
         constants[1] = ExtendedFloat.from_float(math.e)        # e
-        constants[2] = ExtendedFloat.from_float(math.log(2))   # ln(2)
-        constants[3] = ExtendedFloat.from_float(math.log(10))  # ln(10)
-        constants[4] = ExtendedFloat.from_float(math.log2(10)) # log₂(10)
-        constants[5] = ExtendedFloat.from_float(math.log10(2)) # log₁₀(2)
-        constants[6] = ExtendedFloat.from_float(1.0)           # 1.0
-        constants[7] = ExtendedFloat.from_float(0.0)           # 0.0
+        constants[2] = ExtendedFloat.from_float(0.0)           # 0.0
+        constants[3] = ExtendedFloat.from_float(1.0)           # 1.0
+        constants[4] = ExtendedFloat.from_float(2.0)           # 2.0
+        constants[5] = ExtendedFloat.from_float(3.0)           # 3.0
+        constants[6] = ExtendedFloat.from_float(math.pi/4)     # π/4
+        constants[7] = ExtendedFloat.from_float(math.log(2))   # ln(2)
         constants[8] = ExtendedFloat.from_float(0.5)           # 0.5
+        constants[9] = ExtendedFloat.from_float(0.6072529350088812)  # K (CORDIC scaling factor)
+
+        # Arctangent table for CORDIC (atan(2^-i) for i=0 to 15)
+        for i in range(16):
+            constants[16 + i] = ExtendedFloat.from_float(math.atan(2.0 ** (-i)))
 
         return constants
 
@@ -342,12 +347,41 @@ class MicrosequencerSimulator:
 
             self.fpu_state.temp_fp = ExtendedFloat.from_float(result)
 
-        elif micro_op == MicroOp.SHIFT_LEFT_BIT:
-            # Left shift temp_reg by immediate bits
-            shift_amount = immediate & 0x7
-            self.fpu_state.temp_reg = (self.fpu_state.temp_reg << shift_amount) & 0xFFFFFFFFFFFFFFFF
+        elif micro_op == MicroOp.MUL:
+            # Multiply temp_fp_a * temp_fp_b
+            a_val = self.fpu_state.temp_fp_a.to_float()
+            b_val = self.fpu_state.temp_fp_b.to_float()
+            result = a_val * b_val
+            self.fpu_state.temp_fp = ExtendedFloat.from_float(result)
             if self.verbose:
-                print(f"  SHIFT_LEFT: {shift_amount} bits")
+                print(f"  MUL: {a_val} * {b_val} = {result}")
+
+        elif micro_op == MicroOp.DIV:
+            # Divide temp_fp_a / temp_fp_b
+            a_val = self.fpu_state.temp_fp_a.to_float()
+            b_val = self.fpu_state.temp_fp_b.to_float()
+            if b_val == 0:
+                result = float('inf') if a_val >= 0 else float('-inf')
+            else:
+                result = a_val / b_val
+            self.fpu_state.temp_fp = ExtendedFloat.from_float(result)
+            if self.verbose:
+                print(f"  DIV: {a_val} / {b_val} = {result}")
+
+        elif micro_op == MicroOp.SHIFT:
+            # Shift operation (left or right)
+            direction = immediate & 1  # 0=left, 1=right
+            shift_amount = (immediate >> 1) & 0x7F
+            if direction == 0:
+                # Left shift
+                self.fpu_state.temp_reg = (self.fpu_state.temp_reg << shift_amount) & 0xFFFFFFFFFFFFFFFF
+                if self.verbose:
+                    print(f"  SHIFT_LEFT: {shift_amount} bits")
+            else:
+                # Right shift
+                self.fpu_state.temp_reg = self.fpu_state.temp_reg >> shift_amount
+                if self.verbose:
+                    print(f"  SHIFT_RIGHT: {shift_amount} bits")
 
         elif micro_op == MicroOp.LOOP_INIT:
             # Initialize loop counter
@@ -390,29 +424,58 @@ class MicrosequencerSimulator:
             if self.verbose:
                 print(f"  NORMALIZE: {self.fpu_state.temp_fp}")
 
-        elif micro_op == MicroOp.READ_STATUS:
-            # Read status word into temp_reg
-            self.fpu_state.temp_reg = self.fpu_state.status_word & 0xFFFF
-            if self.verbose:
-                print(f"  READ_STATUS: 0x{self.fpu_state.status_word:04X}")
+        elif micro_op == MicroOp.COMPARE:
+            # Compare temp_fp_a with temp_fp_b and set flags
+            a_val = self.fpu_state.temp_fp_a.to_float()
+            b_val = self.fpu_state.temp_fp_b.to_float()
 
-        elif micro_op == MicroOp.READ_CONTROL:
-            # Read control word into temp_reg
-            self.fpu_state.temp_reg = self.fpu_state.control_word & 0xFFFF
-            if self.verbose:
-                print(f"  READ_CONTROL: 0x{self.fpu_state.control_word:04X}")
+            # Set condition codes in status word (bits 14, 10, 9, 8 = C3, C2, C1, C0)
+            # C3 C2 C1 C0
+            #  0  0  0  0 : a > b
+            #  0  0  0  1 : a < b
+            #  1  0  0  0 : a == b
+            #  1  1  1  1 : unordered (NaN)
+            if a_val > b_val:
+                cc = 0b0000
+            elif a_val < b_val:
+                cc = 0b0001
+            else:  # a_val == b_val
+                cc = 0b1000
 
-        elif micro_op == MicroOp.READ_TAG:
-            # Read tag word into temp_reg
-            self.fpu_state.temp_reg = self.fpu_state.tag_word & 0xFFFF
-            if self.verbose:
-                print(f"  READ_TAG: 0x{self.fpu_state.tag_word:04X}")
+            # Update status word with condition codes
+            # C3=bit 14, C2=bit 10, C1=bit 9, C0=bit 8
+            self.fpu_state.status_word = (self.fpu_state.status_word & 0x3CFF) | \
+                                        ((cc & 0x1) << 8) | \
+                                        ((cc & 0x2) << 8) | \
+                                        ((cc & 0x4) << 8) | \
+                                        ((cc & 0x8) << 11)
 
-        elif micro_op == MicroOp.WRITE_STATUS:
-            # Write temp_reg to status word
-            self.fpu_state.status_word = self.fpu_state.temp_reg & 0xFFFF
             if self.verbose:
-                print(f"  WRITE_STATUS: 0x{self.fpu_state.status_word:04X}")
+                print(f"  COMPARE: {a_val} vs {b_val}, flags={cc:04b}")
+
+        elif micro_op == MicroOp.REG_OPS:
+            # Consolidated register operations
+            reg_op = immediate & 0xF
+
+            if reg_op == 0:  # READ_STATUS
+                self.fpu_state.temp_reg = self.fpu_state.status_word & 0xFFFF
+                if self.verbose:
+                    print(f"  READ_STATUS: 0x{self.fpu_state.status_word:04X}")
+
+            elif reg_op == 1:  # READ_CONTROL
+                self.fpu_state.temp_reg = self.fpu_state.control_word & 0xFFFF
+                if self.verbose:
+                    print(f"  READ_CONTROL: 0x{self.fpu_state.control_word:04X}")
+
+            elif reg_op == 2:  # READ_TAG
+                self.fpu_state.temp_reg = self.fpu_state.tag_word & 0xFFFF
+                if self.verbose:
+                    print(f"  READ_TAG: 0x{self.fpu_state.tag_word:04X}")
+
+            elif reg_op == 3:  # WRITE_STATUS
+                self.fpu_state.status_word = self.fpu_state.temp_reg & 0xFFFF
+                if self.verbose:
+                    print(f"  WRITE_STATUS: 0x{self.fpu_state.status_word:04X}")
 
         else:
             if self.verbose:

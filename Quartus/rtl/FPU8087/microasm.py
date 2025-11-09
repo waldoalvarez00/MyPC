@@ -45,17 +45,17 @@ class MicroOp(IntEnum):
     STORE          = 0x2
     SET_CONST      = 0x3
     ACCESS_CONST   = 0x4
-    ADD_SUB        = 0x5
-    SHIFT_LEFT_BIT = 0x6
-    LOOP_INIT      = 0x7
-    LOOP_DEC       = 0x8
-    ABS            = 0x9
-    ROUND          = 0xA
-    NORMALIZE      = 0xB
-    READ_STATUS    = 0xC
-    READ_CONTROL   = 0xD
-    READ_TAG       = 0xE
-    WRITE_STATUS   = 0xF
+    ADD_SUB        = 0x5  # immediate[0]: 0=add, 1=sub
+    MUL            = 0x6  # Multiply temp_fp_a * temp_fp_b
+    DIV            = 0x7  # Divide temp_fp_a / temp_fp_b
+    SHIFT          = 0x8  # immediate[0]: 0=left, 1=right; immediate[7:1]=amount
+    LOOP_INIT      = 0x9
+    LOOP_DEC       = 0xA
+    ABS            = 0xB
+    NORMALIZE      = 0xC
+    COMPARE        = 0xD  # Compare temp_fp_a with temp_fp_b, set flags
+    REG_OPS        = 0xE  # immediate: 0=READ_STATUS, 1=READ_CONTROL, 2=READ_TAG, 3=WRITE_STATUS
+    ROUND          = 0xF
 
 
 # ============================================================================
@@ -271,15 +271,45 @@ class MicroAssembler:
             if len(parts) > 1:
                 next_addr = self.parse_operand(parts[1], line_num)
 
+        elif mnemonic == 'MUL':
+            opcode = Opcode.EXEC
+            micro_op = MicroOp.MUL
+            if len(parts) > 1:
+                next_addr = self.parse_operand(parts[1], line_num)
+
+        elif mnemonic == 'DIV':
+            opcode = Opcode.EXEC
+            micro_op = MicroOp.DIV
+            if len(parts) > 1:
+                next_addr = self.parse_operand(parts[1], line_num)
+
         elif mnemonic == 'SHIFT_LEFT':
             opcode = Opcode.EXEC
-            micro_op = MicroOp.SHIFT_LEFT_BIT
+            micro_op = MicroOp.SHIFT
             if len(parts) < 2:
                 self.error("SHIFT_LEFT requires a shift amount", line_num)
             else:
-                immediate = self.parse_operand(parts[1], line_num)
+                shift_amount = self.parse_operand(parts[1], line_num)
+                immediate = (shift_amount << 1) | 0  # direction=0 (left)
                 if len(parts) > 2:
                     next_addr = self.parse_operand(parts[2], line_num)
+
+        elif mnemonic == 'SHIFT_RIGHT':
+            opcode = Opcode.EXEC
+            micro_op = MicroOp.SHIFT
+            if len(parts) < 2:
+                self.error("SHIFT_RIGHT requires a shift amount", line_num)
+            else:
+                shift_amount = self.parse_operand(parts[1], line_num)
+                immediate = (shift_amount << 1) | 1  # direction=1 (right)
+                if len(parts) > 2:
+                    next_addr = self.parse_operand(parts[2], line_num)
+
+        elif mnemonic == 'COMPARE':
+            opcode = Opcode.EXEC
+            micro_op = MicroOp.COMPARE
+            if len(parts) > 1:
+                next_addr = self.parse_operand(parts[1], line_num)
 
         elif mnemonic == 'LOOP_INIT':
             opcode = Opcode.EXEC
@@ -323,25 +353,29 @@ class MicroAssembler:
 
         elif mnemonic == 'READ_STATUS':
             opcode = Opcode.EXEC
-            micro_op = MicroOp.READ_STATUS
+            micro_op = MicroOp.REG_OPS
+            immediate = 0  # READ_STATUS
             if len(parts) > 1:
                 next_addr = self.parse_operand(parts[1], line_num)
 
         elif mnemonic == 'READ_CONTROL':
             opcode = Opcode.EXEC
-            micro_op = MicroOp.READ_CONTROL
+            micro_op = MicroOp.REG_OPS
+            immediate = 1  # READ_CONTROL
             if len(parts) > 1:
                 next_addr = self.parse_operand(parts[1], line_num)
 
         elif mnemonic == 'READ_TAG':
             opcode = Opcode.EXEC
-            micro_op = MicroOp.READ_TAG
+            micro_op = MicroOp.REG_OPS
+            immediate = 2  # READ_TAG
             if len(parts) > 1:
                 next_addr = self.parse_operand(parts[1], line_num)
 
         elif mnemonic == 'WRITE_STATUS':
             opcode = Opcode.EXEC
-            micro_op = MicroOp.WRITE_STATUS
+            micro_op = MicroOp.REG_OPS
+            immediate = 3  # WRITE_STATUS
             if len(parts) > 1:
                 next_addr = self.parse_operand(parts[1], line_num)
 

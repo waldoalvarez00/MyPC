@@ -212,8 +212,8 @@ def test_register_operations(verbose=False):
     # Manually create a small program to test registers
     # LOAD, READ_STATUS, READ_CONTROL, HALT
     sim.microcode_rom[0] = 0x11000001  # LOAD
-    sim.microcode_rom[1] = 0x1C000002  # READ_STATUS
-    sim.microcode_rom[2] = 0x1D000003  # READ_CONTROL
+    sim.microcode_rom[1] = 0x1E000002  # READ_STATUS (REG_OPS with immediate=0)
+    sim.microcode_rom[2] = 0x1E010003  # READ_CONTROL (REG_OPS with immediate=1)
     sim.microcode_rom[3] = 0xF0000000  # HALT
 
     # Setup
@@ -281,6 +281,95 @@ def test_math_constants(verbose=False):
 
 
 # ============================================================================
+# Test 8: CORDIC Sin/Cos (example6_sincos.asm)
+# ============================================================================
+
+def test_example6_sincos(verbose=False):
+    """Test CORDIC sin/cos implementation"""
+    test = MicrocodeTest(
+        "Example 6: CORDIC Sin/Cos",
+        "examples/example6.hex"
+    )
+
+    @test.setup
+    def setup(sim):
+        """Setup: Provide angle in radians"""
+        # Input: π/6 radians (30 degrees)
+        angle = ExtendedFloat.from_float(math.pi / 6)
+        sim.cpu_data_in = angle.bits
+
+    @test.verify
+    def verify(sim):
+        """Verify: Check that CORDIC iterations completed"""
+        # Program should have halted
+        assert sim.halted, "CORDIC sin/cos should have completed"
+
+        # Loop counter should be 0 after all iterations
+        assert sim.fpu_state.loop_reg == 0, \
+            f"All CORDIC iterations should complete, loop_reg = {sim.fpu_state.loop_reg}"
+
+    return test.run(verbose=verbose)
+
+
+# ============================================================================
+# Test 9: Square Root (example7_sqrt.asm)
+# ============================================================================
+
+def test_example7_sqrt(verbose=False):
+    """Test square root implementation"""
+    test = MicrocodeTest(
+        "Example 7: Square Root (CORDIC)",
+        "examples/example7.hex"
+    )
+
+    @test.setup
+    def setup(sim):
+        """Setup: Provide number to compute sqrt of"""
+        # Input: 16.0, expect sqrt(16) = 4.0
+        value = ExtendedFloat.from_float(16.0)
+        sim.cpu_data_in = value.bits
+
+    @test.verify
+    def verify(sim):
+        """Verify: Check square root computation completed"""
+        # Program should have halted
+        assert sim.halted, "Square root program should have completed"
+
+        # Loop counter should be 0 after all iterations
+        assert sim.fpu_state.loop_reg == 0, \
+            f"All sqrt iterations should complete, loop_reg = {sim.fpu_state.loop_reg}"
+
+    return test.run(verbose=verbose)
+
+
+# ============================================================================
+# Test 10: Tangent (example8_tan.asm)
+# ============================================================================
+
+def test_example8_tangent(verbose=False):
+    """Test tangent implementation"""
+    test = MicrocodeTest(
+        "Example 8: Tangent (CORDIC)",
+        "examples/example8.hex"
+    )
+
+    @test.setup
+    def setup(sim):
+        """Setup: Provide angle in radians"""
+        # Input: π/6 radians (30 degrees)
+        angle = ExtendedFloat.from_float(math.pi / 6)
+        sim.cpu_data_in = angle.bits
+
+    @test.verify
+    def verify(sim):
+        """Verify: Check tangent computation completed"""
+        # Program should have halted
+        assert sim.halted, "Tangent program should have completed"
+
+    return test.run(verbose=verbose)
+
+
+# ============================================================================
 # Test Runner
 # ============================================================================
 
@@ -300,6 +389,9 @@ def run_all_tests(verbose=False):
         ("Example 3: Subroutine Calls", test_example3_subroutine),
         ("Example 4: Complex Operations", test_example4_complex),
         ("Example 5: CORDIC", test_example5_cordic),
+        ("Example 6: CORDIC Sin/Cos", test_example6_sincos),
+        ("Example 7: Square Root", test_example7_sqrt),
+        ("Example 8: Tangent", test_example8_tangent),
         ("Register Operations", test_register_operations),
         ("Math Constants", test_math_constants),
     ]
