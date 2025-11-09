@@ -21,3 +21,4 @@ modelsim/simple_uart_test
 *.vvp
 *.vcd
 *.out
+__pycache__/

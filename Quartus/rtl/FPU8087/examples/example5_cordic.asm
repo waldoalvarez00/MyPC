@@ -8,8 +8,6 @@
 ; Full CORDIC requires more complex control than this simple example shows.
 ; ============================================================================
 
-.ORG 0x0400
-
 ; Constants for CORDIC
 .EQU CORDIC_ITER = 8        ; Number of CORDIC iterations
 .EQU CONST_ATAN_TAB = 0x10  ; Start of arctangent table

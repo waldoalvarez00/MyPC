@@ -7,8 +7,6 @@
 ; - Conditional branching
 ; ============================================================================
 
-.ORG 0x0100
-
 ; Constants
 .EQU ITERATIONS = 5
 

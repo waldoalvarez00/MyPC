@@ -11,8 +11,6 @@
 ; - Convergence checking
 ; ============================================================================
 
-.ORG 0x0300
-
 ; Constants
 .EQU MAX_ITER = 10
 .EQU CONST_HALF = 0x08      ; Index for 0.5 constant

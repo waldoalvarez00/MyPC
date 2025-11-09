@@ -7,8 +7,6 @@
 ; - Absolute value function
 ; ============================================================================
 
-.ORG 0x0200
-
 main_program:
     LOAD                    ; Load input value
     CALL abs_function       ; Call absolute value subroutine
