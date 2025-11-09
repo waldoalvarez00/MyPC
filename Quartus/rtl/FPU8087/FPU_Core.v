@@ -838,8 +838,8 @@ module FPU_Core(
                             // Compare ST(0) with ST(i) or memory operand
                             if (~arith_done) begin
                                 if (~arith_enable) begin
-                                    // Use subtraction to get comparison flags
-                                    arith_operation <= 5'd1;  // OP_SUB
+                                    // Use ADD operation for comparison (SUB would flip sign of operand_b!)
+                                    arith_operation <= 5'd0;  // OP_ADD (comparison uses same logic, no sign flip)
                                     arith_operand_a <= temp_operand_a;  // ST(0)
                                     arith_operand_b <= temp_operand_b;  // ST(i) or memory
                                     arith_enable <= 1'b1;
@@ -870,7 +870,8 @@ module FPU_Core(
                             // Compare ST(0) with ST(1) and pop twice
                             if (~arith_done) begin
                                 if (~arith_enable) begin
-                                    arith_operation <= 5'd1;  // OP_SUB
+                                    // Use ADD for comparison (no sign flip)
+                                    arith_operation <= 5'd0;  // OP_ADD
                                     arith_operand_a <= temp_operand_a;  // ST(0)
                                     arith_operand_b <= temp_operand_b;  // ST(1)
                                     arith_enable <= 1'b1;
@@ -896,7 +897,8 @@ module FPU_Core(
                             // Test ST(0) against +0.0
                             if (~arith_done) begin
                                 if (~arith_enable) begin
-                                    arith_operation <= 5'd1;  // OP_SUB
+                                    // Use ADD for comparison (no sign flip)
+                                    arith_operation <= 5'd0;  // OP_ADD
                                     arith_operand_a <= temp_operand_a;  // ST(0)
                                     arith_operand_b <= 80'h0000_0000000000000000;  // +0.0
                                     arith_enable <= 1'b1;
