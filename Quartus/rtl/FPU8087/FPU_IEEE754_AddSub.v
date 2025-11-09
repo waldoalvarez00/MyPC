@@ -374,25 +374,32 @@ module FPU_IEEE754_AddSub(
                 end
 
                 STATE_NORMALIZE: begin
-                    // Find leading 1 in result_mant (should be at bit 63 for normalized)
-                    // Count leading zeros
+                    // Find leading 1 in result_mant
+                    // Integer bit should be at position 66 after normalization
+                    // Count how many positions we need to shift left
                     norm_shift = 6'd0;
 
-                    if (result_mant[66:63] != 4'd0) begin
-                        // Already normalized or overflow handled
+                    if (result_mant[66]) begin
+                        // Already normalized - integer bit at position 66
                         norm_shift = 6'd0;
-                    end else if (result_mant[62]) begin
+                    end else if (result_mant[65]) begin
                         norm_shift = 6'd1;
-                    end else if (result_mant[61]) begin
+                    end else if (result_mant[64]) begin
                         norm_shift = 6'd2;
-                    end else if (result_mant[60]) begin
+                    end else if (result_mant[63]) begin
                         norm_shift = 6'd3;
+                    end else if (result_mant[62]) begin
+                        norm_shift = 6'd4;
+                    end else if (result_mant[61]) begin
+                        norm_shift = 6'd5;
+                    end else if (result_mant[60]) begin
+                        norm_shift = 6'd6;
                     end else begin
-                        // Need to count more carefully
+                        // Need to count more carefully for larger shifts
                         norm_shift = 6'd64; // Max shift
-                        for (i = 62; i >= 0; i = i - 1) begin
+                        for (i = 59; i >= 0; i = i - 1) begin
                             if (result_mant[i]) begin
-                                norm_shift = 6'd62 - i[5:0] + 6'd1;
+                                norm_shift = 6'd66 - i[5:0];
                                 i = -1; // Break loop
                             end
                         end
@@ -429,41 +436,43 @@ module FPU_IEEE754_AddSub(
 
                 STATE_ROUND: begin
                     // Extract guard, round, sticky bits
+                    // Guard bit is at position 2, round at 1, sticky at 0
                     round_bit = result_mant[1];
                     sticky_bit = result_mant[0];
 
                     // Round according to mode
+                    // Note: We shift right by 3 to move integer bit from position 66 to 63
                     case (rounding_mode)
                         2'b00: begin // Round to nearest (ties to even)
                             if (round_bit && (sticky_bit || result_mant[2])) begin
                                 // Round up
-                                result_mant = (result_mant >> 2) + 65'd1;
+                                result_mant = (result_mant >> 3) + 65'd1;
                                 flag_inexact <= 1'b1;
                             end else begin
-                                result_mant = result_mant >> 2;
+                                result_mant = result_mant >> 3;
                                 if (round_bit || sticky_bit) flag_inexact <= 1'b1;
                             end
                         end
                         2'b01: begin // Round down (toward -∞)
                             if (result_sign && (round_bit || sticky_bit)) begin
-                                result_mant = (result_mant >> 2) + 65'd1;
+                                result_mant = (result_mant >> 3) + 65'd1;
                                 flag_inexact <= 1'b1;
                             end else begin
-                                result_mant = result_mant >> 2;
+                                result_mant = result_mant >> 3;
                                 if (round_bit || sticky_bit) flag_inexact <= 1'b1;
                             end
                         end
                         2'b10: begin // Round up (toward +∞)
                             if (!result_sign && (round_bit || sticky_bit)) begin
-                                result_mant = (result_mant >> 2) + 65'd1;
+                                result_mant = (result_mant >> 3) + 65'd1;
                                 flag_inexact <= 1'b1;
                             end else begin
-                                result_mant = result_mant >> 2;
+                                result_mant = result_mant >> 3;
                                 if (round_bit || sticky_bit) flag_inexact <= 1'b1;
                             end
                         end
                         2'b11: begin // Round toward zero (truncate)
-                            result_mant = result_mant >> 2;
+                            result_mant = result_mant >> 3;
                             if (round_bit || sticky_bit) flag_inexact <= 1'b1;
                         end
                     endcase
