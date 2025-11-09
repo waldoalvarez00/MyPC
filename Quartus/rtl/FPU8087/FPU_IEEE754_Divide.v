@@ -83,9 +83,11 @@ module FPU_IEEE754_Divide(
 
     reg        round_bit, sticky_bit;
     reg [6:0]  div_count;           // Division iteration counter
-    reg        remainder_negative;  // Track if remainder is negative
-    reg        pre_shifted;         // Flag: dividend was pre-shifted for mant_a < mant_b
-    reg        do_subtract;         // Temp flag for division iteration
+
+    // SRT Division specific registers
+    reg signed [1:0] quotient_digits [0:66];  // Signed-digit quotient: {-1, 0, 1}
+    reg [63:0]  divisor_half;       // divisor >> 1 for SRT selection
+    integer     srt_i;              // Loop variable for quotient conversion
 
     //=================================================================
     // Special Value Detection
@@ -204,73 +206,104 @@ module FPU_IEEE754_Divide(
                         // result_exp = exp_a - exp_b + 16383 (using 17-bit signed arithmetic)
                         result_exp = {2'b00, exp_a} - {2'b00, exp_b} + 17'sd16383;
 
-                        // Restoring Division with pre-normalization for mant_a < mant_b
+                        // SRT-2 Division Initialization
+                        // SRT allows negative remainders, solving the mant_a < mant_b problem
                         divisor = mant_b;
-                        quotient = 67'd0;
+                        divisor_half = mant_b >> 1;             // For SRT selection function
 
-                        // For mant_a < mant_b: pre-shift by placing mant_a in bits [128:65]
-                        // For mant_a >= mant_b: standard placement in bits [127:64]
-                        if (mant_a < mant_b) begin
-                            remainder = {mant_a, 65'd0};              // mant_a in [128:65], zeros in [64:0]
-                            result_exp = result_exp - 17'sd1;         // Compensate exponent
-                            pre_shifted = 1'b1;
-                            $display("[DIV_DEBUG] Pre-shift: mant_a < mant_b, mant_a in [128:65]=0x%016X",
-                                     remainder[128:65]);
-                        end else begin
-                            remainder = {1'b0, mant_a, 64'd0};        // mant_a in [127:64]
-                            pre_shifted = 1'b0;
+                        // Initialize all quotient digits to 0
+                        for (srt_i = 0; srt_i <= 66; srt_i = srt_i + 1) begin
+                            quotient_digits[srt_i] = 2'sd0;
                         end
 
-                        div_count = 7'd0;
-                        remainder_negative = 1'b0;
+                        // Pre-normalize: Handle quotient integer bit based on mant_a vs mant_b
+                        // This ensures SRT starts with R < D and correct quotient range
+                        if (mant_a >= mant_b) begin
+                            quotient_digits[0] = 2'sd1;          // Q >= 1.0: set integer bit
+                            remainder = {1'b0, mant_a - mant_b, 64'd0};  // R = mant_a - mant_b
+                            div_count = 7'd1;                    // Start from bit 65
+                            $display("[DIV_DEBUG] SRT-2 Init (mant_a >= mant_b): q[0]=1, R[127:64]=0x%016X",
+                                     remainder[127:64]);
+                        end else begin
+                            quotient_digits[0] = 2'sd0;          // Q < 1.0: integer bit is 0
+                            remainder = {1'b0, mant_a, 64'd0};   // R = mant_a (already < mant_b)
+                            div_count = 7'd1;                    // Start from bit 65 (skip bit 66)
+                            $display("[DIV_DEBUG] SRT-2 Init (mant_a < mant_b): q[0]=0, R[127:64]=0x%016X",
+                                     remainder[127:64]);
+                        end
 
                         state <= STATE_NORMALIZE;
                     end
                 end
 
                 STATE_NORMALIZE: begin
-                    // Restoring Division Algorithm (67 iterations for 67-bit quotient)
+                    // SRT-2 Division Algorithm (67 iterations for 67-bit quotient)
+                    // Quotient digits: {-1, 0, 1}
                     if (div_count < 7'd67) begin
                         if (div_count == 7'd0) begin
-                            if (pre_shifted)
-                                $display("[DIV_DEBUG] START Restoring (pre-shifted): remainder[128:65]=0x%016X, divisor=0x%016X",
-                                         remainder[128:65], divisor);
-                            else
-                                $display("[DIV_DEBUG] START Restoring Division: remainder[127:64]=0x%016X, divisor=0x%016X",
-                                         remainder[127:64], divisor);
+                            $display("[DIV_DEBUG] START SRT-2 Division: R[127:64]=0x%016X, D=0x%016X, D/2=0x%016X",
+                                     remainder[127:64], divisor, divisor_half);
                         end
 
-                        // Restoring division: compare appropriate bits with divisor
-                        // First iteration of pre-shifted uses [128:65], then shifts to normal [127:64]
-                        if (pre_shifted && div_count == 7'd0)
-                            do_subtract = (remainder[128:65] >= divisor);
-                        else
-                            do_subtract = (remainder[127:64] >= divisor);
+                        // SRT-2 Selection Function
+                        // Compare current R with D/2 to select quotient digit
+                        // Selection rules:
+                        //   If R >= D/2: q = +1
+                        //   If R < -D/2: q = -1
+                        //   Otherwise: q = 0
 
-                        if (do_subtract) begin
-                            // Subtract divisor and set quotient bit
-                            if (pre_shifted && div_count == 7'd0)
-                                remainder[128:65] = remainder[128:65] - divisor;
-                            else
-                                remainder[127:64] = remainder[127:64] - divisor;
-                            quotient[66 - div_count] = 1'b1;
+                        // Select quotient digit BEFORE shifting
+                        if (!remainder[128] && remainder[127:64] >= divisor_half) begin
+                            // R is positive and >= D/2: select q = +1
+                            quotient_digits[div_count] = 2'sd1;
                             if (div_count < 7'd5)
-                                $display("[DIV_DEBUG] Iter %0d: HIT, Q[%0d]=1", div_count, 66-div_count);
+                                $display("[DIV_DEBUG] Iter %0d: R[127:64]=0x%016X >= D/2, q=+1",
+                                         div_count, remainder[127:64]);
+                        end else if (remainder[128] && (-remainder) > {1'b0, divisor_half, 64'd0}) begin
+                            // R is negative and |R| > D/2: select q = -1
+                            quotient_digits[div_count] = -2'sd1;
+                            if (div_count < 7'd5)
+                                $display("[DIV_DEBUG] Iter %0d: R[127:64]=0x%016X < -D/2, q=-1",
+                                         div_count, remainder[127:64]);
                         end else begin
-                            // Don't subtract, quotient bit stays 0
+                            // |R| < D/2: select q = 0
+                            quotient_digits[div_count] = 2'sd0;
                             if (div_count < 7'd5)
-                                $display("[DIV_DEBUG] Iter %0d: MISS, Q[%0d]=0", div_count, 66-div_count);
+                                $display("[DIV_DEBUG] Iter %0d: |R| < D/2, q=0, R[127:64]=0x%016X",
+                                         div_count, remainder[127:64]);
                         end
 
-                        // Shift remainder left for next iteration (clears pre_shifted alignment after first iter)
-                        remainder = remainder << 1;
-                        if (pre_shifted) pre_shifted = 1'b0;  // After first shift, back to normal alignment
+                        // Apply: R_next = 2*R - q*D
+                        remainder = remainder << 1;  // 2*R
+                        if (quotient_digits[div_count] == 2'sd1) begin
+                            remainder = remainder - {1'b0, divisor, 64'd0};  // 2*R - D
+                        end else if (quotient_digits[div_count] == -2'sd1) begin
+                            remainder = remainder + {1'b0, divisor, 64'd0};  // 2*R + D
+                        end
+                        // If q=0, R_next = 2*R (already shifted)
+
                         div_count = div_count + 7'd1;
                     end else begin
-                        // Division complete
-                        // Division complete
+                        // Division complete - Convert signed-digit quotient to binary
+                        $display("[DIV_DEBUG] SRT-2 complete, converting signed-digit quotient to binary...");
+
+                        // Convert: Start from MSB, accumulate quotient
+                        // Q_binary = sum(q[i] * 2^(66-i)) for i=0 to 66
+                        quotient = 67'd0;
+                        for (srt_i = 0; srt_i <= 66; srt_i = srt_i + 1) begin
+                            if (quotient_digits[srt_i] == 2'sd1) begin
+                                // Add 2^(66-i) to quotient
+                                quotient = quotient + (67'd1 << (66 - srt_i));
+                            end else if (quotient_digits[srt_i] == -2'sd1) begin
+                                // Subtract 2^(66-i) from quotient
+                                quotient = quotient - (67'd1 << (66 - srt_i));
+                            end
+                            // If q[i] == 0, no change to quotient
+                        end
+
                         result_mant = quotient;
-                        $display("[DIV_DEBUG] quotient=0x%017X, bit[66]=%b, bit[65]=%b", quotient, quotient[66], quotient[65]);
+                        $display("[DIV_DEBUG] Binary quotient=0x%017X, bit[66]=%b, bit[65]=%b",
+                                 quotient, quotient[66], quotient[65]);
 
                         // Check if normalization is needed
                         // The quotient should have the integer bit at position 66
