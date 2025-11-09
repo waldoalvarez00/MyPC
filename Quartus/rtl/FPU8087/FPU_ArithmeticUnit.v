@@ -36,6 +36,8 @@ module FPU_ArithmeticUnit(
 
     // Result
     output reg [79:0] result,
+    output reg [79:0] result_secondary,    // Secondary result (for FSINCOS, FPTAN)
+    output reg        has_secondary,        // Flag: secondary result is valid
     output reg signed [15:0] int16_out,
     output reg signed [31:0] int32_out,
     output reg [31:0] fp32_out,
@@ -308,6 +310,8 @@ module FPU_ArithmeticUnit(
     always @(*) begin
         // Default values
         result = 80'd0;
+        result_secondary = 80'd0;
+        has_secondary = 1'b0;
         int16_out = 16'd0;
         int32_out = 32'd0;
         fp32_out = 32'd0;
@@ -416,10 +420,11 @@ module FPU_ArithmeticUnit(
             // Transcendental operations
             OP_SQRT, OP_SIN, OP_COS, OP_SINCOS: begin
                 result = trans_result_primary;
+                result_secondary = trans_result_secondary;
+                has_secondary = trans_has_secondary;
                 done = trans_done;
                 flag_invalid = trans_error;
-                // Note: OP_SINCOS has secondary result (cos) in trans_result_secondary
-                // This will be handled by FPU_Core for stack operations
+                // Note: OP_SINCOS sets has_secondary=1 with cos(θ) in result_secondary
             end
 
             default: begin
