@@ -27,6 +27,10 @@ iverilog -g2009 -Wall -o tb_transcendental.vvp \
     FPU_Int32_to_FP80.v \
     FPU_FP80_to_Int16.v \
     FPU_FP80_to_Int32.v \
+    FPU_UInt64_to_FP80.v \
+    FPU_FP80_to_UInt64.v \
+    FPU_BCD_to_Binary.v \
+    FPU_Binary_to_BCD.v \
     FPU_FP32_to_FP80.v \
     FPU_FP64_to_FP80.v \
     FPU_FP80_to_FP32.v \
