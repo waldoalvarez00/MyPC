@@ -182,7 +182,9 @@ module FPU_Range_Reduction(
 
                 STATE_DONE: begin
                     done <= 1'b1;
-                    state <= STATE_IDLE;
+                    if (~enable) begin
+                        state <= STATE_IDLE;
+                    end
                 end
 
                 default: state <= STATE_IDLE;

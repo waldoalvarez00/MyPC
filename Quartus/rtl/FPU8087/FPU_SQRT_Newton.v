@@ -53,16 +53,16 @@ module FPU_SQRT_Newton(
     // State Machine
     //=================================================================
 
-    localparam STATE_IDLE       = 3'd0;
-    localparam STATE_CHECK      = 3'd1;
-    localparam STATE_INIT_APPROX= 3'd2;
-    localparam STATE_DIVIDE     = 3'd3;
-    localparam STATE_WAIT_DIV   = 3'd4;
-    localparam STATE_ADD        = 3'd5;
-    localparam STATE_WAIT_ADD   = 3'd6;
-    localparam STATE_MULTIPLY   = 3'd7;
-    localparam STATE_WAIT_MUL   = 3'd8;
-    localparam STATE_DONE       = 3'd9;
+    localparam STATE_IDLE       = 4'd0;
+    localparam STATE_CHECK      = 4'd1;
+    localparam STATE_INIT_APPROX= 4'd2;
+    localparam STATE_DIVIDE     = 4'd3;
+    localparam STATE_WAIT_DIV   = 4'd4;
+    localparam STATE_ADD        = 4'd5;
+    localparam STATE_WAIT_ADD   = 4'd6;
+    localparam STATE_MULTIPLY   = 4'd7;
+    localparam STATE_WAIT_MUL   = 4'd8;
+    localparam STATE_DONE       = 4'd9;
 
     reg [3:0] state;
 
@@ -331,7 +331,9 @@ module FPU_SQRT_Newton(
 
                 STATE_DONE: begin
                     done <= 1'b1;
-                    state <= STATE_IDLE;
+                    if (~enable) begin
+                        state <= STATE_IDLE;
+                    end
                 end
 
                 default: state <= STATE_IDLE;

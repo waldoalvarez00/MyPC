@@ -239,7 +239,9 @@ module FPU_Polynomial_Evaluator(
                 STATE_DONE: begin
                     result_out <= accumulator;
                     done <= 1'b1;
-                    state <= STATE_IDLE;
+                    if (~enable) begin
+                        state <= STATE_IDLE;
+                    end
                 end
 
                 default: state <= STATE_IDLE;
