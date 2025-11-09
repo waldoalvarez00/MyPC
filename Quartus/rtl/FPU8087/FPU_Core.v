@@ -100,6 +100,13 @@ module FPU_Core(
     localparam INST_FYL2X       = 8'h57;  // ST(1) × log₂(ST(0)), pop
     localparam INST_FYL2XP1     = 8'h58;  // ST(1) × log₂(ST(0)+1), pop
 
+    // Comparison instructions
+    localparam INST_FCOM        = 8'h60;  // Compare ST(0) with ST(i) or memory
+    localparam INST_FCOMP       = 8'h61;  // Compare and pop
+    localparam INST_FCOMPP      = 8'h62;  // Compare ST(0) with ST(1) and pop twice
+    localparam INST_FTST        = 8'h63;  // Test ST(0) against 0.0
+    localparam INST_FXAM        = 8'h64;  // Examine ST(0) and set condition codes
+
     // Control instructions
     localparam INST_FLDCW       = 8'hF0;  // Load control word
     localparam INST_FSTCW       = 8'hF1;  // Store control word
@@ -305,16 +312,17 @@ module FPU_Core(
     // Execution State Machine
     //=================================================================
 
-    localparam STATE_IDLE          = 3'd0;
-    localparam STATE_DECODE        = 3'd1;
-    localparam STATE_EXECUTE       = 3'd2;
-    localparam STATE_WRITEBACK     = 3'd3;
-    localparam STATE_STACK_OP      = 3'd4;
-    localparam STATE_DONE          = 3'd5;
-    localparam STATE_FSINCOS_PUSH  = 3'd6;  // Second cycle of FSINCOS writeback
-    localparam STATE_FXCH_WRITE2   = 3'd7;  // Second cycle of FXCH writeback
+    localparam STATE_IDLE          = 4'd0;
+    localparam STATE_DECODE        = 4'd1;
+    localparam STATE_EXECUTE       = 4'd2;
+    localparam STATE_WRITEBACK     = 4'd3;
+    localparam STATE_STACK_OP      = 4'd4;
+    localparam STATE_DONE          = 4'd5;
+    localparam STATE_FSINCOS_PUSH  = 4'd6;  // Second cycle of FSINCOS writeback
+    localparam STATE_FXCH_WRITE2   = 4'd7;  // Second cycle of FXCH writeback
+    localparam STATE_FCOMPP_POP2   = 4'd8;  // Second cycle of FCOMPP (second pop)
 
-    reg [2:0] state;
+    reg [3:0] state;
     reg [7:0] current_inst;
     reg [2:0] current_index;
     reg       do_pop_after;
@@ -825,6 +833,143 @@ module FPU_Core(
                             state <= STATE_DONE;
                         end
 
+                        // Comparison instructions
+                        INST_FCOM, INST_FCOMP: begin
+                            // Compare ST(0) with ST(i) or memory operand
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    // Use subtraction to get comparison flags
+                                    arith_operation <= 5'd1;  // OP_SUB
+                                    arith_operand_a <= temp_operand_a;  // ST(0)
+                                    arith_operand_b <= temp_operand_b;  // ST(i) or memory
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                // Map comparison results to condition codes per Intel 8087 spec
+                                // C3 C2 C0:
+                                //   000 = ST(0) > operand
+                                //   001 = ST(0) < operand
+                                //   100 = ST(0) = operand
+                                //   111 = Unordered (NaN)
+                                status_cc_write <= 1'b1;
+                                if (arith_cc_unordered) begin
+                                    status_c3 <= 1'b1;
+                                    status_c2 <= 1'b1;
+                                    status_c0 <= 1'b1;
+                                end else begin
+                                    status_c3 <= arith_cc_equal;
+                                    status_c2 <= 1'b0;
+                                    status_c0 <= arith_cc_less;
+                                end
+                                arith_enable <= 1'b0;
+                                state <= STATE_STACK_OP;
+                            end
+                        end
+
+                        INST_FCOMPP: begin
+                            // Compare ST(0) with ST(1) and pop twice
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    arith_operation <= 5'd1;  // OP_SUB
+                                    arith_operand_a <= temp_operand_a;  // ST(0)
+                                    arith_operand_b <= temp_operand_b;  // ST(1)
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                // Set condition codes
+                                status_cc_write <= 1'b1;
+                                if (arith_cc_unordered) begin
+                                    status_c3 <= 1'b1;
+                                    status_c2 <= 1'b1;
+                                    status_c0 <= 1'b1;
+                                end else begin
+                                    status_c3 <= arith_cc_equal;
+                                    status_c2 <= 1'b0;
+                                    status_c0 <= arith_cc_less;
+                                end
+                                arith_enable <= 1'b0;
+                                state <= STATE_STACK_OP;
+                            end
+                        end
+
+                        INST_FTST: begin
+                            // Test ST(0) against +0.0
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    arith_operation <= 5'd1;  // OP_SUB
+                                    arith_operand_a <= temp_operand_a;  // ST(0)
+                                    arith_operand_b <= 80'h0000_0000000000000000;  // +0.0
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                // Set condition codes
+                                status_cc_write <= 1'b1;
+                                if (arith_cc_unordered) begin
+                                    status_c3 <= 1'b1;
+                                    status_c2 <= 1'b1;
+                                    status_c0 <= 1'b1;
+                                end else begin
+                                    status_c3 <= arith_cc_equal;
+                                    status_c2 <= 1'b0;
+                                    status_c0 <= arith_cc_less;
+                                end
+                                arith_enable <= 1'b0;
+                                state <= STATE_DONE;
+                            end
+                        end
+
+                        INST_FXAM: begin
+                            // Examine ST(0) and classify
+                            // Set condition codes C0, C2, C3 based on classification
+                            // Intel 8087 FXAM encoding (C3 C2 C0):
+                            //   000 = +Unnormal      001 = +NaN
+                            //   010 = -Unnormal      011 = -NaN
+                            //   100 = +Normal        101 = +Infinity
+                            //   110 = -Normal        111 = -Infinity
+                            // Special cases for zero and denormal
+
+                            status_cc_write <= 1'b1;
+
+                            // Classify based on exponent and mantissa fields
+                            if (temp_operand_a[78:64] == 15'd0) begin
+                                // Exponent is zero
+                                if (temp_operand_a[63:0] == 64'd0) begin
+                                    // Zero: C3=1, C2=0, C0=sign
+                                    status_c3 <= 1'b1;
+                                    status_c2 <= 1'b0;
+                                    status_c0 <= temp_operand_a[79];
+                                end else begin
+                                    // Denormal: C3=1, C2=1, C0=sign
+                                    status_c3 <= 1'b1;
+                                    status_c2 <= 1'b1;
+                                    status_c0 <= temp_operand_a[79];
+                                end
+                            end else if (temp_operand_a[78:64] == 15'h7FFF) begin
+                                // Exponent is all ones (infinity or NaN)
+                                if (temp_operand_a[63] == 1'b0 || temp_operand_a[62:0] != 63'd0) begin
+                                    // NaN: C3=0, C2=0, C0=1
+                                    status_c3 <= 1'b0;
+                                    status_c2 <= 1'b0;
+                                    status_c0 <= 1'b1;
+                                end else begin
+                                    // Infinity: C3=0, C2=1, C0=1
+                                    status_c3 <= 1'b0;
+                                    status_c2 <= 1'b1;
+                                    status_c0 <= 1'b1;
+                                end
+                            end else begin
+                                // Normal number: C3=0, C2=1, C0=0
+                                status_c3 <= 1'b0;
+                                status_c2 <= 1'b1;
+                                status_c0 <= 1'b0;
+                            end
+
+                            // C1 contains sign bit
+                            status_c1 <= temp_operand_a[79];
+
+                            state <= STATE_DONE;
+                        end
+
                         default: begin
                             state <= STATE_DONE;
                         end
@@ -920,6 +1065,19 @@ module FPU_Core(
                             state <= STATE_DONE;
                         end
 
+                        // Compare and pop
+                        INST_FCOMP: begin
+                            stack_pop <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+
+                        // Compare and pop twice
+                        INST_FCOMPP: begin
+                            stack_pop <= 1'b1;
+                            // Second pop will be handled by setting a flag
+                            state <= STATE_FCOMPP_POP2;
+                        end
+
                         default: begin
                             // No stack operation
                             state <= STATE_DONE;
@@ -943,6 +1101,12 @@ module FPU_Core(
                     state <= STATE_DONE;
                 end
 
+                STATE_FCOMPP_POP2: begin
+                    // Second pop for FCOMPP
+                    stack_pop <= 1'b1;
+                    state <= STATE_DONE;
+                end
+
                 STATE_DONE: begin
                     ready <= 1'b1;
                     status_clear_busy <= 1'b1;
@@ -958,7 +1122,7 @@ module FPU_Core(
 
                     // Clear arithmetic operation to prevent done signal from persisting
                     // Setting to invalid operation (15) ensures all unit done signals go to 0
-                    arith_operation <= 4'd15;
+                    arith_operation <= 5'd15;
 
                     state <= STATE_IDLE;
                 end

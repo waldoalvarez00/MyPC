@@ -382,6 +382,8 @@ module FPU_ArithmeticUnit(
                 cc_equal = addsub_cmp_equal;
                 cc_less = addsub_cmp_less;
                 cc_greater = addsub_cmp_greater;
+                // Unordered if all comparison flags are false (NaN comparison)
+                cc_unordered = ~addsub_cmp_equal & ~addsub_cmp_less & ~addsub_cmp_greater;
                 flag_invalid = addsub_invalid;
                 flag_overflow = addsub_overflow;
                 flag_underflow = addsub_underflow;
