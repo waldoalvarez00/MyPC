@@ -29,6 +29,8 @@ module FPU_ArithmeticUnit(
     // Integer operands (for conversions)
     input wire signed [15:0] int16_in,
     input wire signed [31:0] int32_in,
+    input wire [63:0] uint64_in,       // Unsigned 64-bit for BCD conversion
+    input wire        uint64_sign_in,  // Sign bit for uint64
 
     // FP32/64 operands (for conversions)
     input wire [31:0] fp32_in,
@@ -40,6 +42,8 @@ module FPU_ArithmeticUnit(
     output reg        has_secondary,        // Flag: secondary result is valid
     output reg signed [15:0] int16_out,
     output reg signed [31:0] int32_out,
+    output reg [63:0] uint64_out,          // Unsigned 64-bit for BCD conversion
+    output reg        uint64_sign_out,     // Sign bit for uint64
     output reg [31:0] fp32_out,
     output reg [63:0] fp64_out,
     output reg        done,
@@ -76,11 +80,16 @@ module FPU_ArithmeticUnit(
     localparam OP_FP80_TO_FP32 = 4'd10;
     localparam OP_FP80_TO_FP64 = 4'd11;
 
-    // Transcendental operations (12-20)
+    // Transcendental operations (12-15)
     localparam OP_SQRT     = 4'd12;
     localparam OP_SIN      = 4'd13;
     localparam OP_COS      = 4'd14;
     localparam OP_SINCOS   = 4'd15;  // Note: Returns two values
+
+    // BCD conversion operations (for FBLD/FBSTP)
+    // Note: These operate on unsigned 64-bit integers with separate sign
+    localparam OP_UINT64_TO_FP = 4'd16;  // UInt64 + sign → FP80
+    localparam OP_FP_TO_UINT64 = 4'd17;  // FP80 → UInt64 + sign
 
     //=================================================================
     // Arithmetic Units
@@ -277,6 +286,39 @@ module FPU_ArithmeticUnit(
         .flag_inexact(fp80_to_fp64_inexact)
     );
 
+    // UInt64 to FP80 (for BCD conversion)
+    wire [79:0] uint64_to_fp_result;
+    wire uint64_to_fp_done;
+
+    FPU_UInt64_to_FP80 uint64_to_fp_unit (
+        .clk(clk),
+        .reset(reset),
+        .enable(enable && operation == OP_UINT64_TO_FP),
+        .uint_in(uint64_in),
+        .sign_in(uint64_sign_in),
+        .fp_out(uint64_to_fp_result),
+        .done(uint64_to_fp_done)
+    );
+
+    // FP80 to UInt64 (for BCD conversion)
+    wire [63:0] fp_to_uint64_result;
+    wire fp_to_uint64_sign;
+    wire fp_to_uint64_done, fp_to_uint64_invalid, fp_to_uint64_overflow, fp_to_uint64_inexact;
+
+    FPU_FP80_to_UInt64 fp_to_uint64_unit (
+        .clk(clk),
+        .reset(reset),
+        .enable(enable && operation == OP_FP_TO_UINT64),
+        .fp_in(operand_a),
+        .rounding_mode(rounding_mode),
+        .uint_out(fp_to_uint64_result),
+        .sign_out(fp_to_uint64_sign),
+        .done(fp_to_uint64_done),
+        .flag_invalid(fp_to_uint64_invalid),
+        .flag_overflow(fp_to_uint64_overflow),
+        .flag_inexact(fp_to_uint64_inexact)
+    );
+
     //=================================================================
     // Transcendental Functions Unit
     //=================================================================
@@ -314,6 +356,8 @@ module FPU_ArithmeticUnit(
         has_secondary = 1'b0;
         int16_out = 16'd0;
         int32_out = 32'd0;
+        uint64_out = 64'd0;
+        uint64_sign_out = 1'b0;
         fp32_out = 32'd0;
         fp64_out = 64'd0;
         done = 1'b0;
@@ -415,6 +459,21 @@ module FPU_ArithmeticUnit(
                 flag_overflow = fp80_to_fp64_overflow;
                 flag_underflow = fp80_to_fp64_underflow;
                 flag_inexact = fp80_to_fp64_inexact;
+            end
+
+            // BCD conversion operations
+            OP_UINT64_TO_FP: begin
+                result = uint64_to_fp_result;
+                done = uint64_to_fp_done;
+            end
+
+            OP_FP_TO_UINT64: begin
+                uint64_out = fp_to_uint64_result;
+                uint64_sign_out = fp_to_uint64_sign;
+                done = fp_to_uint64_done;
+                flag_invalid = fp_to_uint64_invalid;
+                flag_overflow = fp_to_uint64_overflow;
+                flag_inexact = fp_to_uint64_inexact;
             end
 
             // Transcendental operations

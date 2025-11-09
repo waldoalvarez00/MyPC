@@ -77,6 +77,10 @@ module FPU_Core(
     localparam INST_FISTP16     = 8'h34;  // Store 16-bit integer and pop
     localparam INST_FISTP32     = 8'h35;  // Store 32-bit integer and pop
 
+    // BCD conversion
+    localparam INST_FBLD        = 8'h36;  // Load BCD (18 digits)
+    localparam INST_FBSTP       = 8'h37;  // Store BCD and pop
+
     // FP format conversion
     localparam INST_FLD32       = 8'h40;  // Load FP32 (convert to FP80)
     localparam INST_FLD64       = 8'h41;  // Load FP64 (convert to FP80)
@@ -195,6 +199,8 @@ module FPU_Core(
     wire        arith_has_secondary;
     wire signed [15:0] arith_int16_out;
     wire signed [31:0] arith_int32_out;
+    wire [63:0] arith_uint64_out;      // Unsigned 64-bit for BCD
+    wire        arith_uint64_sign_out; // Sign bit for uint64
     wire [31:0] arith_fp32_out;
     wire [63:0] arith_fp64_out;
     wire        arith_done;
@@ -207,6 +213,8 @@ module FPU_Core(
     reg [79:0]  arith_operand_a, arith_operand_b;
     reg signed [15:0] arith_int16_in;
     reg signed [31:0] arith_int32_in;
+    reg [63:0]  arith_uint64_in;       // Unsigned 64-bit for BCD
+    reg         arith_uint64_sign_in;  // Sign bit for uint64
     reg [31:0]  arith_fp32_in;
     reg [63:0]  arith_fp64_in;
 
@@ -220,6 +228,8 @@ module FPU_Core(
         .operand_b(arith_operand_b),
         .int16_in(arith_int16_in),
         .int32_in(arith_int32_in),
+        .uint64_in(arith_uint64_in),
+        .uint64_sign_in(arith_uint64_sign_in),
         .fp32_in(arith_fp32_in),
         .fp64_in(arith_fp64_in),
         .result(arith_result),
@@ -227,6 +237,8 @@ module FPU_Core(
         .has_secondary(arith_has_secondary),
         .int16_out(arith_int16_out),
         .int32_out(arith_int32_out),
+        .uint64_out(arith_uint64_out),
+        .uint64_sign_out(arith_uint64_sign_out),
         .fp32_out(arith_fp32_out),
         .fp64_out(arith_fp64_out),
         .done(arith_done),
@@ -244,6 +256,50 @@ module FPU_Core(
 
     // Tag word output
     assign tag_word_out = tag_word;
+
+    //=================================================================
+    // BCD Converters
+    //=================================================================
+
+    // BCD to Binary
+    wire [63:0] bcd2bin_binary_out;
+    wire        bcd2bin_sign_out;
+    wire        bcd2bin_done;
+    wire        bcd2bin_error;
+
+    reg         bcd2bin_enable;
+    reg [79:0]  bcd2bin_bcd_in;
+
+    FPU_BCD_to_Binary bcd_to_binary (
+        .clk(clk),
+        .reset(reset),
+        .enable(bcd2bin_enable),
+        .bcd_in(bcd2bin_bcd_in),
+        .binary_out(bcd2bin_binary_out),
+        .sign_out(bcd2bin_sign_out),
+        .done(bcd2bin_done),
+        .error(bcd2bin_error)
+    );
+
+    // Binary to BCD
+    wire [79:0] bin2bcd_bcd_out;
+    wire        bin2bcd_done;
+    wire        bin2bcd_error;
+
+    reg         bin2bcd_enable;
+    reg [63:0]  bin2bcd_binary_in;
+    reg         bin2bcd_sign_in;
+
+    FPU_Binary_to_BCD binary_to_bcd (
+        .clk(clk),
+        .reset(reset),
+        .enable(bin2bcd_enable),
+        .binary_in(bin2bcd_binary_in),
+        .sign_in(bin2bcd_sign_in),
+        .bcd_out(bin2bcd_bcd_out),
+        .done(bin2bcd_done),
+        .error(bin2bcd_error)
+    );
 
     //=================================================================
     // Execution State Machine
@@ -306,6 +362,8 @@ module FPU_Core(
             arith_operand_b <= 80'd0;
             arith_int16_in <= 16'd0;
             arith_int32_in <= 32'd0;
+            arith_uint64_in <= 64'd0;
+            arith_uint64_sign_in <= 1'b0;
             arith_fp32_in <= 32'd0;
             arith_fp64_in <= 64'd0;
 
@@ -325,6 +383,13 @@ module FPU_Core(
             status_underflow <= 1'b0;
             status_precision <= 1'b0;
             status_stack_fault <= 1'b0;
+
+            // Initialize BCD converter signals
+            bcd2bin_enable <= 1'b0;
+            bcd2bin_bcd_in <= 80'd0;
+            bin2bcd_enable <= 1'b0;
+            bin2bcd_binary_in <= 64'd0;
+            bin2bcd_sign_in <= 1'b0;
 
             data_out <= 80'd0;
             int_data_out <= 32'd0;
@@ -368,6 +433,7 @@ module FPU_Core(
                                    (current_inst == INST_FDIVP) ||
                                    (current_inst == INST_FISTP16) ||
                                    (current_inst == INST_FISTP32) ||
+                                   (current_inst == INST_FBSTP) ||
                                    (current_inst == INST_FSTP) ||
                                    (current_inst == INST_FSTP32) ||
                                    (current_inst == INST_FSTP64);
@@ -656,6 +722,81 @@ module FPU_Core(
                             end
                         end
 
+                        // BCD conversion instructions
+                        INST_FBLD: begin
+                            // Two-stage conversion: BCD → Binary (uint64) → FP80
+                            if (~bcd2bin_done) begin
+                                if (~bcd2bin_enable) begin
+                                    // Stage 1: Start BCD to Binary conversion
+                                    bcd2bin_bcd_in <= data_in;
+                                    bcd2bin_enable <= 1'b1;
+                                end
+                                // else: wait for bcd2bin_done
+                            end else begin
+                                // BCD to Binary conversion complete
+                                if (bcd2bin_error) begin
+                                    // Invalid BCD input
+                                    status_invalid <= 1'b1;
+                                    bcd2bin_enable <= 1'b0;
+                                    state <= STATE_DONE;
+                                end else if (~arith_done) begin
+                                    if (~arith_enable) begin
+                                        // Stage 2: Start UInt64 to FP80 conversion
+                                        arith_operation <= 4'd16;  // OP_UINT64_TO_FP
+                                        arith_uint64_in <= bcd2bin_binary_out;
+                                        arith_uint64_sign_in <= bcd2bin_sign_out;
+                                        arith_enable <= 1'b1;
+                                        bcd2bin_enable <= 1'b0;
+                                    end
+                                    // else: wait for arith_done
+                                end else begin
+                                    // Both conversions complete
+                                    temp_result <= arith_result;
+                                    arith_enable <= 1'b0;
+                                    state <= STATE_WRITEBACK;
+                                end
+                            end
+                        end
+
+                        INST_FBSTP: begin
+                            // Two-stage conversion: FP80 → Binary (uint64) → BCD
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    // Stage 1: Start FP80 to UInt64 conversion
+                                    arith_operation <= 4'd17;  // OP_FP_TO_UINT64
+                                    arith_operand_a <= temp_operand_a;
+                                    arith_enable <= 1'b1;
+                                end
+                                // else: wait for arith_done
+                            end else begin
+                                // FP80 to UInt64 conversion complete
+                                if (arith_invalid || arith_overflow) begin
+                                    // Invalid conversion
+                                    status_invalid <= arith_invalid;
+                                    status_overflow <= arith_overflow;
+                                    arith_enable <= 1'b0;
+                                    state <= STATE_DONE;
+                                end else if (~bin2bcd_done) begin
+                                    if (~bin2bcd_enable) begin
+                                        // Stage 2: Start Binary to BCD conversion
+                                        bin2bcd_binary_in <= arith_uint64_out;
+                                        bin2bcd_sign_in <= arith_uint64_sign_out;
+                                        bin2bcd_enable <= 1'b1;
+                                        arith_enable <= 1'b0;
+                                    end
+                                    // else: wait for bin2bcd_done
+                                end else begin
+                                    // Both conversions complete
+                                    if (bin2bcd_error) begin
+                                        status_invalid <= 1'b1;
+                                    end
+                                    data_out <= bin2bcd_bcd_out;
+                                    bin2bcd_enable <= 1'b0;
+                                    state <= STATE_WRITEBACK;
+                                end
+                            end
+                        end
+
                         // Non-arithmetic instructions
                         INST_FLD: begin
                             temp_result <= data_in;
@@ -698,7 +839,7 @@ module FPU_Core(
                 STATE_STACK_OP: begin
                     case (current_inst)
                         // Load operations: push result onto stack
-                        INST_FLD, INST_FILD16, INST_FILD32,
+                        INST_FLD, INST_FILD16, INST_FILD32, INST_FBLD,
                         INST_FLD32, INST_FLD64: begin
                             stack_push <= 1'b1;
                             stack_write_reg <= 3'd0;
@@ -773,7 +914,7 @@ module FPU_Core(
                         end
 
                         // Store and pop
-                        INST_FSTP, INST_FISTP16, INST_FISTP32,
+                        INST_FSTP, INST_FISTP16, INST_FISTP32, INST_FBSTP,
                         INST_FSTP32, INST_FSTP64: begin
                             stack_pop <= 1'b1;
                             state <= STATE_DONE;
