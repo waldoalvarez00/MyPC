@@ -344,6 +344,27 @@ module MicroSequencer_Extended (
                     state <= STATE_EXEC;
                 end
 
+                STATE_WAIT: begin
+                    // Dedicated wait state - check for completion every cycle
+                    if (waiting_for_arith && arith_done) begin
+                        // Arithmetic completed
+                        waiting_for_arith <= 1'b0;
+                        pc <= {1'b0, next_addr};  // Advance to next instruction
+                        state <= STATE_FETCH;
+                        $display("[MICROSEQ] WAIT: arith completed, advance to 0x%04X", next_addr);
+                    end else if (waiting_for_stack && stack_op_done) begin
+                        // Stack operation completed
+                        waiting_for_stack <= 1'b0;
+                        pc <= {1'b0, next_addr};
+                        state <= STATE_FETCH;
+                        $display("[MICROSEQ] WAIT: stack completed, advance to 0x%04X", next_addr);
+                    end else begin
+                        // Still waiting
+                        state <= STATE_WAIT;
+                        //$display("[MICROSEQ] WAIT: still waiting, arith_done=%b", arith_done);
+                    end
+                end
+
                 STATE_EXEC: begin
                     case (opcode)
                         OPCODE_NOP: begin
@@ -380,7 +401,8 @@ module MicroSequencer_Extended (
                                     waiting_for_arith <= 1'b1;
                                     pc <= {1'b0, next_addr};
                                     state <= STATE_FETCH;
-                                    $display("[MICROSEQ] CALL_ARITH: op=%0d, pc=0x%04X", immediate[4:0], pc);
+                                    $display("[MICROSEQ] CALL_ARITH: op=%0d, enable=1, operands=0x%020X/0x%020X",
+                                             immediate[4:0], temp_fp_a, temp_fp_b);
                                 end
 
                                 MOP_WAIT_ARITH: begin
@@ -394,10 +416,10 @@ module MicroSequencer_Extended (
                                         state <= STATE_FETCH;
                                         $display("[MICROSEQ] WAIT_ARITH: DONE, advance to 0x%04X", next_addr);
                                     end else begin
-                                        // Keep waiting (stay at current PC)
+                                        // Keep waiting - stay in WAIT state, don't cycle through FETCH/DECODE
                                         pc <= pc;
-                                        state <= STATE_FETCH;
-                                        //$display("[MICROSEQ] WAIT_ARITH: waiting, pc=0x%04X", pc);
+                                        state <= STATE_WAIT;  // Stay in dedicated wait state
+                                        $display("[MICROSEQ] WAIT_ARITH: waiting, arith_done=%b", arith_done);
                                     end
                                 end
 

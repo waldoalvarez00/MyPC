@@ -90,6 +90,17 @@ module tb_hybrid_execution();
     wire        arith_underflow;
     wire        arith_inexact;
 
+    // Debug: Monitor arithmetic unit inputs
+    always @(posedge clk) begin
+        if (arith_enable) begin
+            $display("[ARITH_UNIT] enable=1, op=%0d, a=0x%020X, b=0x%020X, mode=%b",
+                     arith_operation, arith_operand_a, arith_operand_b, use_microcode_path);
+        end
+        if (arith_done) begin
+            $display("[ARITH_UNIT] done=1, result=0x%020X", arith_result);
+        end
+    end
+
     FPU_ArithmeticUnit arith_unit (
         .clk(clk),
         .reset(reset),
