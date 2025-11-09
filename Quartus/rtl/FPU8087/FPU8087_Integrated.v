@@ -97,14 +97,17 @@ module FPU8087_Integrated(
     wire [15:0] if_fpu_control_reg;
     wire        if_fpu_control_update;
 
+    // Memory operation signals (from decoder to core)
+    wire        if_fpu_has_memory_op;
+    wire [1:0]  if_fpu_operand_size;
+    wire        if_fpu_is_integer;
+    wire        if_fpu_is_bcd;
+
     //=================================================================
     // FPU Interface Module
-    // NOTE: Currently uses original interface signals. The decoder
-    // outputs (decoded_opcode, decoded_stack_index, decoded_has_memory_op, etc.)
-    // are available for future integration when memory operations are implemented.
     //=================================================================
 
-    FPU_CPU_Interface interface (
+    FPU_CPU_Interface cpu_interface (
         .clk(clk),
         .reset(reset),
 
@@ -131,6 +134,12 @@ module FPU8087_Integrated(
         .cpu_fpu_wait(cpu_fpu_wait),
         .cpu_fpu_ready(cpu_fpu_ready),
 
+        // Memory Operation Format (from decoder)
+        .cpu_fpu_has_memory_op(decoded_has_memory_op),
+        .cpu_fpu_operand_size(decoded_operand_size),
+        .cpu_fpu_is_integer(decoded_is_integer),
+        .cpu_fpu_is_bcd(decoded_is_bcd),
+
         // FPU Core Side
         .fpu_start(if_fpu_start),
         .fpu_operation(if_fpu_operation),
@@ -143,7 +152,13 @@ module FPU8087_Integrated(
         .fpu_error(if_fpu_error),
 
         .fpu_control_reg(if_fpu_control_reg),
-        .fpu_control_update(if_fpu_control_update)
+        .fpu_control_update(if_fpu_control_update),
+
+        // Memory Operation Format (to core)
+        .fpu_has_memory_op(if_fpu_has_memory_op),
+        .fpu_operand_size(if_fpu_operand_size),
+        .fpu_is_integer(if_fpu_is_integer),
+        .fpu_is_bcd(if_fpu_is_bcd)
     );
 
     //=================================================================
@@ -165,7 +180,13 @@ module FPU8087_Integrated(
         .if_error(if_fpu_error),
 
         .if_control_reg(if_fpu_control_reg),
-        .if_control_update(if_fpu_control_update)
+        .if_control_update(if_fpu_control_update),
+
+        // Memory Operation Format (from interface)
+        .if_has_memory_op(if_fpu_has_memory_op),
+        .if_operand_size(if_fpu_operand_size),
+        .if_is_integer(if_fpu_is_integer),
+        .if_is_bcd(if_fpu_is_bcd)
     );
 
 endmodule

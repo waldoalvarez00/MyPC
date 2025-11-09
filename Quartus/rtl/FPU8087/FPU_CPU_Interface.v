@@ -27,6 +27,12 @@ module FPU_CPU_Interface(
     input wire [7:0]  cpu_fpu_modrm,          // ModR/M byte
     output reg        cpu_fpu_instr_ack,      // FPU acknowledges instruction
 
+    // Memory Operation Format (from decoder)
+    input wire        cpu_fpu_has_memory_op,  // Instruction uses memory operand
+    input wire [1:0]  cpu_fpu_operand_size,   // Memory operand size (0=word, 1=dword, 2=qword, 3=tbyte)
+    input wire        cpu_fpu_is_integer,     // Memory operand is integer format
+    input wire        cpu_fpu_is_bcd,         // Memory operand is BCD format
+
     // Data Transfer Interface
     input wire        cpu_fpu_data_write,     // CPU writes data to FPU
     input wire        cpu_fpu_data_read,      // CPU reads data from FPU
@@ -54,6 +60,12 @@ module FPU_CPU_Interface(
     output reg [7:0]  fpu_operation,          // Operation code
     output reg [7:0]  fpu_operand_select,     // Operand selection (ModR/M)
     output reg [79:0] fpu_operand_data,       // Operand data
+
+    // Memory Operation Format (to core)
+    output reg        fpu_has_memory_op,      // Instruction uses memory operand
+    output reg [1:0]  fpu_operand_size,       // Memory operand size
+    output reg        fpu_is_integer,         // Memory operand is integer
+    output reg        fpu_is_bcd,             // Memory operand is BCD
 
     // From FPU Core
     input wire        fpu_operation_complete, // Operation completed
@@ -367,6 +379,10 @@ module FPU_CPU_Interface(
             fpu_operation <= 8'h00;
             fpu_operand_select <= 8'h00;
             fpu_operand_data <= 80'h0;
+            fpu_has_memory_op <= 1'b0;
+            fpu_operand_size <= 2'b00;
+            fpu_is_integer <= 1'b0;
+            fpu_is_bcd <= 1'b0;
             fpu_control_reg <= 16'h037F; // Default 8087 control word
             fpu_control_update <= 1'b0;
             internal_busy <= 1'b0;
@@ -403,6 +419,12 @@ module FPU_CPU_Interface(
                     // Decode instruction
                     decode_instruction(cpu_fpu_opcode, cpu_fpu_modrm);
                     internal_busy <= 1'b1;
+
+                    // Capture memory operation format flags from decoder
+                    fpu_has_memory_op <= cpu_fpu_has_memory_op;
+                    fpu_operand_size <= cpu_fpu_operand_size;
+                    fpu_is_integer <= cpu_fpu_is_integer;
+                    fpu_is_bcd <= cpu_fpu_is_bcd;
                 end
 
                 STATE_DATA_WAIT: begin
