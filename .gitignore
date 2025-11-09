@@ -25,6 +25,8 @@ __pycache__/
 
 # FPU test outputs
 *_test_output.txt
+*_test_results.txt
+*_test_vectors.txt
 verilog_files.txt
 Quartus/rtl/FPU8087/tb_microcode
 Quartus/rtl/FPU8087/tb_fpu_integration_simple
