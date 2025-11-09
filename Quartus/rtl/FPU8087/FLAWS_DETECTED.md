@@ -118,9 +118,30 @@ This document catalogs all flaws detected during the Icarus Verilog simulation a
 - **Impact:** SQRT tests no longer timeout, allowing proper functional testing
 - **Status:** FIXED ✅ (Session 2025-11-09)
 
+---
+
+### 12. **Incorrect FP80 Test Vectors** ✅ FIXED
+- **Location:** tb_hybrid_execution.v test cases
+- **Symptom:** Test failures despite hardware producing correct results
+- **Root Cause:** Multiple FP80 encoding errors in test vectors
+  - **Missing integer bit:** FP80 format requires explicit integer bit (bit 63) set for normalized numbers
+  - **Wrong operand values:** Some operands encoded incorrectly
+- **Specific Issues Found:**
+  1. **Test 1 (ADD):** Operand B intended as 2.71 but encoded as 1.422... (0x40005B05... instead of 0x4000AD70...)
+  2. **Test 3 (MUL):** Operand B for 4.0 missing integer bit (0x40010000... instead of 0x40018000...)
+  3. **Test 4 (DIV):** Expected result for 4.0 missing integer bit
+  4. **Test 5 (SQRT):** Both operand (16.0) and expected result (4.0) missing integer bit
+- **Fix:**
+  - Corrected all FP80 encodings to include proper integer bit
+  - Recalculated expected values using correct floating-point arithmetic
+  - Verified all test vectors decode to intended decimal values
+- **Result:** All 5 tests now pass (ADD, SUB, MUL, DIV, SQRT)
+- **Impact:** Validates that FPU hardware is functioning correctly
+- **Status:** FIXED ✅ (Session 2025-11-09)
+
 ## ⚠️ Detected But Unfixed Flaws
 
-### 11. **Bit Width Inconsistency in Micro-Operations**
+### 13. **Bit Width Inconsistency in Micro-Operations**
 - **Location:** MicroSequencer_Extended.v:84-99
 - **Issue:** Basic micro-ops defined as 4-bit (`MOP_LOAD = 4'h1`) while extended micro-ops are 5-bit (`MOP_CALL_ARITH = 5'h10`)
 - **Instruction Format:** Uses 5-bit micro_op field `[27:23]`
@@ -138,27 +159,28 @@ This document catalogs all flaws detected during the Icarus Verilog simulation a
 - All required modules included
 - Warnings only (no errors)
 
-### Simulation: ✅ MAJOR SUCCESS (After STATE_WAIT and SQRT Timeout Fixes)
+### Simulation: ✅ COMPLETE SUCCESS (After All Fixes)
 - **Direct Execution:**
   - ADD: ✓ PASS (7 cycles)
-  - SUB: ⚠️ Completes (7 cycles) - possible incorrect result
-  - MUL: ⚠️ Completes (6 cycles) - possible incorrect result
+  - SUB: ✓ PASS (7 cycles)
+  - MUL: ✓ PASS (6 cycles)
   - DIV: ✓ PASS (73 cycles)
-  - SQRT: ✅ **NOW WORKING!** Completes in 1388 cycles (was timeout)
+  - SQRT: ✓ PASS (1388 cycles)
+
+- **Test Results:** **5/5 tests passing (100%)** ✅
 
 - **Microcode Execution:**
-  - Infrastructure: ✅ **NOW WORKING!** All operations complete successfully
-  - ADD: ⚠️ Completes (but operands=0, needs initialization)
-  - SUB: ⚠️ Completes (but operands=0, needs initialization)
-  - MUL: ⚠️ Completes (but operands=0, needs initialization)
-  - DIV: ⚠️ Completes (but operands=0, needs initialization)
-  - SQRT: ✅ Completes (cycle timing validated)
+  - Infrastructure: ✅ **WORKING!** All operations complete successfully
+  - Cycle timing: ✅ Validated for all operations
+  - Operands: ⚠️ Currently zero (needs initialization for functional testing)
 
-### Overall: All timing issues resolved, functional validation ongoing
+### Overall: All critical bugs fixed, tests passing
 - Critical STATE_WAIT bug fixed ✅
 - Critical SQRT timeout bug fixed ✅
+- Test vector encoding bugs fixed ✅
 - Microcode execution path validated ✅
-- Remaining issues: operand initialization, possible arithmetic hardware bugs
+- Hardware arithmetic units validated ✅
+- Remaining enhancement: operand initialization for microcode functional testing
 
 ---
 
@@ -202,15 +224,18 @@ PC=0x0103: RET                 # Return (or signal completion if empty stack)
    - SQRT now completes successfully in 1388 cycles
    - Both direct and microcode paths validated
 
+3. **~~Fix bug #12 (Test vector encoding errors)~~** - FIXED by correcting FP80 encodings ✅
+   - Identified root cause: Missing integer bit in FP80 mantissa fields
+   - Fixed all test vectors to use proper FP80 format
+   - Corrected wrong operand values (e.g., 2.71 was encoded as 1.422...)
+   - **Result:** All 5 tests now passing (100% pass rate)
+   - Validated hardware arithmetic units are functioning correctly
+
 ### High Priority:
-3. **Investigate arithmetic operation correctness**
-   - Some tests show unexpected results (SUB, MUL producing denormals)
-   - DIV appears to work correctly
-   - May be test vector issues or hardware bugs
-   - Needs systematic validation
+(None - all critical bugs resolved!)
 
 ### Medium Priority:
-3. **Add operand initialization for microcode tests**
+4. **Add operand initialization for microcode tests**
    - Current limitation: temp_fp_a and temp_fp_b are zeros
    - Options:
      a) Expose temp registers as outputs for testbench to write
@@ -219,10 +244,10 @@ PC=0x0103: RET                 # Return (or signal completion if empty stack)
    - Not critical as infrastructure is validated
 
 ### Low Priority:
-4. **Fix bug #11 (bit width consistency)** - Cleanup, no functional impact
-5. **Add comprehensive error checking**
-6. **Performance profiling**
-7. **Integrate microsequencer into FPU_Core** - Ready when needed
+5. **Fix bug #13 (bit width consistency)** - Cleanup, no functional impact
+6. **Add comprehensive error checking**
+7. **Performance profiling**
+8. **Integrate microsequencer into FPU_Core** - Ready when needed
 
 ---
 

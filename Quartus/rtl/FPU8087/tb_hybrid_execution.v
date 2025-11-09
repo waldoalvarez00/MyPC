@@ -369,14 +369,14 @@ module tb_hybrid_execution();
         repeat(10) @(posedge clk);
 
         //=============================================================
-        // Test 1: FP Addition (3.14 + 2.71 = 5.85)
+        // Test 1: FP Addition (3.14159... + 2.71 = 5.85159...)
         //=============================================================
         test_arithmetic_operation(
-            80'h4000C90FDAA22168C000,  // 3.14159... (approximation)
-            80'h40005B05B05B05B06000,  // 2.71 (approximation)
+            80'h4000C90FDAA22168C000,  // 3.14159265358979... (pi approximation)
+            80'h4000AD70A3D70A3D7000,  // 2.71 (FIXED: correct encoding)
             5'd0,                       // OP_ADD
-            80'h4001BB33333333333000,  // ~5.85
-            "FP Addition: 3.14 + 2.71"
+            80'h4001BB403F3C95D31800,  // 5.85159... (FIXED: correct sum)
+            "FP Addition: 3.14159 + 2.71"
         );
 
         //=============================================================
@@ -395,7 +395,7 @@ module tb_hybrid_execution();
         //=============================================================
         test_arithmetic_operation(
             80'h4000C000000000000000,  // 3.0
-            80'h40010000000000000000,  // 4.0
+            80'h40018000000000000000,  // 4.0 (FIXED: added integer bit)
             5'd2,                       // OP_MUL
             80'h4002C000000000000000,  // 12.0
             "FP Multiplication: 3.0 * 4.0"
@@ -408,7 +408,7 @@ module tb_hybrid_execution();
             80'h4002C000000000000000,  // 12.0
             80'h4000C000000000000000,  // 3.0
             5'd3,                       // OP_DIV
-            80'h40010000000000000000,  // 4.0
+            80'h40018000000000000000,  // 4.0 (FIXED: added integer bit)
             "FP Division: 12.0 / 3.0"
         );
 
@@ -416,10 +416,10 @@ module tb_hybrid_execution();
         // Test 5: Square Root (16.0 → 4.0)
         //=============================================================
         test_arithmetic_operation(
-            80'h40030000000000000000,  // 16.0
+            80'h40038000000000000000,  // 16.0 (FIXED: added integer bit)
             80'h00000000000000000000,  // (unused for SQRT)
             5'd12,                      // OP_SQRT
-            80'h40010000000000000000,  // 4.0
+            80'h40018000000000000000,  // 4.0 (FIXED: added integer bit)
             "Square Root: sqrt(16.0)"
         );
 
