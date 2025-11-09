@@ -208,7 +208,7 @@ module FPU_Core(
     wire        arith_invalid, arith_denormal, arith_zero_div;
     wire        arith_overflow, arith_underflow, arith_inexact;
 
-    reg [3:0]   arith_operation;
+    reg [4:0]   arith_operation;  // 5 bits to support operations 0-17 (BCD uses 16-17)
     reg         arith_enable;
     reg [79:0]  arith_operand_a, arith_operand_b;
     reg signed [15:0] arith_int16_in;
@@ -742,7 +742,7 @@ module FPU_Core(
                                 end else if (~arith_done) begin
                                     if (~arith_enable) begin
                                         // Stage 2: Start UInt64 to FP80 conversion
-                                        arith_operation <= 4'd16;  // OP_UINT64_TO_FP
+                                        arith_operation <= 5'd16;  // OP_UINT64_TO_FP
                                         arith_uint64_in <= bcd2bin_binary_out;
                                         arith_uint64_sign_in <= bcd2bin_sign_out;
                                         arith_enable <= 1'b1;
@@ -763,7 +763,7 @@ module FPU_Core(
                             if (~arith_done) begin
                                 if (~arith_enable) begin
                                     // Stage 1: Start FP80 to UInt64 conversion
-                                    arith_operation <= 4'd17;  // OP_FP_TO_UINT64
+                                    arith_operation <= 5'd17;  // OP_FP_TO_UINT64
                                     arith_operand_a <= temp_operand_a;
                                     arith_enable <= 1'b1;
                                 end

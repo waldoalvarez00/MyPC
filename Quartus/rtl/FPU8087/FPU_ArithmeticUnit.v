@@ -18,7 +18,7 @@ module FPU_ArithmeticUnit(
     input wire reset,
 
     // Operation control
-    input wire [3:0]  operation,        // Operation selector
+    input wire [4:0]  operation,        // Operation selector (5 bits: 0-17 for BCD)
     input wire        enable,           // Start operation
     input wire [1:0]  rounding_mode,    // Rounding mode
 
@@ -88,8 +88,8 @@ module FPU_ArithmeticUnit(
 
     // BCD conversion operations (for FBLD/FBSTP)
     // Note: These operate on unsigned 64-bit integers with separate sign
-    localparam OP_UINT64_TO_FP = 4'd16;  // UInt64 + sign → FP80
-    localparam OP_FP_TO_UINT64 = 4'd17;  // FP80 → UInt64 + sign
+    localparam OP_UINT64_TO_FP = 5'd16;  // UInt64 + sign → FP80
+    localparam OP_FP_TO_UINT64 = 5'd17;  // FP80 → UInt64 + sign
 
     //=================================================================
     // Arithmetic Units
