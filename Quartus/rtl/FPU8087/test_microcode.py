@@ -210,14 +210,15 @@ def test_register_operations(verbose=False):
     sim = MicrosequencerSimulator(verbose=verbose)
 
     # Manually create a small program to test registers
-    # LOAD, READ_STATUS, WRITE_STATUS, HALT
+    # LOAD, READ_STATUS, READ_CONTROL, HALT
     sim.microcode_rom[0] = 0x11000001  # LOAD
     sim.microcode_rom[1] = 0x1C000002  # READ_STATUS
-    sim.microcode_rom[2] = 0x1F000003  # WRITE_STATUS
+    sim.microcode_rom[2] = 0x1D000003  # READ_CONTROL
     sim.microcode_rom[3] = 0xF0000000  # HALT
 
     # Setup
     sim.fpu_state.status_word = 0x1234
+    sim.fpu_state.control_word = 0x037F
     sim.cpu_data_in = 0x5678
 
     # Run
@@ -225,11 +226,11 @@ def test_register_operations(verbose=False):
 
     # Verify
     try:
-        assert sim.fpu_state.temp_reg == 0x5678, \
-            "LOAD should have loaded 0x5678"
-
-        # After READ_STATUS, temp_reg should have status (was 0x1234)
-        # After WRITE_STATUS, status should have temp_reg value
+        # After LOAD, temp_reg was 0x5678
+        # After READ_STATUS, temp_reg becomes status_word (0x1234)
+        # After READ_CONTROL, temp_reg becomes control_word (0x037F)
+        assert sim.fpu_state.temp_reg == 0x037F, \
+            f"After READ_CONTROL, temp_reg should be 0x037F, got 0x{sim.fpu_state.temp_reg:04X}"
 
         assert sim.halted, "Should have halted"
 
