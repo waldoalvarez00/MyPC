@@ -22,9 +22,10 @@ PYTHON_PASSED=0
 VERILOG_PASSED=0
 INTERFACE_PASSED=0
 INTEGRATION_PASSED=0
+CPU_FPU_PASSED=0
 TOTAL_ERRORS=0
 
-echo "${BLUE}[1/5] Running Python Simulator Tests...${NC}"
+echo "${BLUE}[1/6] Running Python Simulator Tests...${NC}"
 echo "------------------------------------------------------------"
 if python3 test_microcode.py > python_test_output.txt 2>&1; then
     cat python_test_output.txt
@@ -37,7 +38,7 @@ else
 fi
 echo ""
 
-echo "${BLUE}[2/5] Running FPU-CPU Interface Tests...${NC}"
+echo "${BLUE}[2/6] Running FPU-CPU Interface Tests...${NC}"
 echo "------------------------------------------------------------"
 if python3 test_fpu_interface.py > interface_test_output.txt 2>&1; then
     cat interface_test_output.txt
@@ -50,7 +51,7 @@ else
 fi
 echo ""
 
-echo "${BLUE}[3/5] Compiling Verilog Testbench...${NC}"
+echo "${BLUE}[3/6] Compiling Verilog Testbench...${NC}"
 echo "------------------------------------------------------------"
 if iverilog -o tb_microcode tb_microcode.v absunit.sv \
     8087Status.v AddSubComp.v BarrelShifter.v BitShifter.v ByteShifter.v \
@@ -64,7 +65,7 @@ else
 fi
 echo ""
 
-echo "${BLUE}[4/5] Running Verilog Simulation Tests...${NC}"
+echo "${BLUE}[4/6] Running Verilog Simulation Tests...${NC}"
 echo "------------------------------------------------------------"
 if vvp tb_microcode > verilog_test_output.txt 2>&1; then
     cat verilog_test_output.txt
@@ -83,7 +84,7 @@ else
 fi
 echo ""
 
-echo "${BLUE}[5/5] Running FPU Integration Tests...${NC}"
+echo "${BLUE}[5/6] Running FPU Integration Tests...${NC}"
 echo "------------------------------------------------------------"
 # Compile integration testbench
 if iverilog -o tb_fpu_integration_simple tb_fpu_integration_simple.v \
@@ -107,6 +108,34 @@ if iverilog -o tb_fpu_integration_simple tb_fpu_integration_simple.v \
     fi
 else
     echo -e "${RED}✗ Integration testbench compilation FAILED${NC}"
+    TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+fi
+echo ""
+
+echo "${BLUE}[6/6] Running CPU-FPU Connection Tests...${NC}"
+echo "------------------------------------------------------------"
+# Compile CPU-FPU connection testbench
+if iverilog -o tb_cpu_fpu_final tb_cpu_fpu_final.v \
+    CPU_FPU_Adapter.v FPU8087_Integrated.v FPU_CPU_Interface.v FPU_Core_Wrapper.v 2>&1 | tee cpu_fpu_compile.log; then
+    echo -e "${GREEN}✓ CPU-FPU testbench compiled${NC}"
+
+    # Run CPU-FPU connection tests
+    if vvp tb_cpu_fpu_final > cpu_fpu_test_output.txt 2>&1; then
+        cat cpu_fpu_test_output.txt
+        if grep -q "ALL TESTS PASSED" cpu_fpu_test_output.txt; then
+            CPU_FPU_PASSED=1
+            echo -e "${GREEN}✓ CPU-FPU connection tests PASSED${NC}"
+        else
+            echo -e "${RED}✗ CPU-FPU connection tests FAILED${NC}"
+            TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+        fi
+    else
+        cat cpu_fpu_test_output.txt
+        echo -e "${RED}✗ CPU-FPU simulation FAILED${NC}"
+        TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+    fi
+else
+    echo -e "${RED}✗ CPU-FPU testbench compilation FAILED${NC}"
     TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
 fi
 echo ""
@@ -137,6 +166,12 @@ if [ $INTEGRATION_PASSED -eq 1 ]; then
     echo -e "${GREEN}✓ FPU Integration Tests:     PASSED (5/5)${NC}"
 else
     echo -e "${RED}✗ FPU Integration Tests:     FAILED${NC}"
+fi
+
+if [ $CPU_FPU_PASSED -eq 1 ]; then
+    echo -e "${GREEN}✓ CPU-FPU Connection Tests:  PASSED (5/5)${NC}"
+else
+    echo -e "${RED}✗ CPU-FPU Connection Tests:  FAILED${NC}"
 fi
 echo "------------------------------------------------------------"
 

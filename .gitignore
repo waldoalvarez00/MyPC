@@ -28,5 +28,8 @@ __pycache__/
 verilog_files.txt
 Quartus/rtl/FPU8087/tb_microcode
 Quartus/rtl/FPU8087/tb_fpu_integration_simple
+Quartus/rtl/FPU8087/tb_cpu_fpu_final
+Quartus/rtl/FPU8087/tb_cpu_fpu_debug
 verilog_compile.log
 integration_compile.log
+cpu_fpu_compile.log
