@@ -137,27 +137,27 @@ module MicroSequencer_Extended (
     reg [15:0] micro_program_table [0:15];
     initial begin
         // Program 0: FADD subroutine
-        micro_program_table[0]  = 16'd0x0100;
+        micro_program_table[0]  = 16'h0100;
         // Program 1: FSUB subroutine
-        micro_program_table[1]  = 16'd0x0110;
+        micro_program_table[1]  = 16'h0110;
         // Program 2: FMUL subroutine
-        micro_program_table[2]  = 16'd0x0120;
+        micro_program_table[2]  = 16'h0120;
         // Program 3: FDIV subroutine
-        micro_program_table[3]  = 16'd0x0130;
+        micro_program_table[3]  = 16'h0130;
         // Program 4: FSQRT subroutine
-        micro_program_table[4]  = 16'd0x0140;
+        micro_program_table[4]  = 16'h0140;
         // Program 5: FSIN subroutine
-        micro_program_table[5]  = 16'd0x0150;
+        micro_program_table[5]  = 16'h0150;
         // Program 6: FCOS subroutine
-        micro_program_table[6]  = 16'd0x0160;
+        micro_program_table[6]  = 16'h0160;
         // Program 7: FLD (with format conversion)
-        micro_program_table[7]  = 16'd0x0200;
+        micro_program_table[7]  = 16'h0200;
         // Program 8: FST (with format conversion)
-        micro_program_table[8]  = 16'd0x0210;
+        micro_program_table[8]  = 16'h0210;
         // Remaining slots for complex operations
-        micro_program_table[9]  = 16'd0x0300;  // Reserved for FPREM
-        micro_program_table[10] = 16'd0x0400;  // Reserved for FXTRACT
-        micro_program_table[11] = 16'd0x0500;  // Reserved for FSCALE
+        micro_program_table[9]  = 16'h0300;  // Reserved for FPREM
+        micro_program_table[10] = 16'h0400;  // Reserved for FXTRACT
+        micro_program_table[11] = 16'h0500;  // Reserved for FSCALE
     end
 
     //=================================================================
@@ -183,6 +183,7 @@ module MicroSequencer_Extended (
     //=================================================================
 
     reg [31:0] microcode_rom [0:4095];
+    integer i;  // Loop variable for ROM initialization
 
     //=================================================================
     // Microcode Programs - Subroutine Library
@@ -196,7 +197,7 @@ module MicroSequencer_Extended (
         // Returns: result in temp_result
         //-------------------------------------------------------------
         microcode_rom[16'h0100] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd0, 15'h0101};      // Call ADD (op=0)
-        microcode_rom[16'h0101] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0101};      // Wait (loop here)
+        microcode_rom[16'h0101] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0102};      // Wait, advance to 0x0102 when done
         microcode_rom[16'h0102] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0103};  // Load result
         microcode_rom[16'h0103] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
@@ -205,7 +206,7 @@ module MicroSequencer_Extended (
         // Address: 0x0110-0x0113
         //-------------------------------------------------------------
         microcode_rom[16'h0110] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd1, 15'h0111};      // Call SUB (op=1)
-        microcode_rom[16'h0111] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0111};      // Wait
+        microcode_rom[16'h0111] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0112};      // Wait, advance to 0x0112 when done
         microcode_rom[16'h0112] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0113};  // Load result
         microcode_rom[16'h0113] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
@@ -214,7 +215,7 @@ module MicroSequencer_Extended (
         // Address: 0x0120-0x0123
         //-------------------------------------------------------------
         microcode_rom[16'h0120] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h0121};      // Call MUL (op=2)
-        microcode_rom[16'h0121] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0121};      // Wait
+        microcode_rom[16'h0121] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0122};      // Wait, advance to 0x0122 when done
         microcode_rom[16'h0122] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0123};  // Load result
         microcode_rom[16'h0123] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
@@ -223,7 +224,7 @@ module MicroSequencer_Extended (
         // Address: 0x0130-0x0133
         //-------------------------------------------------------------
         microcode_rom[16'h0130] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd3, 15'h0131};      // Call DIV (op=3)
-        microcode_rom[16'h0131] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0131};      // Wait
+        microcode_rom[16'h0131] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0132};      // Wait, advance to 0x0132 when done
         microcode_rom[16'h0132] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0133};  // Load result
         microcode_rom[16'h0133] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
@@ -232,7 +233,7 @@ module MicroSequencer_Extended (
         // Address: 0x0140-0x0143
         //-------------------------------------------------------------
         microcode_rom[16'h0140] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd12, 15'h0141};     // Call SQRT (op=12)
-        microcode_rom[16'h0141] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0141};      // Wait
+        microcode_rom[16'h0141] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0142};      // Wait, advance to 0x0142 when done
         microcode_rom[16'h0142] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0143};  // Load result
         microcode_rom[16'h0143] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
@@ -241,7 +242,7 @@ module MicroSequencer_Extended (
         // Address: 0x0150-0x0153
         //-------------------------------------------------------------
         microcode_rom[16'h0150] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd13, 15'h0151};     // Call SIN (op=13)
-        microcode_rom[16'h0151] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0151};      // Wait
+        microcode_rom[16'h0151] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0152};      // Wait, advance to 0x0152 when done
         microcode_rom[16'h0152] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0153};  // Load result
         microcode_rom[16'h0153] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
@@ -250,14 +251,13 @@ module MicroSequencer_Extended (
         // Address: 0x0160-0x0163
         //-------------------------------------------------------------
         microcode_rom[16'h0160] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd14, 15'h0161};     // Call COS (op=14)
-        microcode_rom[16'h0161] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0161};      // Wait
+        microcode_rom[16'h0161] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0162};      // Wait, advance to 0x0162 when done
         microcode_rom[16'h0162] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0163};  // Load result
         microcode_rom[16'h0163] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
         //-------------------------------------------------------------
         // Initialize rest of ROM to HALT
         //-------------------------------------------------------------
-        integer i;
         for (i = 0; i < 4096; i = i + 1) begin
             if (microcode_rom[i] == 32'h0) begin
                 microcode_rom[i] = {OPCODE_HALT, 5'd0, 8'd0, 15'd0};
@@ -330,12 +330,14 @@ module MicroSequencer_Extended (
                         waiting_for_arith <= 1'b0;
                         waiting_for_stack <= 1'b0;
                         state <= STATE_FETCH;
+                        $display("[MICROSEQ] START: program_index=%0d, start_addr=0x%04X", micro_program_index, micro_program_table[micro_program_index]);
                     end
                 end
 
                 STATE_FETCH: begin
                     microinstruction <= microcode_rom[pc];
                     state <= STATE_DECODE;
+                    $display("[MICROSEQ] FETCH: pc=0x%04X, instr=0x%08X", pc, microcode_rom[pc]);
                 end
 
                 STATE_DECODE: begin
@@ -378,18 +380,24 @@ module MicroSequencer_Extended (
                                     waiting_for_arith <= 1'b1;
                                     pc <= {1'b0, next_addr};
                                     state <= STATE_FETCH;
+                                    $display("[MICROSEQ] CALL_ARITH: op=%0d, pc=0x%04X", immediate[4:0], pc);
                                 end
 
                                 MOP_WAIT_ARITH: begin
+                                    // Clear enable signal (operation already latched)
+                                    arith_enable <= 1'b0;
+
                                     if (arith_done) begin
                                         // Arithmetic complete
                                         waiting_for_arith <= 1'b0;
                                         pc <= {1'b0, next_addr};
                                         state <= STATE_FETCH;
+                                        $display("[MICROSEQ] WAIT_ARITH: DONE, advance to 0x%04X", next_addr);
                                     end else begin
                                         // Keep waiting (stay at current PC)
                                         pc <= pc;
                                         state <= STATE_FETCH;
+                                        //$display("[MICROSEQ] WAIT_ARITH: waiting, pc=0x%04X", pc);
                                     end
                                 end
 
@@ -466,10 +474,15 @@ module MicroSequencer_Extended (
                             if (call_sp > 0) begin
                                 call_sp <= call_sp - 1;
                                 pc <= call_stack[call_sp - 1];
+                                state <= STATE_FETCH;
+                                $display("[MICROSEQ] RET: return to 0x%04X", call_stack[call_sp - 1]);
                             end else begin
-                                pc <= 16'd0;  // Error: empty call stack
+                                // Empty call stack - treat as completion
+                                // (happens when subroutine called directly)
+                                instruction_complete <= 1'b1;
+                                state <= STATE_IDLE;
+                                $display("[MICROSEQ] RET: empty stack, COMPLETE");
                             end
-                            state <= STATE_FETCH;
                         end
 
                         OPCODE_HALT: begin
