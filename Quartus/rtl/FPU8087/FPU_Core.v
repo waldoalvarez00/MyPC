@@ -85,6 +85,17 @@ module FPU_Core(
     localparam INST_FSTP32      = 8'h44;  // Store as FP32 and pop
     localparam INST_FSTP64      = 8'h45;  // Store as FP64 and pop
 
+    // Transcendental instructions
+    localparam INST_FSQRT       = 8'h50;  // Square root: ST(0) = √ST(0)
+    localparam INST_FSIN        = 8'h51;  // Sine: ST(0) = sin(ST(0))
+    localparam INST_FCOS        = 8'h52;  // Cosine: ST(0) = cos(ST(0))
+    localparam INST_FSINCOS     = 8'h53;  // Sin & Cos: push sin, push cos
+    localparam INST_FPTAN       = 8'h54;  // Partial tangent: push tan, push 1.0
+    localparam INST_FPATAN      = 8'h55;  // Partial arctan: ST(1) = atan(ST(1)/ST(0)), pop
+    localparam INST_F2XM1       = 8'h56;  // 2^ST(0) - 1
+    localparam INST_FYL2X       = 8'h57;  // ST(1) × log₂(ST(0)), pop
+    localparam INST_FYL2XP1     = 8'h58;  // ST(1) × log₂(ST(0)+1), pop
+
     // Control instructions
     localparam INST_FLDCW       = 8'hF0;  // Load control word
     localparam INST_FSTCW       = 8'hF1;  // Store control word

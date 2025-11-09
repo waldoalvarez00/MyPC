@@ -74,6 +74,12 @@ module FPU_ArithmeticUnit(
     localparam OP_FP80_TO_FP32 = 4'd10;
     localparam OP_FP80_TO_FP64 = 4'd11;
 
+    // Transcendental operations (12-20)
+    localparam OP_SQRT     = 4'd12;
+    localparam OP_SIN      = 4'd13;
+    localparam OP_COS      = 4'd14;
+    localparam OP_SINCOS   = 4'd15;  // Note: Returns two values
+
     //=================================================================
     // Arithmetic Units
     //=================================================================
@@ -270,6 +276,32 @@ module FPU_ArithmeticUnit(
     );
 
     //=================================================================
+    // Transcendental Functions Unit
+    //=================================================================
+
+    // Map operation codes to transcendental operation codes
+    wire [3:0] trans_operation = operation - 4'd12;  // Map 12-20 to 0-8
+    wire trans_enable = enable && (operation >= 4'd12 && operation <= 4'd15);
+
+    wire [79:0] trans_result_primary, trans_result_secondary;
+    wire trans_has_secondary;
+    wire trans_done, trans_error;
+
+    FPU_Transcendental trans_unit (
+        .clk(clk),
+        .reset(reset),
+        .operation(trans_operation),
+        .enable(trans_enable),
+        .operand_a(operand_a),
+        .operand_b(operand_b),
+        .result_primary(trans_result_primary),
+        .result_secondary(trans_result_secondary),
+        .has_secondary(trans_has_secondary),
+        .done(trans_done),
+        .error(trans_error)
+    );
+
+    //=================================================================
     // Output Multiplexing
     //=================================================================
 
@@ -381,6 +413,15 @@ module FPU_ArithmeticUnit(
                 flag_inexact = fp80_to_fp64_inexact;
             end
 
+            // Transcendental operations
+            OP_SQRT, OP_SIN, OP_COS, OP_SINCOS: begin
+                result = trans_result_primary;
+                done = trans_done;
+                flag_invalid = trans_error;
+                // Note: OP_SINCOS has secondary result (cos) in trans_result_secondary
+                // This will be handled by FPU_Core for stack operations
+            end
+
             default: begin
                 done = 1'b0;
             end
@@ -388,3 +429,40 @@ module FPU_ArithmeticUnit(
     end
 
 endmodule
+
+
+//=====================================================================
+// TRANSCENDENTAL OPERATIONS INTEGRATION NOTES
+//=====================================================================
+//
+// Added Operations (4-bit operation code):
+// - OP_SQRT  (12): Square root
+// - OP_SIN   (13): Sine
+// - OP_COS   (14): Cosine
+// - OP_SINCOS(15): Both sine and cosine
+//
+// Additional transcendental operations (16-20) can be added when needed:
+// - OP_TAN    (16): Tangent
+// - OP_ATAN   (17): Arctangent
+// - OP_F2XM1  (18): 2^x - 1
+// - OP_FYL2X  (19): y × log₂(x)
+// - OP_FYL2XP1(20): y × log₂(x+1)
+//
+// Note: These require 5-bit operation codes or extended encoding.
+//
+// FSINCOS Special Handling:
+// The FSINCOS operation returns TWO results:
+// - result_primary: sin(angle)
+// - result_secondary: cos(angle)
+//
+// The FPU_Core instruction decoder must handle this by:
+// 1. Pushing sin result to stack
+// 2. Pushing cos result to stack
+// This requires special case logic in FPU_Core state machine.
+//
+// Integration Complete: ✅
+// - Transcendental unit instantiated
+// - Operation codes defined (12-15)
+// - Output multiplexing extended
+// - Ready for FPU_Core instruction integration
+//=====================================================================
