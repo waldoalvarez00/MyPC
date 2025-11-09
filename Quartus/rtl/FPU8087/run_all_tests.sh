@@ -15,15 +15,30 @@ echo ""
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 BLUE='\033[0;34m'
+YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
 
 # Track test results
 PYTHON_PASSED=0
 VERILOG_PASSED=0
+VERILOG_SKIPPED=0
 INTERFACE_PASSED=0
 INTEGRATION_PASSED=0
+INTEGRATION_SKIPPED=0
 CPU_FPU_PASSED=0
+CPU_FPU_SKIPPED=0
 TOTAL_ERRORS=0
+
+# Check if iverilog is available
+IVERILOG_AVAILABLE=0
+if command -v iverilog &> /dev/null && command -v vvp &> /dev/null; then
+    IVERILOG_AVAILABLE=1
+    echo "✓ Icarus Verilog tools detected"
+else
+    echo -e "${YELLOW}⚠ Warning: Icarus Verilog (iverilog/vvp) not found - Verilog tests will be skipped${NC}"
+    echo "   To install: sudo apt-get install iverilog"
+fi
+echo ""
 
 echo "${BLUE}[1/6] Running Python Simulator Tests...${NC}"
 echo "------------------------------------------------------------"
@@ -53,90 +68,109 @@ echo ""
 
 echo "${BLUE}[3/6] Compiling Verilog Testbench...${NC}"
 echo "------------------------------------------------------------"
-if iverilog -o tb_microcode tb_microcode.v absunit.sv \
-    8087Status.v AddSubComp.v BarrelShifter.v BitShifter.v ByteShifter.v \
-    CORDIC_Rotator.v ControlWord.v LZCByte.v LZCbit.v MathConstants.v \
-    RoundUnit.v StackRegister.v myxorgate.v sequencer.v tagRegister.v \
-    three_bit_4x1_mux.v 2>&1 | tee verilog_compile.log; then
-    echo -e "${GREEN}✓ Verilog compilation PASSED${NC}"
+if [ $IVERILOG_AVAILABLE -eq 1 ]; then
+    if iverilog -o tb_microcode tb_microcode.v absunit.sv \
+        8087Status.v AddSubComp.v BarrelShifter.v BitShifter.v ByteShifter.v \
+        CORDIC_Rotator.v ControlWord.v LZCByte.v LZCbit.v MathConstants.v \
+        RoundUnit.v StackRegister.v myxorgate.v sequencer.v tagRegister.v \
+        three_bit_4x1_mux.v 2>&1 | tee verilog_compile.log; then
+        echo -e "${GREEN}✓ Verilog compilation PASSED${NC}"
+    else
+        echo -e "${RED}✗ Verilog compilation FAILED${NC}"
+        TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+    fi
 else
-    echo -e "${RED}✗ Verilog compilation FAILED${NC}"
-    TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+    echo -e "${YELLOW}⊘ Verilog compilation SKIPPED (iverilog not available)${NC}"
+    VERILOG_SKIPPED=1
 fi
 echo ""
 
 echo "${BLUE}[4/6] Running Verilog Simulation Tests...${NC}"
 echo "------------------------------------------------------------"
-if vvp tb_microcode > verilog_test_output.txt 2>&1; then
-    cat verilog_test_output.txt
-    # Check if all tests passed
-    if grep -q "ALL TESTS PASSED" verilog_test_output.txt; then
-        VERILOG_PASSED=1
-        echo -e "${GREEN}✓ Verilog tests PASSED${NC}"
+if [ $IVERILOG_AVAILABLE -eq 1 ]; then
+    if vvp tb_microcode > verilog_test_output.txt 2>&1; then
+        cat verilog_test_output.txt
+        # Check if all tests passed
+        if grep -q "ALL TESTS PASSED" verilog_test_output.txt; then
+            VERILOG_PASSED=1
+            echo -e "${GREEN}✓ Verilog tests PASSED${NC}"
+        else
+            echo -e "${RED}✗ Verilog tests FAILED${NC}"
+            TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+        fi
     else
-        echo -e "${RED}✗ Verilog tests FAILED${NC}"
+        cat verilog_test_output.txt
+        echo -e "${RED}✗ Verilog simulation FAILED${NC}"
         TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
     fi
 else
-    cat verilog_test_output.txt
-    echo -e "${RED}✗ Verilog simulation FAILED${NC}"
-    TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+    echo -e "${YELLOW}⊘ Verilog simulation SKIPPED (iverilog not available)${NC}"
 fi
 echo ""
 
 echo "${BLUE}[5/6] Running FPU Integration Tests...${NC}"
 echo "------------------------------------------------------------"
-# Compile integration testbench
-if iverilog -o tb_fpu_integration_simple tb_fpu_integration_simple.v \
-    FPU8087_Integrated.v FPU_CPU_Interface.v FPU_Core_Wrapper.v 2>&1 | tee integration_compile.log; then
-    echo -e "${GREEN}✓ Integration testbench compiled${NC}"
+if [ $IVERILOG_AVAILABLE -eq 1 ]; then
+    # Compile integration testbench
+    if iverilog -o tb_fpu_integration_simple tb_fpu_integration_simple.v \
+        FPU8087_Integrated.v FPU_CPU_Interface.v FPU_Core_Wrapper.v 2>&1 | tee integration_compile.log; then
+        echo -e "${GREEN}✓ Integration testbench compiled${NC}"
 
-    # Run integration tests
-    if vvp tb_fpu_integration_simple > integration_test_output.txt 2>&1; then
-        cat integration_test_output.txt
-        if grep -q "ALL TESTS PASSED" integration_test_output.txt; then
-            INTEGRATION_PASSED=1
-            echo -e "${GREEN}✓ Integration tests PASSED${NC}"
+        # Run integration tests
+        if vvp tb_fpu_integration_simple > integration_test_output.txt 2>&1; then
+            cat integration_test_output.txt
+            if grep -q "ALL TESTS PASSED" integration_test_output.txt; then
+                INTEGRATION_PASSED=1
+                echo -e "${GREEN}✓ Integration tests PASSED${NC}"
+            else
+                echo -e "${RED}✗ Integration tests FAILED${NC}"
+                TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+            fi
         else
-            echo -e "${RED}✗ Integration tests FAILED${NC}"
+            cat integration_test_output.txt
+            echo -e "${RED}✗ Integration simulation FAILED${NC}"
             TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
         fi
     else
-        cat integration_test_output.txt
-        echo -e "${RED}✗ Integration simulation FAILED${NC}"
+        echo -e "${RED}✗ Integration testbench compilation FAILED${NC}"
         TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
     fi
 else
-    echo -e "${RED}✗ Integration testbench compilation FAILED${NC}"
-    TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+    echo -e "${YELLOW}⊘ Integration tests SKIPPED (iverilog not available)${NC}"
+    INTEGRATION_SKIPPED=1
 fi
 echo ""
 
 echo "${BLUE}[6/6] Running CPU-FPU Connection Tests...${NC}"
 echo "------------------------------------------------------------"
-# Compile CPU-FPU connection testbench
-if iverilog -o tb_cpu_fpu_final tb_cpu_fpu_final.v \
-    CPU_FPU_Adapter.v FPU8087_Integrated.v FPU_CPU_Interface.v FPU_Core_Wrapper.v 2>&1 | tee cpu_fpu_compile.log; then
-    echo -e "${GREEN}✓ CPU-FPU testbench compiled${NC}"
+if [ $IVERILOG_AVAILABLE -eq 1 ]; then
+    # Compile CPU-FPU connection testbench
+    if iverilog -o tb_cpu_fpu_final tb_cpu_fpu_final.v \
+        CPU_FPU_Adapter.v FPU8087_Integrated.v FPU_CPU_Interface.v FPU_Core_Wrapper.v 2>&1 | tee cpu_fpu_compile.log; then
+        echo -e "${GREEN}✓ CPU-FPU testbench compiled${NC}"
 
-    # Run CPU-FPU connection tests
-    if vvp tb_cpu_fpu_final > cpu_fpu_test_output.txt 2>&1; then
-        cat cpu_fpu_test_output.txt
-        if grep -q "ALL TESTS PASSED" cpu_fpu_test_output.txt; then
-            CPU_FPU_PASSED=1
-            echo -e "${GREEN}✓ CPU-FPU connection tests PASSED${NC}"
+        # Run CPU-FPU connection tests
+        if vvp tb_cpu_fpu_final > cpu_fpu_test_output.txt 2>&1; then
+            cat cpu_fpu_test_output.txt
+            if grep -q "ALL TESTS PASSED" cpu_fpu_test_output.txt; then
+                CPU_FPU_PASSED=1
+                echo -e "${GREEN}✓ CPU-FPU connection tests PASSED${NC}"
+            else
+                echo -e "${RED}✗ CPU-FPU connection tests FAILED${NC}"
+                TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+            fi
         else
-            echo -e "${RED}✗ CPU-FPU connection tests FAILED${NC}"
+            cat cpu_fpu_test_output.txt
+            echo -e "${RED}✗ CPU-FPU simulation FAILED${NC}"
             TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
         fi
     else
-        cat cpu_fpu_test_output.txt
-        echo -e "${RED}✗ CPU-FPU simulation FAILED${NC}"
+        echo -e "${RED}✗ CPU-FPU testbench compilation FAILED${NC}"
         TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
     fi
 else
-    echo -e "${RED}✗ CPU-FPU testbench compilation FAILED${NC}"
-    TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+    echo -e "${YELLOW}⊘ CPU-FPU connection tests SKIPPED (iverilog not available)${NC}"
+    CPU_FPU_SKIPPED=1
 fi
 echo ""
 
@@ -158,27 +192,41 @@ fi
 
 if [ $VERILOG_PASSED -eq 1 ]; then
     echo -e "${GREEN}✓ Verilog Simulation Tests:  PASSED (10/10)${NC}"
+elif [ $VERILOG_SKIPPED -eq 1 ]; then
+    echo -e "${YELLOW}⊘ Verilog Simulation Tests:  SKIPPED${NC}"
 else
     echo -e "${RED}✗ Verilog Simulation Tests:  FAILED${NC}"
 fi
 
 if [ $INTEGRATION_PASSED -eq 1 ]; then
     echo -e "${GREEN}✓ FPU Integration Tests:     PASSED (5/5)${NC}"
+elif [ $INTEGRATION_SKIPPED -eq 1 ]; then
+    echo -e "${YELLOW}⊘ FPU Integration Tests:     SKIPPED${NC}"
 else
     echo -e "${RED}✗ FPU Integration Tests:     FAILED${NC}"
 fi
 
 if [ $CPU_FPU_PASSED -eq 1 ]; then
     echo -e "${GREEN}✓ CPU-FPU Connection Tests:  PASSED (5/5)${NC}"
+elif [ $CPU_FPU_SKIPPED -eq 1 ]; then
+    echo -e "${YELLOW}⊘ CPU-FPU Connection Tests:  SKIPPED${NC}"
 else
     echo -e "${RED}✗ CPU-FPU Connection Tests:  FAILED${NC}"
 fi
 echo "------------------------------------------------------------"
 
 if [ $TOTAL_ERRORS -eq 0 ]; then
-    echo -e "${GREEN}"
-    echo "🎉 ALL TEST SUITES PASSED! 🎉"
-    echo -e "${NC}"
+    TOTAL_SKIPPED=$((VERILOG_SKIPPED + INTEGRATION_SKIPPED + CPU_FPU_SKIPPED))
+    if [ $TOTAL_SKIPPED -gt 0 ]; then
+        echo -e "${GREEN}"
+        echo "✓ ALL AVAILABLE TEST SUITES PASSED!"
+        echo -e "${YELLOW}  Note: $TOTAL_SKIPPED test suite(s) skipped due to missing iverilog${NC}"
+        echo -e "${NC}"
+    else
+        echo -e "${GREEN}"
+        echo "🎉 ALL TEST SUITES PASSED! 🎉"
+        echo -e "${NC}"
+    fi
     exit 0
 else
     echo -e "${RED}"
