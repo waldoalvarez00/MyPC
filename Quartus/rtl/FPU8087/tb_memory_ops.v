@@ -107,8 +107,9 @@ module tb_memory_ops;
         //=================================================================
         $display("Test 1: FLD m32real (load 32-bit float)");
         // Input: 3.14159 in IEEE 754 single precision = 0x40490FDB
+        // When converted to FP80, mantissa is zero-padded (no precision gain)
         test_fld_memory(32'h40490FDB, 2'd1, 1'b0, 1'b0,  // size=dword, not int, not BCD
-                       80'h400_19_21FB54442D18, "3.14159 (FP32)");
+                       80'h4000C90FDB0000000000, "3.14159 (FP32)");
         $display("");
 
         //=================================================================
@@ -116,8 +117,9 @@ module tb_memory_ops;
         //=================================================================
         $display("Test 2: FLD m64real (load 64-bit float)");
         // Input: 2.718281828 in IEEE 754 double precision = 0x4005BF0A8B145769
+        // When converted to FP80, mantissa is zero-padded (no precision gain)
         test_fld_memory(64'h4005BF0A8B145769, 2'd2, 1'b0, 1'b0,  // size=qword
-                       80'h4000_ADF85458A2BB4A, "2.71828 (FP64)");
+                       80'h4000ADF85458A2BB4800, "2.71828 (FP64)");
         $display("");
 
         //=================================================================
