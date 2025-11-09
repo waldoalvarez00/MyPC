@@ -256,6 +256,7 @@ module FPU_Core(
     localparam STATE_STACK_OP      = 3'd4;
     localparam STATE_DONE          = 3'd5;
     localparam STATE_FSINCOS_PUSH  = 3'd6;  // Second cycle of FSINCOS writeback
+    localparam STATE_FXCH_WRITE2   = 3'd7;  // Second cycle of FXCH writeback
 
     reg [2:0] state;
     reg [7:0] current_inst;
@@ -668,6 +669,16 @@ module FPU_Core(
                             state <= STATE_DONE;
                         end
 
+                        INST_FXCH: begin
+                            // Exchange ST(0) with ST(i)
+                            // temp_operand_a = ST(0), temp_operand_b = ST(i)
+                            // Swap them for writeback
+                            temp_result <= temp_operand_b;            // ST(i) → will write to ST(0)
+                            temp_result_secondary <= temp_operand_a;  // ST(0) → will write to ST(i)
+                            has_secondary_result <= 1'b1;
+                            state <= STATE_WRITEBACK;
+                        end
+
                         INST_FCLEX: begin
                             status_clear_exc <= 1'b1;
                             state <= STATE_DONE;
@@ -710,6 +721,23 @@ module FPU_Core(
                             stack_data_in <= temp_result;
                             stack_write_enable <= 1'b1;
                             state <= STATE_DONE;
+                        end
+
+                        // FXCH: Exchange ST(0) with ST(i)
+                        // Implementation (two cycles):
+                        //   Cycle 1: Write ST(i) value to ST(0)
+                        //   Cycle 2: Write ST(0) value to ST(i)
+                        INST_FXCH: begin
+                            if (has_secondary_result) begin
+                                // Write old ST(i) value to ST(0)
+                                stack_write_reg <= 3'd0;
+                                stack_data_in <= temp_result;             // old ST(i)
+                                stack_write_enable <= 1'b1;
+                                state <= STATE_FXCH_WRITE2;  // Go to second write
+                            end else begin
+                                // Fallback: no exchange needed
+                                state <= STATE_DONE;
+                            end
                         end
 
                         // FSINCOS: Special case - returns both sin and cos
@@ -762,6 +790,14 @@ module FPU_Core(
                     // Second cycle of FSINCOS: write cos(θ) to ST(0)
                     stack_write_reg <= 3'd0;
                     stack_data_in <= temp_result_secondary;  // cos(θ)
+                    stack_write_enable <= 1'b1;
+                    state <= STATE_DONE;
+                end
+
+                STATE_FXCH_WRITE2: begin
+                    // Second cycle of FXCH: write old ST(0) value to ST(i)
+                    stack_write_reg <= current_index;
+                    stack_data_in <= temp_result_secondary;  // old ST(0)
                     stack_write_enable <= 1'b1;
                     state <= STATE_DONE;
                 end
