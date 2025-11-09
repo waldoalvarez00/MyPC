@@ -22,3 +22,9 @@ modelsim/simple_uart_test
 *.vcd
 *.out
 __pycache__/
+
+# FPU test outputs
+*_test_output.txt
+verilog_files.txt
+Quartus/rtl/FPU8087/tb_microcode
+verilog_compile.log
