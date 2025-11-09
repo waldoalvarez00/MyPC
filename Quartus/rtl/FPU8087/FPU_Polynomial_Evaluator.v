@@ -77,32 +77,57 @@ module FPU_Polynomial_Evaluator(
     );
 
     //=================================================================
-    // Arithmetic Units (simplified interface)
-    //
-    // In a complete implementation, these would connect to the
-    // existing FPU_IEEE754_Multiply and FPU_IEEE754_AddSub modules.
-    // For now, we use placeholder modules or assume they exist.
+    // Arithmetic Units
     //=================================================================
 
     // Multiply: accumulator * x_value
     reg mul_enable;
     wire [79:0] mul_result;
     wire mul_done;
-
-    // Simplified multiply (replace with real FPU_IEEE754_Multiply)
+    wire mul_invalid, mul_overflow, mul_underflow, mul_inexact;
     reg [79:0] mul_operand_a, mul_operand_b;
-    assign mul_result = 80'h0;  // Placeholder
-    assign mul_done = 1'b1;     // Placeholder
+
+    FPU_IEEE754_Multiply mul_unit (
+        .clk(clk),
+        .reset(reset),
+        .enable(mul_enable),
+        .operand_a(mul_operand_a),
+        .operand_b(mul_operand_b),
+        .rounding_mode(2'b00),  // Round to nearest
+        .result(mul_result),
+        .done(mul_done),
+        .flag_invalid(mul_invalid),
+        .flag_overflow(mul_overflow),
+        .flag_underflow(mul_underflow),
+        .flag_inexact(mul_inexact)
+    );
 
     // Add: mul_result + coefficient
     reg add_enable;
     wire [79:0] add_result;
     wire add_done;
-
-    // Simplified add (replace with real FPU_IEEE754_AddSub)
+    wire add_cmp_equal, add_cmp_less, add_cmp_greater;
+    wire add_invalid, add_overflow, add_underflow, add_inexact;
     reg [79:0] add_operand_a, add_operand_b;
-    assign add_result = 80'h0;  // Placeholder
-    assign add_done = 1'b1;     // Placeholder
+
+    FPU_IEEE754_AddSub add_unit (
+        .clk(clk),
+        .reset(reset),
+        .enable(add_enable),
+        .operand_a(add_operand_a),
+        .operand_b(add_operand_b),
+        .subtract(1'b0),  // Addition only
+        .rounding_mode(2'b00),  // Round to nearest
+        .result(add_result),
+        .done(add_done),
+        .cmp_equal(add_cmp_equal),
+        .cmp_less(add_cmp_less),
+        .cmp_greater(add_cmp_greater),
+        .flag_invalid(add_invalid),
+        .flag_overflow(add_overflow),
+        .flag_underflow(add_underflow),
+        .flag_inexact(add_inexact)
+    );
 
     //=================================================================
     // Main State Machine

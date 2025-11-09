@@ -89,38 +89,80 @@ module FPU_SQRT_Newton(
     wire is_negative = sign_in && !is_zero;
 
     //=================================================================
-    // Arithmetic Units (placeholders - to be connected to real units)
+    // Arithmetic Units
     //=================================================================
 
     // Divide: S / x_current
     reg div_enable;
     wire [79:0] div_result;
     wire div_done;
+    wire div_invalid, div_div_by_zero, div_overflow, div_underflow, div_inexact;
     reg [79:0] div_operand_a, div_operand_b;
 
-    // Placeholder (replace with FPU_IEEE754_Divide)
-    assign div_result = 80'h0;
-    assign div_done = 1'b1;
+    FPU_IEEE754_Divide div_unit (
+        .clk(clk),
+        .reset(reset),
+        .enable(div_enable),
+        .operand_a(div_operand_a),
+        .operand_b(div_operand_b),
+        .rounding_mode(2'b00),  // Round to nearest (default)
+        .result(div_result),
+        .done(div_done),
+        .flag_invalid(div_invalid),
+        .flag_div_by_zero(div_div_by_zero),
+        .flag_overflow(div_overflow),
+        .flag_underflow(div_underflow),
+        .flag_inexact(div_inexact)
+    );
 
     // Add: x_current + (S / x_current)
     reg add_enable;
     wire [79:0] add_result;
     wire add_done;
+    wire add_cmp_equal, add_cmp_less, add_cmp_greater;
+    wire add_invalid, add_overflow, add_underflow, add_inexact;
     reg [79:0] add_operand_a, add_operand_b;
 
-    // Placeholder (replace with FPU_IEEE754_AddSub)
-    assign add_result = 80'h0;
-    assign add_done = 1'b1;
+    FPU_IEEE754_AddSub add_unit (
+        .clk(clk),
+        .reset(reset),
+        .enable(add_enable),
+        .operand_a(add_operand_a),
+        .operand_b(add_operand_b),
+        .subtract(1'b0),  // Addition only
+        .rounding_mode(2'b00),  // Round to nearest
+        .result(add_result),
+        .done(add_done),
+        .cmp_equal(add_cmp_equal),
+        .cmp_less(add_cmp_less),
+        .cmp_greater(add_cmp_greater),
+        .flag_invalid(add_invalid),
+        .flag_overflow(add_overflow),
+        .flag_underflow(add_underflow),
+        .flag_inexact(add_inexact)
+    );
 
     // Multiply: result * 0.5
     reg mul_enable;
     wire [79:0] mul_result;
     wire mul_done;
+    wire mul_invalid, mul_overflow, mul_underflow, mul_inexact;
     reg [79:0] mul_operand_a, mul_operand_b;
 
-    // Placeholder (replace with FPU_IEEE754_Multiply)
-    assign mul_result = 80'h0;
-    assign mul_done = 1'b1;
+    FPU_IEEE754_Multiply mul_unit (
+        .clk(clk),
+        .reset(reset),
+        .enable(mul_enable),
+        .operand_a(mul_operand_a),
+        .operand_b(mul_operand_b),
+        .rounding_mode(2'b00),  // Round to nearest
+        .result(mul_result),
+        .done(mul_done),
+        .flag_invalid(mul_invalid),
+        .flag_overflow(mul_overflow),
+        .flag_underflow(mul_underflow),
+        .flag_inexact(mul_inexact)
+    );
 
     //=================================================================
     // Initial Approximation
