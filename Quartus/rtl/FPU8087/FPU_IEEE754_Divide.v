@@ -76,13 +76,16 @@ module FPU_IEEE754_Divide(
 
     reg        result_sign;
     reg signed [16:0] result_exp;   // 17-bit signed to handle overflow/underflow
-    reg [127:0] dividend;           // Extended dividend for division
+    reg signed [128:0] remainder;   // Signed partial remainder (129-bit for sign)
     reg [63:0]  divisor;            // Divisor
     reg [66:0]  quotient;           // Quotient with guard/round/sticky
     reg [66:0]  result_mant;        // Normalized result with guard/round/sticky
 
     reg        round_bit, sticky_bit;
     reg [6:0]  div_count;           // Division iteration counter
+    reg        remainder_negative;  // Track if remainder is negative
+    reg        pre_shifted;         // Flag: dividend was pre-shifted for mant_a < mant_b
+    reg        do_subtract;         // Temp flag for division iteration
 
     //=================================================================
     // Special Value Detection
@@ -201,47 +204,70 @@ module FPU_IEEE754_Divide(
                         // result_exp = exp_a - exp_b + 16383 (using 17-bit signed arithmetic)
                         result_exp = {2'b00, exp_a} - {2'b00, exp_b} + 17'sd16383;
 
-                        // Perform division: mant_a / mant_b
+                        // Restoring Division with pre-normalization for mant_a < mant_b
                         divisor = mant_b;
                         quotient = 67'd0;
 
-                        // When mant_a < mant_b, use extended precision dividend
-                        // Place mant_a in both upper and lower halves for continuous precision through shifts
-                        if (mant_a >= mant_b) begin
-                            // Standard case: quotient leading 1 should be at bit 66 or 65
-                            dividend = {mant_a, 64'd0};
-                            div_count = 7'd0;
+                        // For mant_a < mant_b: pre-shift by placing mant_a in bits [128:65]
+                        // For mant_a >= mant_b: standard placement in bits [127:64]
+                        if (mant_a < mant_b) begin
+                            remainder = {mant_a, 65'd0};              // mant_a in [128:65], zeros in [64:0]
+                            result_exp = result_exp - 17'sd1;         // Compensate exponent
+                            pre_shifted = 1'b1;
+                            $display("[DIV_DEBUG] Pre-shift: mant_a < mant_b, mant_a in [128:65]=0x%016X",
+                                     remainder[128:65]);
                         end else begin
-                            // mant_a < mant_b: use extended precision to ensure some iterations succeed
-                            // Lower bits = right-shifted mant_a to provide gradual precision
-                            dividend = {mant_a, mant_a >> 1};
-                            div_count = 7'd0;
-                            result_exp = result_exp - 17'sd1;  // Adjust for effective alignment
+                            remainder = {1'b0, mant_a, 64'd0};        // mant_a in [127:64]
+                            pre_shifted = 1'b0;
                         end
+
+                        div_count = 7'd0;
+                        remainder_negative = 1'b0;
 
                         state <= STATE_NORMALIZE;
                     end
                 end
 
                 STATE_NORMALIZE: begin
-                    // Perform iterative division (67 iterations for 67-bit quotient)
+                    // Restoring Division Algorithm (67 iterations for 67-bit quotient)
                     if (div_count < 7'd67) begin
-                        // Non-restoring division algorithm (simplified)
                         if (div_count == 7'd0) begin
-                            $display("[DIV_DEBUG] START iteration: dividend[127:64]=0x%016X, divisor=0x%016X, div_count=%0d",
-                                     dividend[127:64], divisor, div_count);
+                            if (pre_shifted)
+                                $display("[DIV_DEBUG] START Restoring (pre-shifted): remainder[128:65]=0x%016X, divisor=0x%016X",
+                                         remainder[128:65], divisor);
+                            else
+                                $display("[DIV_DEBUG] START Restoring Division: remainder[127:64]=0x%016X, divisor=0x%016X",
+                                         remainder[127:64], divisor);
                         end
-                        if (dividend[127:64] >= divisor) begin
-                            dividend[127:64] = dividend[127:64] - divisor;
+
+                        // Restoring division: compare appropriate bits with divisor
+                        // First iteration of pre-shifted uses [128:65], then shifts to normal [127:64]
+                        if (pre_shifted && div_count == 7'd0)
+                            do_subtract = (remainder[128:65] >= divisor);
+                        else
+                            do_subtract = (remainder[127:64] >= divisor);
+
+                        if (do_subtract) begin
+                            // Subtract divisor and set quotient bit
+                            if (pre_shifted && div_count == 7'd0)
+                                remainder[128:65] = remainder[128:65] - divisor;
+                            else
+                                remainder[127:64] = remainder[127:64] - divisor;
                             quotient[66 - div_count] = 1'b1;
-                            if (div_count < 7'd5) $display("[DIV_DEBUG] Iter %0d: HIT, quotient bit %0d set", div_count, 66 - div_count);
+                            if (div_count < 7'd5)
+                                $display("[DIV_DEBUG] Iter %0d: HIT, Q[%0d]=1", div_count, 66-div_count);
                         end else begin
-                            if (div_count < 7'd5) $display("[DIV_DEBUG] Iter %0d: MISS, dividend[127:64]=0x%016X < divisor=0x%016X",
-                                                          div_count, dividend[127:64], divisor);
+                            // Don't subtract, quotient bit stays 0
+                            if (div_count < 7'd5)
+                                $display("[DIV_DEBUG] Iter %0d: MISS, Q[%0d]=0", div_count, 66-div_count);
                         end
-                        dividend = dividend << 1;
+
+                        // Shift remainder left for next iteration (clears pre_shifted alignment after first iter)
+                        remainder = remainder << 1;
+                        if (pre_shifted) pre_shifted = 1'b0;  // After first shift, back to normal alignment
                         div_count = div_count + 7'd1;
                     end else begin
+                        // Division complete
                         // Division complete
                         result_mant = quotient;
                         $display("[DIV_DEBUG] quotient=0x%017X, bit[66]=%b, bit[65]=%b", quotient, quotient[66], quotient[65]);

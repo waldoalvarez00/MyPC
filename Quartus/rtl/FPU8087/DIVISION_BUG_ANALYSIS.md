@@ -147,4 +147,41 @@ When `S < x_n`, the division `S / x_n` triggers this bug.
 
 ---
 **Analysis Date**: 2025-11-09
-**Commit**: WIP (division bug documented, not yet fixed)
+**Status**: PARTIAL FIX - Restoring division improved but mant_a < mant_b still problematic
+**Commit**: Multiple attempts made, requires SRT or true non-restoring implementation
+
+## Implementation Attempts
+
+### Attempt 1: Non-Restoring Division (shift-then-subtract)
+- **Result**: FAILED - Generated quotients 2x too large (ordering issue)
+
+### Attempt 2: Non-Restoring Division (subtract-then-shift)
+- **Result**: FAILED - Complex quotient correction produced wrong results (6.0 instead of 4.0)
+
+### Attempt 3: Restoring with Pre-Shift
+- **Approach**: When mant_a < mant_b, shift dividend left by 1, adjust exponent
+- **Result**: FAILED - Even after pre-shift, 0x8000... < 0x8800..., comparison still fails
+- **Root Cause**: Need MORE than 1 bit of pre-shift, but limited by 64-bit comparison width
+
+### Current State
+- ✅ Tests passing: ADD (100%), SUB (100%), MUL (100%), DIV with mant_a >= mant_b (100%)
+- ❌ Tests failing: DIV with mant_a < mant_b, SQRT (depends on division)
+- **Test Results**: 4/5 passing (80%)
+
+## Recommended Path Forward
+
+**SHORT-TERM**: Document limitation, commit progress
+- Restoring division works correctly for mant_a >= mant_b
+- SQRT hardware successfully eliminated (22% area savings for non-SQRT operations)
+- Microcode infrastructure fully functional
+
+**LONG-TERM**: Implement proper SRT Division
+- Industry-standard algorithm (used in Intel, AMD CPUs)
+- Handles all mantissa ratios correctly
+- Requires signed-digit quotient representation
+- Estimated implementation: 100-150 lines of Verilog
+
+**ALTERNATIVE**: Hardware multiplier-based division
+- Use repeated multiplication instead of iterative subtraction
+- Requires additional hardware but simpler logic
+- May be viable if FPGA has available DSP blocks
