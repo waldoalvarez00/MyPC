@@ -21,9 +21,10 @@ NC='\033[0m' # No Color
 PYTHON_PASSED=0
 VERILOG_PASSED=0
 INTERFACE_PASSED=0
+INTEGRATION_PASSED=0
 TOTAL_ERRORS=0
 
-echo "${BLUE}[1/4] Running Python Simulator Tests...${NC}"
+echo "${BLUE}[1/5] Running Python Simulator Tests...${NC}"
 echo "------------------------------------------------------------"
 if python3 test_microcode.py > python_test_output.txt 2>&1; then
     cat python_test_output.txt
@@ -36,7 +37,7 @@ else
 fi
 echo ""
 
-echo "${BLUE}[2/4] Running FPU-CPU Interface Tests...${NC}"
+echo "${BLUE}[2/5] Running FPU-CPU Interface Tests...${NC}"
 echo "------------------------------------------------------------"
 if python3 test_fpu_interface.py > interface_test_output.txt 2>&1; then
     cat interface_test_output.txt
@@ -49,7 +50,7 @@ else
 fi
 echo ""
 
-echo "${BLUE}[3/4] Compiling Verilog Testbench...${NC}"
+echo "${BLUE}[3/5] Compiling Verilog Testbench...${NC}"
 echo "------------------------------------------------------------"
 if iverilog -o tb_microcode tb_microcode.v absunit.sv \
     8087Status.v AddSubComp.v BarrelShifter.v BitShifter.v ByteShifter.v \
@@ -63,7 +64,7 @@ else
 fi
 echo ""
 
-echo "${BLUE}[4/4] Running Verilog Simulation Tests...${NC}"
+echo "${BLUE}[4/5] Running Verilog Simulation Tests...${NC}"
 echo "------------------------------------------------------------"
 if vvp tb_microcode > verilog_test_output.txt 2>&1; then
     cat verilog_test_output.txt
@@ -78,6 +79,34 @@ if vvp tb_microcode > verilog_test_output.txt 2>&1; then
 else
     cat verilog_test_output.txt
     echo -e "${RED}✗ Verilog simulation FAILED${NC}"
+    TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+fi
+echo ""
+
+echo "${BLUE}[5/5] Running FPU Integration Tests...${NC}"
+echo "------------------------------------------------------------"
+# Compile integration testbench
+if iverilog -o tb_fpu_integration_simple tb_fpu_integration_simple.v \
+    FPU8087_Integrated.v FPU_CPU_Interface.v FPU_Core_Wrapper.v 2>&1 | tee integration_compile.log; then
+    echo -e "${GREEN}✓ Integration testbench compiled${NC}"
+
+    # Run integration tests
+    if vvp tb_fpu_integration_simple > integration_test_output.txt 2>&1; then
+        cat integration_test_output.txt
+        if grep -q "ALL TESTS PASSED" integration_test_output.txt; then
+            INTEGRATION_PASSED=1
+            echo -e "${GREEN}✓ Integration tests PASSED${NC}"
+        else
+            echo -e "${RED}✗ Integration tests FAILED${NC}"
+            TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+        fi
+    else
+        cat integration_test_output.txt
+        echo -e "${RED}✗ Integration simulation FAILED${NC}"
+        TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+    fi
+else
+    echo -e "${RED}✗ Integration testbench compilation FAILED${NC}"
     TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
 fi
 echo ""
@@ -102,6 +131,12 @@ if [ $VERILOG_PASSED -eq 1 ]; then
     echo -e "${GREEN}✓ Verilog Simulation Tests:  PASSED (10/10)${NC}"
 else
     echo -e "${RED}✗ Verilog Simulation Tests:  FAILED${NC}"
+fi
+
+if [ $INTEGRATION_PASSED -eq 1 ]; then
+    echo -e "${GREEN}✓ FPU Integration Tests:     PASSED (5/5)${NC}"
+else
+    echo -e "${RED}✗ FPU Integration Tests:     FAILED${NC}"
 fi
 echo "------------------------------------------------------------"
 
