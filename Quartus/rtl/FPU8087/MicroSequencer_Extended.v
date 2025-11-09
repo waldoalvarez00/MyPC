@@ -256,6 +256,41 @@ module MicroSequencer_Extended (
         microcode_rom[16'h0163] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
         //-------------------------------------------------------------
+        // Program 9: FPREM - Partial Remainder
+        // Address: 0x0300-0x030F
+        // Computes: ST(0) = remainder of ST(0) / ST(1)
+        // Algorithm: remainder = dividend - (quotient_int * divisor)
+        //-------------------------------------------------------------
+        // Step 1: Divide ST(0) / ST(1) to get quotient
+        microcode_rom[16'h0300] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd3, 15'h0301};      // DIV: temp_result = temp_fp_a / temp_fp_b
+        microcode_rom[16'h0301] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0302};      // Wait for division
+        microcode_rom[16'h0302] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0303};  // Load quotient
+
+        // Step 2: Convert quotient to integer (truncate towards zero)
+        // For now, use the quotient directly - proper implementation would convert to integer
+        // This is a simplified version for demonstration
+
+        // Step 3: Multiply integer quotient by divisor
+        // temp_fp_a already contains original dividend, we need quotient * divisor
+        // Note: This is simplified - full implementation would need temp register juggling
+        microcode_rom[16'h0303] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h0304};      // MUL: temp_result * temp_fp_b
+        microcode_rom[16'h0304] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0305};      // Wait for multiplication
+        microcode_rom[16'h0305] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0306};  // Load product
+
+        // Step 4: Subtract product from original dividend to get remainder
+        // remainder = dividend - product
+        microcode_rom[16'h0306] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd1, 15'h0307};      // SUB: temp_fp_a - temp_result
+        microcode_rom[16'h0307] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0308};      // Wait for subtraction
+        microcode_rom[16'h0308] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0309};  // Load remainder
+        microcode_rom[16'h0309] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+
+        // Note: This is a simplified FPREM. A full implementation would need:
+        // - Integer conversion for quotient
+        // - Condition code setting (C0, C1, C2 for reduction progress)
+        // - Iterative reduction for large operands
+        // - Proper sign handling
+
+        //-------------------------------------------------------------
         // Initialize rest of ROM to HALT
         //-------------------------------------------------------------
         for (i = 0; i < 4096; i = i + 1) begin
