@@ -44,6 +44,7 @@ Quartus/rtl/FPU8087/tb_fpu_core
 Quartus/rtl/FPU8087/tb_fpu_debug
 Quartus/rtl/FPU8087/tb_conv_debug
 Quartus/rtl/FPU8087/tb_int32_simple
+Quartus/rtl/FPU8087/tb_hybrid
 verilog_compile.log
 integration_compile.log
 cpu_fpu_compile.log
