@@ -107,6 +107,11 @@ module FPU_Core(
     localparam INST_FTST        = 8'h63;  // Test ST(0) against 0.0
     localparam INST_FXAM        = 8'h64;  // Examine ST(0) and set condition codes
 
+    // Stack management instructions
+    localparam INST_FINCSTP     = 8'h70;  // Increment stack pointer
+    localparam INST_FDECSTP     = 8'h71;  // Decrement stack pointer
+    localparam INST_FFREE       = 8'h72;  // Mark register as empty
+
     // Control instructions
     localparam INST_FLDCW       = 8'hF0;  // Load control word
     localparam INST_FSTCW       = 8'hF1;  // Store control word
@@ -129,6 +134,10 @@ module FPU_Core(
     reg [2:0]   stack_write_reg;
     reg         stack_write_enable;
     reg [2:0]   stack_read_sel;
+    reg         stack_inc_ptr;     // Increment stack pointer (FINCSTP)
+    reg         stack_dec_ptr;     // Decrement stack pointer (FDECSTP)
+    reg         stack_free_reg;    // Mark register as free (FFREE)
+    reg [2:0]   stack_free_index;  // Index of register to free
 
     FPU_RegisterStack register_stack (
         .clk(clk),
@@ -145,7 +154,11 @@ module FPU_Core(
         .stack_ptr(stack_pointer),
         .tag_word(tag_word),
         .stack_overflow(stack_overflow),
-        .stack_underflow(stack_underflow)
+        .stack_underflow(stack_underflow),
+        .inc_ptr(stack_inc_ptr),
+        .dec_ptr(stack_dec_ptr),
+        .free_reg(stack_free_reg),
+        .free_index(stack_free_index)
     );
 
     // Control Word
@@ -410,6 +423,9 @@ module FPU_Core(
             stack_push <= 1'b0;
             stack_pop <= 1'b0;
             stack_write_enable <= 1'b0;
+            stack_inc_ptr <= 1'b0;
+            stack_dec_ptr <= 1'b0;
+            stack_free_reg <= 1'b0;
             // Note: arith_enable is NOT defaulted to 0, it's explicitly managed
 
             case (state)
@@ -915,6 +931,26 @@ module FPU_Core(
 
                         INST_FCLEX: begin
                             status_clear_exc <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+
+                        // Stack management instructions
+                        INST_FINCSTP: begin
+                            // Increment stack pointer (no data transfer)
+                            stack_inc_ptr <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+
+                        INST_FDECSTP: begin
+                            // Decrement stack pointer (no data transfer)
+                            stack_dec_ptr <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+
+                        INST_FFREE: begin
+                            // Mark register ST(i) as empty
+                            stack_free_reg <= 1'b1;
+                            stack_free_index <= current_index;
                             state <= STATE_DONE;
                         end
 
