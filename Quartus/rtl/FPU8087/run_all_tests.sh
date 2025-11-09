@@ -88,7 +88,7 @@ echo "${BLUE}[5/6] Running FPU Integration Tests...${NC}"
 echo "------------------------------------------------------------"
 # Compile integration testbench
 if iverilog -o tb_fpu_integration_simple tb_fpu_integration_simple.v \
-    FPU8087_Integrated.v FPU_CPU_Interface.v FPU_Core_Wrapper.v 2>&1 | tee integration_compile.log; then
+    FPU8087_Integrated.v FPU_Instruction_Decoder.v FPU_CPU_Interface.v FPU_Core_Wrapper.v 2>&1 | tee integration_compile.log; then
     echo -e "${GREEN}✓ Integration testbench compiled${NC}"
 
     # Run integration tests
@@ -116,7 +116,7 @@ echo "${BLUE}[6/6] Running CPU-FPU Connection Tests...${NC}"
 echo "------------------------------------------------------------"
 # Compile CPU-FPU connection testbench
 if iverilog -o tb_cpu_fpu_final tb_cpu_fpu_final.v \
-    CPU_FPU_Adapter.v FPU8087_Integrated.v FPU_CPU_Interface.v FPU_Core_Wrapper.v 2>&1 | tee cpu_fpu_compile.log; then
+    CPU_FPU_Adapter.v FPU8087_Integrated.v FPU_Instruction_Decoder.v FPU_CPU_Interface.v FPU_Core_Wrapper.v 2>&1 | tee cpu_fpu_compile.log; then
     echo -e "${GREEN}✓ CPU-FPU testbench compiled${NC}"
 
     # Run CPU-FPU connection tests

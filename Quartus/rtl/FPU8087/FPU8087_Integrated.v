@@ -42,6 +42,47 @@ module FPU8087_Integrated(
 );
 
     //=================================================================
+    // Instruction Decoder Signals
+    //=================================================================
+
+    wire [15:0] instruction_word;
+    wire [7:0]  decoded_opcode;
+    wire [2:0]  decoded_stack_index;
+    wire        decoded_has_memory_op;
+    wire        decoded_has_pop;
+    wire        decoded_has_push;
+    wire [1:0]  decoded_operand_size;
+    wire        decoded_is_integer;
+    wire        decoded_is_bcd;
+    wire        decoded_valid;
+    wire        decoded_uses_st0_sti;
+    wire        decoded_uses_sti_st0;
+
+    // Combine opcode and ModR/M into 16-bit instruction
+    assign instruction_word = {cpu_fpu_opcode, cpu_fpu_modrm};
+
+    //=================================================================
+    // FPU Instruction Decoder
+    //=================================================================
+
+    FPU_Instruction_Decoder decoder (
+        .instruction(instruction_word),
+        .decode(cpu_fpu_instr_valid),
+
+        .internal_opcode(decoded_opcode),
+        .stack_index(decoded_stack_index),
+        .has_memory_op(decoded_has_memory_op),
+        .has_pop(decoded_has_pop),
+        .has_push(decoded_has_push),
+        .operand_size(decoded_operand_size),
+        .is_integer(decoded_is_integer),
+        .is_bcd(decoded_is_bcd),
+        .valid(decoded_valid),
+        .uses_st0_sti(decoded_uses_st0_sti),
+        .uses_sti_st0(decoded_uses_sti_st0)
+    );
+
+    //=================================================================
     // Interface to Core Signals
     //=================================================================
 
@@ -58,6 +99,9 @@ module FPU8087_Integrated(
 
     //=================================================================
     // FPU Interface Module
+    // NOTE: Currently uses original interface signals. The decoder
+    // outputs (decoded_opcode, decoded_stack_index, decoded_has_memory_op, etc.)
+    // are available for future integration when memory operations are implemented.
     //=================================================================
 
     FPU_CPU_Interface interface (
@@ -65,9 +109,9 @@ module FPU8087_Integrated(
         .reset(reset),
 
         // CPU Side
-        .cpu_fpu_instr_valid(cpu_fpu_instr_valid),
-        .cpu_fpu_opcode(cpu_fpu_opcode),
-        .cpu_fpu_modrm(cpu_fpu_modrm),
+        .cpu_fpu_instr_valid(cpu_fpu_instr_valid && decoded_valid),  // Only acknowledge valid decoded instructions
+        .cpu_fpu_opcode(decoded_opcode),          // Pass decoded opcode to interface
+        .cpu_fpu_modrm({5'b0, decoded_stack_index}),  // Pass decoded stack index
         .cpu_fpu_instr_ack(cpu_fpu_instr_ack),
 
         .cpu_fpu_data_write(cpu_fpu_data_write),
