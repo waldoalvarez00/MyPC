@@ -7,7 +7,7 @@
 set -e  # Exit on any error
 
 echo "============================================================"
-echo "FPU MICROCODE COMPREHENSIVE TEST SUITE"
+echo "FPU COMPREHENSIVE TEST SUITE"
 echo "============================================================"
 echo ""
 
@@ -20,9 +20,10 @@ NC='\033[0m' # No Color
 # Track test results
 PYTHON_PASSED=0
 VERILOG_PASSED=0
+INTERFACE_PASSED=0
 TOTAL_ERRORS=0
 
-echo "${BLUE}[1/3] Running Python Simulator Tests...${NC}"
+echo "${BLUE}[1/4] Running Python Simulator Tests...${NC}"
 echo "------------------------------------------------------------"
 if python3 test_microcode.py > python_test_output.txt 2>&1; then
     cat python_test_output.txt
@@ -35,7 +36,20 @@ else
 fi
 echo ""
 
-echo "${BLUE}[2/3] Compiling Verilog Testbench...${NC}"
+echo "${BLUE}[2/4] Running FPU-CPU Interface Tests...${NC}"
+echo "------------------------------------------------------------"
+if python3 test_fpu_interface.py > interface_test_output.txt 2>&1; then
+    cat interface_test_output.txt
+    INTERFACE_PASSED=1
+    echo -e "${GREEN}✓ Interface tests PASSED${NC}"
+else
+    cat interface_test_output.txt
+    echo -e "${RED}✗ Interface tests FAILED${NC}"
+    TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+fi
+echo ""
+
+echo "${BLUE}[3/4] Compiling Verilog Testbench...${NC}"
 echo "------------------------------------------------------------"
 if iverilog -o tb_microcode tb_microcode.v absunit.sv \
     8087Status.v AddSubComp.v BarrelShifter.v BitShifter.v ByteShifter.v \
@@ -49,7 +63,7 @@ else
 fi
 echo ""
 
-echo "${BLUE}[3/3] Running Verilog Simulation Tests...${NC}"
+echo "${BLUE}[4/4] Running Verilog Simulation Tests...${NC}"
 echo "------------------------------------------------------------"
 if vvp tb_microcode > verilog_test_output.txt 2>&1; then
     cat verilog_test_output.txt
@@ -76,6 +90,12 @@ if [ $PYTHON_PASSED -eq 1 ]; then
     echo -e "${GREEN}✓ Python Simulator Tests:    PASSED (13/13)${NC}"
 else
     echo -e "${RED}✗ Python Simulator Tests:    FAILED${NC}"
+fi
+
+if [ $INTERFACE_PASSED -eq 1 ]; then
+    echo -e "${GREEN}✓ FPU-CPU Interface Tests:   PASSED (12/12)${NC}"
+else
+    echo -e "${RED}✗ FPU-CPU Interface Tests:   FAILED${NC}"
 fi
 
 if [ $VERILOG_PASSED -eq 1 ]; then
