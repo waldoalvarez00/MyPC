@@ -44,7 +44,11 @@ module tb_stack_mgmt;
         .data_out(data_out),
         .int_data_in(32'h0),
         .int_data_out(),
-        .control_in(16'h037F),  // Default control word
+        .has_memory_op(1'b0),      // No memory operations in this test
+        .operand_size(2'd0),        // N/A
+        .is_integer(1'b0),          // N/A
+        .is_bcd(1'b0),              // N/A
+        .control_in(16'h037F),      // Default control word
         .control_write(1'b0),
         .status_out(status_out),
         .control_out(),
