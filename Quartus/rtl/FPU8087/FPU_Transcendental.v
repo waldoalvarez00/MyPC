@@ -264,11 +264,13 @@ module FPU_Transcendental(
                             case (current_operation)
                                 OP_SIN: begin
                                     result_primary <= cordic_sin_out;
+                                    $display("[CORDIC DEBUG] SIN: cordic_sin_out=0x%020X", cordic_sin_out);
                                     state <= STATE_DONE;
                                 end
 
                                 OP_COS: begin
                                     result_primary <= cordic_cos_out;
+                                    $display("[CORDIC DEBUG] COS: cordic_cos_out=0x%020X", cordic_cos_out);
                                     state <= STATE_DONE;
                                 end
 
