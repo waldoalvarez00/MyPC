@@ -660,6 +660,12 @@ module FPU_Core(
                             state <= STATE_WRITEBACK;
                         end
 
+                        INST_FST: begin
+                            // Read from stack and output to data_out
+                            data_out <= temp_operand_a;  // temp_operand_a contains ST(i)
+                            state <= STATE_DONE;
+                        end
+
                         INST_FCLEX: begin
                             status_clear_exc <= 1'b1;
                             state <= STATE_DONE;
