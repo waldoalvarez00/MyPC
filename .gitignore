@@ -33,6 +33,8 @@ Quartus/rtl/FPU8087/tb_cpu_fpu_debug
 Quartus/rtl/FPU8087/tb_cpu_fpu_complete
 Quartus/rtl/FPU8087/tb_cpu_fpu_fixed
 Quartus/rtl/FPU8087/tb_ieee754_addsub
+Quartus/rtl/FPU8087/tb_ieee754_multiply
+Quartus/rtl/FPU8087/tb_ieee754_divide
 verilog_compile.log
 integration_compile.log
 cpu_fpu_compile.log
