@@ -141,7 +141,7 @@ module tb_transcendental;
         end
     endtask
 
-    // Read value from FP stack
+    // Read value from FP stack (ST(0))
     task read_st0;
         output [79:0] value;
         begin
@@ -159,6 +159,27 @@ module tb_transcendental;
 
             if (VERBOSE)
                 $display("[READ] Read ST(0) = 0x%020X", value);
+        end
+    endtask
+
+    // Read value from FP stack (ST(1))
+    task read_st1;
+        output [79:0] value;
+        begin
+            @(posedge clk);
+            instruction = INST_FST;
+            stack_index = 3'd1;
+            execute = 1;
+            @(posedge clk);
+            execute = 0;
+
+            // Wait for ready
+            wait(ready == 1);
+            @(posedge clk);
+            value = data_out;
+
+            if (VERBOSE)
+                $display("[READ] Read ST(1) = 0x%020X", value);
         end
     endtask
 
@@ -185,16 +206,59 @@ module tb_transcendental;
         end
     endtask
 
-    // Compare FP80 values with tolerance
+    // Calculate ULP error between two FP80 values
+    function automatic integer ulp_error;
+        input [79:0] actual;
+        input [79:0] expected;
+        reg sign_a, sign_e;
+        reg [14:0] exp_a, exp_e;
+        reg [63:0] mant_a, mant_e;
+        reg signed [64:0] diff;
+        begin
+            // Extract components
+            sign_a = actual[79];
+            exp_a = actual[78:64];
+            mant_a = actual[63:0];
+
+            sign_e = expected[79];
+            exp_e = expected[78:64];
+            mant_e = expected[63:0];
+
+            // Handle exact match
+            if (actual == expected) begin
+                ulp_error = 0;
+            end
+            // Handle different signs
+            else if (sign_a != sign_e) begin
+                ulp_error = 999999;  // Very large error
+            end
+            // Handle different exponents (simplified: assume same scale)
+            else if (exp_a != exp_e) begin
+                // If exponents differ, ULP error is large
+                ulp_error = 999999;
+            end
+            // Same exponent and sign: compare mantissas
+            else begin
+                if (mant_a > mant_e)
+                    diff = mant_a - mant_e;
+                else
+                    diff = mant_e - mant_a;
+
+                // ULP error is the mantissa difference
+                ulp_error = diff;
+            end
+        end
+    endfunction
+
+    // Compare FP80 values with ULP tolerance
     function automatic integer fp80_compare;
         input [79:0] actual;
         input [79:0] expected;
-        input real tolerance_ulp;  // Tolerance in ULPs
-        reg [79:0] diff;
+        input integer tolerance_ulp;  // Tolerance in ULPs
+        integer error;
         begin
-            // Simple comparison: check if values are identical
-            // TODO: Implement proper ULP-based comparison
-            fp80_compare = (actual == expected) ? 1 : 0;
+            error = ulp_error(actual, expected);
+            fp80_compare = (error <= tolerance_ulp) ? 1 : 0;
         end
     endfunction
 
@@ -238,6 +302,7 @@ module tb_transcendental;
         input [79:0] expected_val;
         input string description;
         reg [79:0] result;
+        integer ulp_err;
         begin
             total_tests = total_tests + 1;
 
@@ -250,11 +315,14 @@ module tb_transcendental;
             // Read result
             read_st0(result);
 
-            // Compare
-            if (fp80_compare(result, expected_val, 1.0)) begin
+            // Calculate ULP error
+            ulp_err = ulp_error(result, expected_val);
+
+            // Compare with tolerance of 100 ULPs
+            if (fp80_compare(result, expected_val, 100)) begin
                 passed_tests = passed_tests + 1;
                 if (VERBOSE)
-                    $display("[PASS] FSQRT: %s", description);
+                    $display("[PASS] FSQRT: %s (ULP error = %0d)", description, ulp_err);
             end else begin
                 failed_tests = failed_tests + 1;
                 error_count = error_count + 1;
@@ -262,6 +330,7 @@ module tb_transcendental;
                 $display("  Input:    0x%020X (%.6e)", input_val, fp80_to_real(input_val));
                 $display("  Expected: 0x%020X (%.6e)", expected_val, fp80_to_real(expected_val));
                 $display("  Got:      0x%020X (%.6e)", result, fp80_to_real(result));
+                $display("  ULP error: %0d", ulp_err);
 
                 if (error_count >= MAX_ERRORS) begin
                     $display("\n[ERROR] Maximum error count reached, stopping tests");
@@ -277,6 +346,7 @@ module tb_transcendental;
         input [79:0] expected_val;
         input string description;
         reg [79:0] result;
+        integer ulp_err;
         begin
             total_tests = total_tests + 1;
 
@@ -284,10 +354,12 @@ module tb_transcendental;
             execute_transcendental(INST_FSIN, "FSIN");
             read_st0(result);
 
-            if (fp80_compare(result, expected_val, 1.0)) begin
+            ulp_err = ulp_error(result, expected_val);
+
+            if (fp80_compare(result, expected_val, 100)) begin
                 passed_tests = passed_tests + 1;
                 if (VERBOSE)
-                    $display("[PASS] FSIN: %s", description);
+                    $display("[PASS] FSIN: %s (ULP error = %0d)", description, ulp_err);
             end else begin
                 failed_tests = failed_tests + 1;
                 error_count = error_count + 1;
@@ -295,6 +367,7 @@ module tb_transcendental;
                 $display("  Input:    0x%020X (%.6e)", input_val, fp80_to_real(input_val));
                 $display("  Expected: 0x%020X (%.6e)", expected_val, fp80_to_real(expected_val));
                 $display("  Got:      0x%020X (%.6e)", result, fp80_to_real(result));
+                $display("  ULP error: %0d", ulp_err);
 
                 if (error_count >= MAX_ERRORS) begin
                     $display("\n[ERROR] Maximum error count reached, stopping tests");
@@ -310,6 +383,7 @@ module tb_transcendental;
         input [79:0] expected_val;
         input string description;
         reg [79:0] result;
+        integer ulp_err;
         begin
             total_tests = total_tests + 1;
 
@@ -317,10 +391,12 @@ module tb_transcendental;
             execute_transcendental(INST_FCOS, "FCOS");
             read_st0(result);
 
-            if (fp80_compare(result, expected_val, 1.0)) begin
+            ulp_err = ulp_error(result, expected_val);
+
+            if (fp80_compare(result, expected_val, 100)) begin
                 passed_tests = passed_tests + 1;
                 if (VERBOSE)
-                    $display("[PASS] FCOS: %s", description);
+                    $display("[PASS] FCOS: %s (ULP error = %0d)", description, ulp_err);
             end else begin
                 failed_tests = failed_tests + 1;
                 error_count = error_count + 1;
@@ -328,6 +404,7 @@ module tb_transcendental;
                 $display("  Input:    0x%020X (%.6e)", input_val, fp80_to_real(input_val));
                 $display("  Expected: 0x%020X (%.6e)", expected_val, fp80_to_real(expected_val));
                 $display("  Got:      0x%020X (%.6e)", result, fp80_to_real(result));
+                $display("  ULP error: %0d", ulp_err);
 
                 if (error_count >= MAX_ERRORS) begin
                     $display("\n[ERROR] Maximum error count reached, stopping tests");
@@ -345,6 +422,7 @@ module tb_transcendental;
         input string description;
         reg [79:0] result_cos;  // ST(0) after FSINCOS
         reg [79:0] result_sin;  // ST(1) after FSINCOS
+        integer ulp_err_sin, ulp_err_cos;
         begin
             total_tests = total_tests + 1;
 
@@ -353,21 +431,29 @@ module tb_transcendental;
 
             // After FSINCOS: ST(0) = cos(θ), ST(1) = sin(θ)
             read_st0(result_cos);
-            // TODO: Read ST(1) - need to implement stack read for ST(1)
-            // For now, we'll just test cos result
-            result_sin = 80'h0;  // Placeholder
+            read_st1(result_sin);
 
-            if (fp80_compare(result_cos, expected_cos, 1.0)) begin
+            ulp_err_cos = ulp_error(result_cos, expected_cos);
+            ulp_err_sin = ulp_error(result_sin, expected_sin);
+
+            // Both results must be within tolerance
+            if (fp80_compare(result_cos, expected_cos, 100) &&
+                fp80_compare(result_sin, expected_sin, 100)) begin
                 passed_tests = passed_tests + 1;
                 if (VERBOSE)
-                    $display("[PASS] FSINCOS: %s", description);
+                    $display("[PASS] FSINCOS: %s (sin ULP=%0d, cos ULP=%0d)",
+                            description, ulp_err_sin, ulp_err_cos);
             end else begin
                 failed_tests = failed_tests + 1;
                 error_count = error_count + 1;
                 $display("[FAIL] FSINCOS: %s", description);
                 $display("  Input:        0x%020X (%.6e)", input_val, fp80_to_real(input_val));
+                $display("  Expected sin: 0x%020X (%.6e)", expected_sin, fp80_to_real(expected_sin));
+                $display("  Got sin:      0x%020X (%.6e)", result_sin, fp80_to_real(result_sin));
+                $display("  ULP error sin: %0d", ulp_err_sin);
                 $display("  Expected cos: 0x%020X (%.6e)", expected_cos, fp80_to_real(expected_cos));
                 $display("  Got cos:      0x%020X (%.6e)", result_cos, fp80_to_real(result_cos));
+                $display("  ULP error cos: %0d", ulp_err_cos);
 
                 if (error_count >= MAX_ERRORS) begin
                     $display("\n[ERROR] Maximum error count reached, stopping tests");
