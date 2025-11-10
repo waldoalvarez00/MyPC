@@ -57,6 +57,7 @@ Quartus/rtl/FPU8087/tb_exception_functions
 Quartus/rtl/FPU8087/tb_extended_prechecks
 Quartus/rtl/FPU8087/tb_fxtract_fscale
 Quartus/rtl/FPU8087/tb_denormal_precision
+Quartus/rtl/FPU8087/tb_control_instructions
 verilog_compile.log
 integration_compile.log
 cpu_fpu_compile.log

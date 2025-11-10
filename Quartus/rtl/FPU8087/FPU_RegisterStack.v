@@ -28,6 +28,7 @@ module FPU_RegisterStack(
     input wire dec_ptr,                 // Decrement stack pointer (FDECSTP)
     input wire free_reg,                // Mark register as empty (FFREE)
     input wire [2:0] free_index,        // Index of register to free
+    input wire init_stack,              // Initialize stack (FINIT) - reset SP and tags
 
     // Data interface
     input wire [79:0] data_in,          // Data to write
@@ -121,6 +122,15 @@ module FPU_RegisterStack(
             // Clear exception flags
             stack_overflow <= 1'b0;
             stack_underflow <= 1'b0;
+
+            // Handle FINIT: Initialize stack
+            if (init_stack) begin
+                stack_ptr <= 3'd0;
+                // Mark all registers as empty
+                for (i = 0; i < 8; i = i + 1) begin
+                    tags[i] <= 2'b11;  // Empty
+                end
+            end
 
             // Calculate new stack pointer based on push/pop/inc/dec
             new_stack_ptr = stack_ptr;

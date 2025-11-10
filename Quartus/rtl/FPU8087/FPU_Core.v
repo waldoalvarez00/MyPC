@@ -176,6 +176,7 @@ module FPU_Core(
     reg         stack_dec_ptr;     // Decrement stack pointer (FDECSTP)
     reg         stack_free_reg;    // Mark register as free (FFREE)
     reg [2:0]   stack_free_index;  // Index of register to free
+    reg         stack_init_stack;  // Initialize stack (FINIT)
 
     FPU_RegisterStack register_stack (
         .clk(clk),
@@ -196,7 +197,8 @@ module FPU_Core(
         .inc_ptr(stack_inc_ptr),
         .dec_ptr(stack_dec_ptr),
         .free_reg(stack_free_reg),
-        .free_index(stack_free_index)
+        .free_index(stack_free_index),
+        .init_stack(stack_init_stack)
     );
 
     // Control Word
@@ -205,11 +207,21 @@ module FPU_Core(
     wire        mask_precision, mask_underflow, mask_overflow;
     wire        mask_zero_div, mask_denormal, mask_invalid;
 
+    // Internal control word interface (for FINIT/FLDCW instructions)
+    reg [15:0]  internal_control_in;
+    reg         internal_control_write;
+    wire [15:0] control_in_muxed;
+    wire        control_write_muxed;
+
+    // Multiplex external and internal control signals
+    assign control_in_muxed = internal_control_write ? internal_control_in : control_in;
+    assign control_write_muxed = internal_control_write | control_write;
+
     FPU_ControlWord control_word (
         .clk(clk),
         .reset(reset),
-        .control_in(control_in),
-        .write_enable(control_write),
+        .control_in(control_in_muxed),
+        .write_enable(control_write_muxed),
         .control_out(control_out),
         .rounding_mode(rounding_mode),
         .precision_mode(precision_mode),
@@ -928,6 +940,10 @@ module FPU_Core(
             mem_conv_is_load <= 1'b0;
             temp_uint64 <= 64'd0;
 
+            // Initialize internal control word signals
+            internal_control_in <= 16'd0;
+            internal_control_write <= 1'b0;
+
             // Initialize all stack control signals
             stack_push <= 1'b0;
             stack_pop <= 1'b0;
@@ -935,6 +951,11 @@ module FPU_Core(
             stack_write_reg <= 3'd0;
             stack_write_enable <= 1'b0;
             stack_read_sel <= 3'd0;
+            stack_inc_ptr <= 1'b0;
+            stack_dec_ptr <= 1'b0;
+            stack_free_reg <= 1'b0;
+            stack_free_index <= 3'd0;
+            stack_init_stack <= 1'b0;
 
             // Initialize arithmetic control signals
             arith_enable <= 1'b0;
@@ -986,12 +1007,14 @@ module FPU_Core(
             status_set_busy <= 1'b0;
             status_clear_busy <= 1'b0;
             status_clear_exc <= 1'b0;
+            internal_control_write <= 1'b0;
             stack_push <= 1'b0;
             stack_pop <= 1'b0;
             stack_write_enable <= 1'b0;
             stack_inc_ptr <= 1'b0;
             stack_dec_ptr <= 1'b0;
             stack_free_reg <= 1'b0;
+            stack_init_stack <= 1'b0;
             microseq_start <= 1'b0;  // One-shot signal for microsequencer
             // Note: arith_enable is NOT defaulted to 0, it's explicitly managed
 
@@ -1639,6 +1662,39 @@ module FPU_Core(
 
                         INST_FCLEX: begin
                             status_clear_exc <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+
+                        INST_FINIT: begin
+                            // Initialize FPU: Reset stack, control word, status word
+                            // 1. Initialize stack (clear all tags, reset pointer)
+                            stack_init_stack <= 1'b1;
+                            // 2. Clear all status exceptions
+                            status_clear_exc <= 1'b1;
+                            // 3. Set control word to 0x037F (all exceptions masked, round to nearest, extended precision)
+                            internal_control_in <= 16'h037F;
+                            internal_control_write <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+
+                        INST_FLDCW: begin
+                            // Load control word from memory
+                            internal_control_in <= data_in[15:0];
+                            internal_control_write <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+
+                        INST_FSTCW: begin
+                            // Store control word to memory
+                            data_out <= {64'd0, control_out};  // Zero-extend to 80 bits
+                            int_data_out <= {16'd0, control_out};  // For 16-bit output
+                            state <= STATE_DONE;
+                        end
+
+                        INST_FSTSW: begin
+                            // Store status word to memory or AX
+                            data_out <= {64'd0, status_out};  // Zero-extend to 80 bits
+                            int_data_out <= {16'd0, status_out};  // For 16-bit output or AX
                             state <= STATE_DONE;
                         end
 
