@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 // VGA Adapter - Top-Level Module
 // Complete VGA subsystem for PC-compatible video
 // Supports all 15 standard video modes (CGA, EGA, VGA, MDA, MCGA)

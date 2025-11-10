@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 `timescale 1ns / 1ps
 
 //---------------------------------------------------------------------

@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 //
 // KF8253_Counter
 // Counter Logic

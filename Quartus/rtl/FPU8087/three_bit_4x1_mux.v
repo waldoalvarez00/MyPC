@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 // To create a 3-bit multiplexer with 4 inputs in Verilog, you need to define a module 
 // that takes four 3-bit inputs, a 2-bit select line, and outputs a 3-bit value based 
 // on the select line. The 2-bit select line is needed to choose among the 4 inputs 

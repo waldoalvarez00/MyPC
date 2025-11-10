@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 module FPU_Tag_Register(
     input clk,
     input reset,

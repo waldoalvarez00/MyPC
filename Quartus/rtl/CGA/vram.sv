@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 module vram #(parameter AW=16)
 (
   input clka,

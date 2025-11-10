@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 //
 // KF8259
 // 8259A-LIKE PROGRAMMABLE INTERRUPT CONTROLLER

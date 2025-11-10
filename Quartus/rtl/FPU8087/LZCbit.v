@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 
 // This performs a lookup table to count the bits, takes some area but should be quite fast
 

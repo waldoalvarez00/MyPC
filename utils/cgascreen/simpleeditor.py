@@ -1,3 +1,5 @@
+# Copyright 2025, Waldo Alvarez, https://pipflow.com
+
 ROWS = 25  # Number of rows in the text mode
 COLS = 80  # Number of columns in the text mode
 

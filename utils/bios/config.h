@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 #pragma once
 
 #define S80X86_TRAP_ESCAPE 0

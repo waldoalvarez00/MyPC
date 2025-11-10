@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 
 //Implementing a byte shifter in a similar multiplexer-based approach as the bit shifter involves selecting one of eight 8-bit segments (or "bytes") from the 64-bit input, based on the shift amount. This design is somewhat simpler than the bit shifter, as the shift operations are in 8-bit increments (1 byte), reducing the complexity of the multiplexers.
 

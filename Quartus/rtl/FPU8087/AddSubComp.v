@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 module FPU_AddSub_Comp_Unit(
     input         clk,
     input         invert_operand_b, // When high, invert operand_b's sign for subtraction
