@@ -113,16 +113,47 @@ module FPU_Core(
     localparam INST_FTST        = 8'h63;  // Test ST(0) against 0.0
     localparam INST_FXAM        = 8'h64;  // Examine ST(0) and set condition codes
 
+    // Reverse arithmetic (decoder provides these)
+    localparam INST_FSUBR       = 8'h14;  // ST(0) = ST(i) - ST(0) (reverse subtract)
+    localparam INST_FSUBRP      = 8'h15;  // ST(1) = ST(1) - ST(0), pop
+    localparam INST_FDIVR       = 8'h1A;  // ST(0) = ST(i) / ST(0) (reverse divide)
+    localparam INST_FDIVRP      = 8'h1B;  // ST(1) = ST(1) / ST(0), pop
+
+    // Unordered compare
+    localparam INST_FUCOM       = 8'h65;  // Unordered compare ST(0) with ST(i)
+    localparam INST_FUCOMP      = 8'h66;  // Unordered compare and pop
+    localparam INST_FUCOMPP     = 8'h67;  // Unordered compare ST(0) with ST(1) and pop twice
+
     // Stack management instructions
     localparam INST_FINCSTP     = 8'h70;  // Increment stack pointer
     localparam INST_FDECSTP     = 8'h71;  // Decrement stack pointer
     localparam INST_FFREE       = 8'h72;  // Mark register as empty
+    localparam INST_FNOP        = 8'h73;  // No operation
+
+    // Constants
+    localparam INST_FLD1        = 8'h80;  // Push +1.0
+    localparam INST_FLDZ        = 8'h81;  // Push +0.0
+    localparam INST_FLDPI       = 8'h82;  // Push π
+    localparam INST_FLDL2E      = 8'h83;  // Push log₂(e)
+    localparam INST_FLDL2T      = 8'h84;  // Push log₂(10)
+    localparam INST_FLDLG2      = 8'h85;  // Push log₁₀(2)
+    localparam INST_FLDLN2      = 8'h86;  // Push ln(2)
+
+    // Advanced operations
+    localparam INST_FSCALE      = 8'h90;  // Scale ST(0) by power of 2 from ST(1)
+    localparam INST_FXTRACT     = 8'h91;  // Extract exponent and significand
+    localparam INST_FPREM       = 8'h92;  // Partial remainder
+    localparam INST_FRNDINT     = 8'h93;  // Round to integer
+    localparam INST_FABS        = 8'h94;  // Absolute value: ST(0) = |ST(0)|
+    localparam INST_FCHS        = 8'h95;  // Change sign: ST(0) = -ST(0)
 
     // Control instructions
-    localparam INST_FLDCW       = 8'hF0;  // Load control word
-    localparam INST_FSTCW       = 8'hF1;  // Store control word
-    localparam INST_FSTSW       = 8'hF2;  // Store status word
-    localparam INST_FCLEX       = 8'hF3;  // Clear exceptions
+    localparam INST_FINIT       = 8'hF0;  // Initialize FPU
+    localparam INST_FLDCW       = 8'hF1;  // Load control word
+    localparam INST_FSTCW       = 8'hF2;  // Store control word
+    localparam INST_FSTSW       = 8'hF3;  // Store status word
+    localparam INST_FCLEX       = 8'hF4;  // Clear exceptions
+    localparam INST_FWAIT       = 8'hF5;  // Wait for FPU ready
 
     //=================================================================
     // Component Wiring
@@ -517,6 +548,8 @@ module FPU_Core(
                                    (current_inst == INST_FSUBP) ||
                                    (current_inst == INST_FMULP) ||
                                    (current_inst == INST_FDIVP) ||
+                                   (current_inst == INST_FSUBRP) ||
+                                   (current_inst == INST_FDIVRP) ||
                                    (current_inst == INST_FISTP16) ||
                                    (current_inst == INST_FISTP32) ||
                                    (current_inst == INST_FBSTP) ||
@@ -1179,6 +1212,180 @@ module FPU_Core(
                             state <= STATE_DONE;
                         end
 
+                        // ===== Trivial Operations =====
+
+                        INST_FABS: begin
+                            // Absolute value: Clear sign bit of ST(0)
+                            temp_result <= {1'b0, temp_operand_a[78:0]};
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FCHS: begin
+                            // Change sign: Flip sign bit of ST(0)
+                            temp_result <= {~temp_operand_a[79], temp_operand_a[78:0]};
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FNOP: begin
+                            // No operation
+                            state <= STATE_DONE;
+                        end
+
+                        INST_FWAIT: begin
+                            // Wait for FPU ready (no-op in single-threaded implementation)
+                            state <= STATE_DONE;
+                        end
+
+                        // ===== Constant Loading Instructions =====
+
+                        INST_FLD1: begin
+                            // Push +1.0: sign=0, exp=16383 (0x3FFF), mantissa=0x8000000000000000
+                            temp_result <= 80'h3FFF8000000000000000;
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FLDZ: begin
+                            // Push +0.0: All zeros
+                            temp_result <= 80'h00000000000000000000;
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FLDPI: begin
+                            // Push π ≈ 3.141592653589793238
+                            // FP80: sign=0, exp=16384 (0x4000), mantissa=0xC90FDAA22168C235
+                            temp_result <= 80'h4000C90FDAA22168C235;
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FLDL2E: begin
+                            // Push log₂(e) ≈ 1.442695040888963407
+                            // FP80: sign=0, exp=16383 (0x3FFF), mantissa=0xB8AA3B295C17F0BC
+                            temp_result <= 80'h3FFFB8AA3B295C17F0BC;
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FLDL2T: begin
+                            // Push log₂(10) ≈ 3.321928094887362347
+                            // FP80: sign=0, exp=16384 (0x4000), mantissa=0xD49A784BCD1B8AFE
+                            temp_result <= 80'h4000D49A784BCD1B8AFE;
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FLDLG2: begin
+                            // Push log₁₀(2) ≈ 0.301029995663981195
+                            // FP80: sign=0, exp=16382 (0x3FFD), mantissa=0x9A209A84FBCFF799
+                            temp_result <= 80'h3FFD9A209A84FBCFF799;
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FLDLN2: begin
+                            // Push ln(2) ≈ 0.693147180559945309
+                            // FP80: sign=0, exp=16382 (0x3FFE), mantissa=0xB17217F7D1CF79AC
+                            temp_result <= 80'h3FFEB17217F7D1CF79AC;
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        // ===== Reverse Arithmetic Operations =====
+
+                        INST_FSUBR, INST_FSUBRP: begin
+                            // Reverse subtract: ST(0) = ST(i) - ST(0)
+                            // Swap operands compared to FSUB
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    arith_operation <= 4'd1;  // OP_SUB
+                                    arith_operand_a <= temp_operand_b;  // Swapped!
+                                    arith_operand_b <= temp_operand_a;  // Swapped!
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                temp_result <= arith_result;
+                                status_invalid <= arith_invalid;
+                                status_overflow <= arith_overflow;
+                                status_underflow <= arith_underflow;
+                                status_precision <= arith_inexact;
+                                arith_enable <= 1'b0;
+                                state <= STATE_WRITEBACK;
+                            end
+                        end
+
+                        INST_FDIVR, INST_FDIVRP: begin
+                            // Reverse divide: ST(0) = ST(i) / ST(0)
+                            // Swap operands compared to FDIV
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    arith_operation <= 4'd3;  // OP_DIV
+                                    arith_operand_a <= temp_operand_b;  // Swapped!
+                                    arith_operand_b <= temp_operand_a;  // Swapped!
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                temp_result <= arith_result;
+                                status_invalid <= arith_invalid;
+                                status_zero_div <= arith_zero_div;
+                                status_overflow <= arith_overflow;
+                                status_underflow <= arith_underflow;
+                                status_precision <= arith_inexact;
+                                arith_enable <= 1'b0;
+                                state <= STATE_WRITEBACK;
+                            end
+                        end
+
+                        // ===== Unordered Compare Operations =====
+
+                        INST_FUCOM, INST_FUCOMP: begin
+                            // Unordered compare - like FCOM but doesn't raise exception on NaN
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    arith_operation <= 5'd0;  // OP_ADD (for comparison)
+                                    arith_operand_a <= temp_operand_a;  // ST(0)
+                                    arith_operand_b <= temp_operand_b;  // ST(i) or memory
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                // Map comparison results to condition codes
+                                status_cc_write <= 1'b1;
+                                if (arith_cc_unordered) begin
+                                    // Unordered (NaN): C3=1, C2=1, C0=1
+                                    status_c3 <= 1'b1;
+                                    status_c2 <= 1'b1;
+                                    status_c0 <= 1'b1;
+                                    // FUCOM does NOT raise invalid exception for NaN
+                                end else begin
+                                    status_c3 <= arith_cc_equal;
+                                    status_c2 <= 1'b0;
+                                    status_c0 <= arith_cc_less;
+                                end
+                                arith_enable <= 1'b0;
+                                state <= STATE_STACK_OP;
+                            end
+                        end
+
+                        INST_FUCOMPP: begin
+                            // Unordered compare ST(0) with ST(1) and pop twice
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    arith_operation <= 5'd0;  // OP_ADD
+                                    arith_operand_a <= temp_operand_a;  // ST(0)
+                                    arith_operand_b <= temp_operand_b;  // ST(1)
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                // Set condition codes
+                                status_cc_write <= 1'b1;
+                                if (arith_cc_unordered) begin
+                                    status_c3 <= 1'b1;
+                                    status_c2 <= 1'b1;
+                                    status_c0 <= 1'b1;
+                                end else begin
+                                    status_c3 <= arith_cc_equal;
+                                    status_c2 <= 1'b0;
+                                    status_c0 <= arith_cc_less;
+                                end
+                                arith_enable <= 1'b0;
+                                state <= STATE_STACK_OP;
+                            end
+                        end
+
                         default: begin
                             state <= STATE_DONE;
                         end
@@ -1393,8 +1600,19 @@ module FPU_Core(
                             state <= STATE_DONE;
                         end
 
+                        // Constant loading: push constant onto stack
+                        INST_FLD1, INST_FLDZ, INST_FLDPI, INST_FLDL2E,
+                        INST_FLDL2T, INST_FLDLG2, INST_FLDLN2: begin
+                            stack_push <= 1'b1;
+                            stack_write_reg <= 3'd0;
+                            stack_data_in <= temp_result;
+                            stack_write_enable <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+
                         // Arithmetic operations: write to ST(0)
-                        INST_FADD, INST_FSUB, INST_FMUL, INST_FDIV: begin
+                        INST_FADD, INST_FSUB, INST_FMUL, INST_FDIV,
+                        INST_FSUBR, INST_FDIVR: begin
                             stack_write_reg <= 3'd0;
                             stack_data_in <= temp_result;
                             stack_write_enable <= 1'b1;
@@ -1403,6 +1621,14 @@ module FPU_Core(
 
                         // Transcendental operations (single result): write to ST(0)
                         INST_FSQRT, INST_FSIN, INST_FCOS, INST_F2XM1: begin
+                            stack_write_reg <= 3'd0;
+                            stack_data_in <= temp_result;
+                            stack_write_enable <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+
+                        // Trivial operations: write to ST(0)
+                        INST_FABS, INST_FCHS: begin
                             stack_write_reg <= 3'd0;
                             stack_data_in <= temp_result;
                             stack_write_enable <= 1'b1;
@@ -1474,6 +1700,7 @@ module FPU_Core(
 
                         // Arithmetic with pop: write to ST(1) then pop
                         INST_FADDP, INST_FSUBP, INST_FMULP, INST_FDIVP,
+                        INST_FSUBRP, INST_FDIVRP,
                         INST_FPATAN, INST_FYL2X, INST_FYL2XP1: begin
                             stack_write_reg <= 3'd1;
                             stack_data_in <= temp_result;
@@ -1490,13 +1717,13 @@ module FPU_Core(
                         end
 
                         // Compare and pop
-                        INST_FCOMP: begin
+                        INST_FCOMP, INST_FUCOMP: begin
                             stack_pop <= 1'b1;
                             state <= STATE_DONE;
                         end
 
                         // Compare and pop twice
-                        INST_FCOMPP: begin
+                        INST_FCOMPP, INST_FUCOMPP: begin
                             stack_pop <= 1'b1;
                             // Second pop will be handled by setting a flag
                             state <= STATE_FCOMPP_POP2;
