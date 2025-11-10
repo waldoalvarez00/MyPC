@@ -127,6 +127,7 @@ module FPU_Instruction_Decoder(
     localparam OP_FRNDINT   = 8'h93;
     localparam OP_FABS      = 8'h94;
     localparam OP_FCHS      = 8'h95;
+    localparam OP_FPREM1    = 8'h96;
 
     //=================================================================
     // Instruction Decoding
@@ -370,7 +371,13 @@ module FPU_Instruction_Decoder(
                                 stack_index = 3'd0;
                             end
 
-                            // FPREM: D9 F8 (actually FPREM1 on 387+, but treat as FPREM)
+                            // FPREM1: D9 F5 (IEEE partial remainder, 387+)
+                            8'hF5: begin
+                                internal_opcode = OP_FPREM1;
+                                stack_index = 3'd0;
+                            end
+
+                            // FPREM: D9 F8 (8087 partial remainder)
                             8'hF8: begin
                                 internal_opcode = OP_FPREM;
                                 stack_index = 3'd0;

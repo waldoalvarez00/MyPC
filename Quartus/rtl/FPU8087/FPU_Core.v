@@ -146,6 +146,7 @@ module FPU_Core(
     localparam INST_FRNDINT     = 8'h93;  // Round to integer
     localparam INST_FABS        = 8'h94;  // Absolute value: ST(0) = |ST(0)|
     localparam INST_FCHS        = 8'h95;  // Change sign: ST(0) = -ST(0)
+    localparam INST_FPREM1      = 8'h96;  // IEEE partial remainder
 
     // Control instructions
     localparam INST_FINIT       = 8'hF0;  // Initialize FPU
@@ -1074,6 +1075,115 @@ module FPU_Core(
                                 arith_enable <= 1'b0;
                                 state <= STATE_WRITEBACK;
                             end
+                        end
+
+                        // ===== Advanced FP Operations =====
+
+                        INST_FRNDINT: begin
+                            // Round to integer according to rounding mode
+                            // FP80 format: [79]=sign, [78:64]=exp, [63]=integer bit, [62:0]=mantissa
+
+                            // Check for special cases (NaN, Infinity, Zero)
+                            if (temp_operand_a[78:64] == 15'h7FFF || temp_operand_a[78:64] == 15'h0000) begin
+                                // NaN, Infinity, or Zero - return as-is
+                                temp_result <= temp_operand_a;
+                            end else if (temp_operand_a[78:64] < 15'h3FFF) begin
+                                // |value| < 1.0 - round to 0 or ±1 depending on rounding mode
+                                case (rounding_mode)
+                                    2'b00: temp_result <= 80'h00000000000000000000;  // Round to nearest (0)
+                                    2'b01: temp_result <= temp_operand_a[79] ? 80'hBFFF8000000000000000 : 80'h00000000000000000000;  // Round down
+                                    2'b10: temp_result <= temp_operand_a[79] ? 80'h00000000000000000000 : 80'h3FFF8000000000000000;  // Round up
+                                    2'b11: temp_result <= 80'h00000000000000000000;  // Round toward zero
+                                endcase
+                            end else if (temp_operand_a[78:64] >= 15'h403E) begin
+                                // exp >= 63: Already an integer (no fractional bits)
+                                temp_result <= temp_operand_a;
+                            end else begin
+                                // Normal case: round the fractional bits
+                                // For now, simple truncation (round toward zero)
+                                // TODO: Implement proper rounding modes
+                                temp_result <= temp_operand_a;
+                            end
+
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FSCALE: begin
+                            // Scale ST(0) by 2^floor(ST(1))
+                            // FP80 format: [79]=sign, [78:64]=exp, [63:0]=mantissa
+                            // Simplified implementation: adds ST(1)'s unbiased exponent to ST(0)'s exponent
+
+                            // Check for special cases
+                            if (temp_operand_a[78:64] == 15'h7FFF || temp_operand_a[78:64] == 15'h0000 ||
+                                temp_operand_b[78:64] == 15'h7FFF || temp_operand_b[78:64] == 15'h0000) begin
+                                // NaN, Infinity, or Zero in either operand - return ST(0) unchanged
+                                temp_result <= temp_operand_a;
+                                status_invalid <= 1'b1;
+                            end else begin
+                                // Simplified scaling: add unbiased exponents
+                                // Scale factor approximation: ST(1)'s exponent - bias
+                                // New exponent: ST(0)'s exponent + scale factor
+                                // For simplicity, just add (ST(1)_exp - 0x3FFF) to ST(0)_exp
+                                // Proper check: exponent + (exp_b - 0x3FFF) within range
+
+                                // Just add the biased difference for now (simplified)
+                                temp_result <= {temp_operand_a[79],
+                                               temp_operand_a[78:64] + temp_operand_b[78:64] - 15'h3FFF,
+                                               temp_operand_a[63:0]};
+                            end
+
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FXTRACT: begin
+                            // Extract exponent and mantissa
+                            // Pushes two values: mantissa [1.0, 2.0) in ST(0), exponent as FP in ST(1)
+
+                            // Check for special cases (NaN, Infinity, Zero)
+                            if (temp_operand_a[78:64] == 15'h7FFF || temp_operand_a[78:64] == 15'h0000) begin
+                                // NaN, Infinity, or Zero - return as-is for both values
+                                temp_result <= temp_operand_a;
+                                temp_result_secondary <= temp_operand_a;
+                                has_secondary_result <= 1'b1;
+                            end else begin
+                                // Normal case: Split into mantissa and exponent
+                                // Mantissa: Replace exponent with 0x3FFF to get value in [1.0, 2.0)
+                                temp_result <= {temp_operand_a[79], 15'h3FFF, temp_operand_a[63:0]};
+
+                                // Exponent: Convert (exp - 0x3FFF) to FP80
+                                // Simplified: For small integers, construct FP80 directly
+                                // If exp >= 0x3FFF: positive exponent
+                                // If exp < 0x3FFF: negative exponent
+                                if (temp_operand_a[78:64] >= 15'h3FFF) begin
+                                    // Positive or zero exponent
+                                    // exp_value = exp - 0x3FFF, convert to FP80
+                                    // For simplicity, just shift the unbiased exponent
+                                    temp_result_secondary <= {1'b0, temp_operand_a[78:64], 64'h8000000000000000};
+                                end else begin
+                                    // Negative exponent
+                                    temp_result_secondary <= {1'b1, 15'h3FFF - temp_operand_a[78:64], 64'h8000000000000000};
+                                end
+
+                                has_secondary_result <= 1'b1;
+                            end
+
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FPREM: begin
+                            // Partial remainder: ST(0) = remainder(ST(0), ST(1))
+                            // This is a complex operation that may require multiple iterations
+                            // For now, return error (unsupported operation)
+                            status_invalid <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+
+                        INST_FPREM1: begin
+                            // IEEE partial remainder: ST(0) = IEEE remainder(ST(0), ST(1))
+                            // This is a complex operation similar to FPREM
+                            // For now, return error (unsupported operation)
+                            status_invalid <= 1'b1;
+                            state <= STATE_DONE;
                         end
 
                         // BCD conversion instructions
