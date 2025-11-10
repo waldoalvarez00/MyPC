@@ -898,32 +898,17 @@ module FPU_Core(
         end
     endfunction
 
-    // Get operation cycle count for busy tracking (Level 2)
-    // Returns number of cycles an operation will take
-    function automatic [3:0] get_operation_cycles;
-        input [3:0] operation;
-        begin
-            case (operation)
-                4'd0, 4'd1:     get_operation_cycles = 4'd3;  // OP_ADD/OP_SUB
-                4'd2:           get_operation_cycles = 4'd5;  // OP_MUL
-                4'd3:           get_operation_cycles = 4'd8;  // OP_DIV
-                4'd12:          get_operation_cycles = 4'd10; // OP_SQRT
-                // Transcendental operations (estimated)
-                4'd13, 4'd14:   get_operation_cycles = 4'd12; // OP_SIN/OP_COS
-                // Conversion operations are fast
-                4'd4, 4'd5, 4'd6, 4'd7, 4'd8, 4'd9, 4'd10, 4'd11:
-                                get_operation_cycles = 4'd2;  // INT/FP conversions
-                default:        get_operation_cycles = 4'd1;  // Other ops
-            endcase
-        end
-    endfunction
+    // Removed get_operation_cycles() function
+    // Level 2 now uses arith_done signal instead of hardcoded cycle counts
+    // This automatically tracks actual operation completion timing
 
     //=================================================================
     // Level 2 Busy Tracking
     //=================================================================
 
     reg        fpu_busy;           // FPU has operation in progress
-    reg [3:0]  busy_countdown;     // Cycles remaining for current operation
+                                   // Set when arith_enable goes high
+                                   // Cleared when operation completes (arith_done or state transition)
 
     //=================================================================
     // Execution State Machine
@@ -1014,7 +999,6 @@ module FPU_Core(
 
             // Initialize Level 2 busy tracking
             fpu_busy <= 1'b0;
-            busy_countdown <= 4'd0;
 
             // Initialize all stack control signals
             stack_push <= 1'b0;
@@ -1090,14 +1074,9 @@ module FPU_Core(
             microseq_start <= 1'b0;  // One-shot signal for microsequencer
             // Note: arith_enable is NOT defaulted to 0, it's explicitly managed
 
-            // Level 2 busy countdown management
-            if (fpu_busy && busy_countdown > 0) begin
-                busy_countdown <= busy_countdown - 1;
-                if (busy_countdown == 1) begin
-                    fpu_busy <= 1'b0;
-                    status_clear_busy <= 1'b1;
-                end
-            end
+            // Level 2: Clear busy flag when arithmetic operations complete
+            // This is detected when arith_done goes high (handled in each operation's completion path)
+            // Operations clear fpu_busy when transitioning to WRITEBACK/DONE states
 
             case (state)
                 STATE_IDLE: begin
@@ -1205,7 +1184,6 @@ module FPU_Core(
                                         arith_operand_b <= temp_operand_b;
                                         arith_enable <= 1'b1;
                                         fpu_busy <= 1'b1;
-                                        busy_countdown <= get_operation_cycles(4'd0);
                                     end
                                 end
                             end else begin
@@ -1244,6 +1222,7 @@ module FPU_Core(
                                 status_c2 <= arith_cc_less;
                                 status_c3 <= arith_cc_unordered;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -1272,7 +1251,6 @@ module FPU_Core(
                                         arith_operand_b <= temp_operand_b;
                                         arith_enable <= 1'b1;
                                         fpu_busy <= 1'b1;
-                                        busy_countdown <= get_operation_cycles(4'd1);
                                     end
                                 end
                             end else begin
@@ -1289,6 +1267,7 @@ module FPU_Core(
                                 error <= (arith_invalid && !mask_invalid) || (arith_overflow && !mask_overflow) ||
                                          (arith_underflow && !mask_underflow) || (arith_zero_div && !mask_zero_div);
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -1317,7 +1296,6 @@ module FPU_Core(
                                         arith_operand_b <= temp_operand_b;
                                         arith_enable <= 1'b1;
                                         fpu_busy <= 1'b1;
-                                        busy_countdown <= get_operation_cycles(4'd2);
                                     end
                                 end
                             end else begin
@@ -1334,6 +1312,7 @@ module FPU_Core(
                                 error <= (arith_invalid && !mask_invalid) || (arith_overflow && !mask_overflow) ||
                                          (arith_underflow && !mask_underflow) || (arith_zero_div && !mask_zero_div);
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -1362,7 +1341,6 @@ module FPU_Core(
                                         arith_operand_b <= temp_operand_b;
                                         arith_enable <= 1'b1;
                                         fpu_busy <= 1'b1;
-                                        busy_countdown <= get_operation_cycles(4'd3);
                                     end
                                 end
                             end else begin
@@ -1380,6 +1358,7 @@ module FPU_Core(
                                 error <= (arith_invalid && !mask_invalid) || (arith_overflow && !mask_overflow) ||
                                          (arith_underflow && !mask_underflow) || (arith_zero_div && !mask_zero_div);
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -1391,11 +1370,11 @@ module FPU_Core(
                                     arith_int16_in <= temp_int32[15:0];
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
-                                    busy_countdown <= get_operation_cycles(4'd4);
                                 end
                             end else begin
                                 temp_result <= arith_result;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -1407,12 +1386,12 @@ module FPU_Core(
                                     arith_int32_in <= temp_int32;
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
-                                    busy_countdown <= get_operation_cycles(4'd5);
                                 end
                                 // else: keep enable high, wait for done
                             end else begin  // arith_done
                                 temp_result <= arith_result;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -1424,7 +1403,6 @@ module FPU_Core(
                                     arith_operand_a <= temp_operand_a;
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
-                                    busy_countdown <= get_operation_cycles(4'd6);
                                 end
                             end else begin
                                 int_data_out <= {16'd0, arith_int16_out};
@@ -1432,6 +1410,7 @@ module FPU_Core(
                                 status_overflow <= arith_overflow;
                                 status_precision <= arith_inexact;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -1443,7 +1422,6 @@ module FPU_Core(
                                     arith_operand_a <= temp_operand_a;
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
-                                    busy_countdown <= get_operation_cycles(4'd7);
                                 end
                             end else begin
                                 int_data_out <= arith_int32_out;
@@ -1451,6 +1429,7 @@ module FPU_Core(
                                 status_overflow <= arith_overflow;
                                 status_precision <= arith_inexact;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -1462,11 +1441,11 @@ module FPU_Core(
                                     arith_fp32_in <= temp_fp32;
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
-                                    busy_countdown <= get_operation_cycles(4'd8);
                                 end
                             end else begin
                                 temp_result <= arith_result;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -1478,11 +1457,11 @@ module FPU_Core(
                                     arith_fp64_in <= temp_fp64;
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
-                                    busy_countdown <= get_operation_cycles(4'd9);
                                 end
                             end else begin
                                 temp_result <= arith_result;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -1500,7 +1479,6 @@ module FPU_Core(
                                     arith_operand_a <= temp_operand_a;
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
-                                    busy_countdown <= get_operation_cycles(4'd10);
                                 end
                             end else begin
                                 data_out <= {48'd0, arith_fp32_out};
@@ -1509,6 +1487,7 @@ module FPU_Core(
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -1520,7 +1499,6 @@ module FPU_Core(
                                     arith_operand_a <= temp_operand_a;
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
-                                    busy_countdown <= get_operation_cycles(4'd11);
                                 end
                             end else begin
                                 data_out <= {16'd0, arith_fp64_out};
@@ -1529,6 +1507,7 @@ module FPU_Core(
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -1565,7 +1544,6 @@ module FPU_Core(
                                         arith_operand_a <= temp_operand_a;
                                         arith_enable <= 1'b1;
                                         fpu_busy <= 1'b1;
-                                        busy_countdown <= get_operation_cycles(4'd12);
                                     end
                                 end
                             end else begin
@@ -1573,6 +1551,7 @@ module FPU_Core(
                                 has_secondary_result <= 1'b0;
                                 status_invalid <= arith_invalid;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -1584,13 +1563,13 @@ module FPU_Core(
                                     arith_operand_a <= temp_operand_a;
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
-                                    busy_countdown <= get_operation_cycles(4'd13);
                                 end
                             end else begin
                                 temp_result <= arith_result;
                                 has_secondary_result <= 1'b0;
                                 status_invalid <= arith_invalid;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -1602,13 +1581,13 @@ module FPU_Core(
                                     arith_operand_a <= temp_operand_a;
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
-                                    busy_countdown <= get_operation_cycles(4'd14);
                                 end
                             end else begin
                                 temp_result <= arith_result;
                                 has_secondary_result <= 1'b0;
                                 status_invalid <= arith_invalid;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -1904,7 +1883,6 @@ module FPU_Core(
                                     arith_operand_b <= temp_operand_b;  // ST(i) or memory
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
-                                    busy_countdown <= get_operation_cycles(4'd0);
                                 end
                             end else begin
                                 // Map comparison results to condition codes per Intel 8087 spec
@@ -1924,6 +1902,7 @@ module FPU_Core(
                                     status_c0 <= arith_cc_less;
                                 end
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_STACK_OP;
                             end
                         end
@@ -1938,7 +1917,6 @@ module FPU_Core(
                                     arith_operand_b <= temp_operand_b;  // ST(1)
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
-                                    busy_countdown <= get_operation_cycles(4'd0);
                                 end
                             end else begin
                                 // Set condition codes
@@ -1953,6 +1931,7 @@ module FPU_Core(
                                     status_c0 <= arith_cc_less;
                                 end
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_STACK_OP;
                             end
                         end
@@ -1980,6 +1959,7 @@ module FPU_Core(
                                     status_c0 <= arith_cc_less;
                                 end
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_DONE;
                             end
                         end
@@ -2121,7 +2101,6 @@ module FPU_Core(
                                     arith_operand_b <= temp_operand_a;  // Swapped!
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
-                                    busy_countdown <= get_operation_cycles(4'd1);
                                 end
                             end else begin
                                 temp_result <= arith_result;
@@ -2130,6 +2109,7 @@ module FPU_Core(
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -2144,7 +2124,6 @@ module FPU_Core(
                                     arith_operand_b <= temp_operand_a;  // Swapped!
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
-                                    busy_countdown <= get_operation_cycles(4'd3);
                                 end
                             end else begin
                                 temp_result <= arith_result;
@@ -2154,6 +2133,7 @@ module FPU_Core(
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -2184,6 +2164,7 @@ module FPU_Core(
                                     status_c0 <= arith_cc_less;
                                 end
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_STACK_OP;
                             end
                         end
@@ -2210,6 +2191,7 @@ module FPU_Core(
                                     status_c0 <= arith_cc_less;
                                 end
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_STACK_OP;
                             end
                         end
@@ -2252,7 +2234,6 @@ module FPU_Core(
                                         arith_uint64_sign_in <= 1'b0;  // Positive for now
                                         arith_enable <= 1'b1;
                                         fpu_busy <= 1'b1;
-                                        busy_countdown <= 4'd2;  // Conversion operations are fast
                                     end
                                 end else begin
                                     arith_enable <= 1'b0;
@@ -2287,7 +2268,6 @@ module FPU_Core(
                                     endcase
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
-                                    busy_countdown <= 4'd2;  // Integer conversions are fast
                                 end
                             end else begin
                                 arith_enable <= 1'b0;
@@ -2318,7 +2298,6 @@ module FPU_Core(
                                     endcase
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
-                                    busy_countdown <= 4'd2;  // Float conversions are fast
                                 end
                             end else begin
                                 $display("[DEBUG] FP load conversion done! arith_result=%h, temp_fp32=%h", arith_result, temp_fp32);
@@ -2343,7 +2322,6 @@ module FPU_Core(
                                         arith_operand_a <= temp_operand_a;
                                         arith_enable <= 1'b1;
                                         fpu_busy <= 1'b1;
-                                        busy_countdown <= 4'd2;  // Conversion operations are fast
                                     end
                                 end else begin
                                     arith_enable <= 1'b0;
@@ -2381,7 +2359,6 @@ module FPU_Core(
                                     endcase
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
-                                    busy_countdown <= 4'd2;  // Integer conversions are fast
                                 end
                             end else begin
                                 arith_enable <= 1'b0;
@@ -2408,7 +2385,6 @@ module FPU_Core(
                                     endcase
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
-                                    busy_countdown <= 4'd2;  // Float conversions are fast
                                 end
                             end else begin
                                 arith_enable <= 1'b0;

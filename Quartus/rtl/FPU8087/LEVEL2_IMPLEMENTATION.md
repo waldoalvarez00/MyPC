@@ -13,29 +13,28 @@ Level 2 implementation adds busy flag tracking to allow CPU continuation during 
 
 ### 1. Added Busy Tracking Infrastructure
 
-**Location**: FPU_Core.v lines 920-925
+**Location**: FPU_Core.v lines 909-911
 
 ```verilog
 reg        fpu_busy;           // FPU has operation in progress
-reg [3:0]  busy_countdown;     // Cycles remaining for current operation
+                               // Set when arith_enable goes high
+                               // Cleared when operation completes (arith_done or state transition)
 ```
 
-These registers track whether the FPU is executing a multi-cycle operation and how many cycles remain.
+This register tracks whether the FPU is executing a multi-cycle operation.
+
+**Note**: Previously included `busy_countdown` register, but this was **removed** to use `arith_done` signal instead of hardcoded cycle counting. This eliminates the need to maintain operation-specific cycle counts.
 
 ### 2. Created Helper Functions
 
 #### `is_nowait_instruction()` (lines 890-899)
 Classifies instructions as no-wait (FNINIT, FNSTCW, FNSTSW, FNCLEX).
 
-#### `get_operation_cycles()` (lines 901-919)
-Returns the cycle count for each operation type:
-- **ADD/SUB** (ops 0, 1): 3 cycles
-- **MUL** (op 2): 5 cycles
-- **DIV** (op 3): 8 cycles
-- **SQRT** (op 12): 10 cycles
-- **SIN/COS** (ops 13, 14): 12 cycles
-- **Conversions** (ops 4-11): 2 cycles
-- **Default**: 1 cycle
+**Note**: Previously had `get_operation_cycles()` function with hardcoded cycle counts, but this was **removed** in favor of using the actual `arith_done` signal to track operation completion. This approach:
+- Eliminates maintenance burden of keeping cycle counts synchronized
+- Automatically tracks actual operation timing
+- Adapts to future timing changes without code updates
+- Simplifies the implementation
 
 ### 3. Modified STATE_IDLE Logic (lines 1102-1131)
 
@@ -44,19 +43,22 @@ Wait instructions now check `fpu_busy` status:
 - If `fpu_busy=1` and instruction is no-wait: CPU continues (ready goes low)
 - Sets `fpu_busy=1` when starting new operation
 
-### 4. Added Busy Countdown Management (lines 1092-1099)
+### 4. Added Busy Flag Clearing on Operation Completion
+
+Instead of using a countdown timer, `fpu_busy` is now cleared automatically when operations complete:
 
 ```verilog
-if (fpu_busy && busy_countdown > 0) begin
-    busy_countdown <= busy_countdown - 1;
-    if (busy_countdown == 1) begin
-        fpu_busy <= 1'b0;
-        status_clear_busy <= 1'b1;
-    end
-end
+// In each operation's completion path (when arith_done is true):
+arith_enable <= 1'b0;
+fpu_busy <= 1'b0;  // Clear busy when operation completes
+state <= STATE_WRITEBACK;
 ```
 
-Automatically decrements busy counter and clears busy flag when operation completes.
+This approach:
+- Uses the actual `arith_done` signal to detect completion
+- No hardcoded cycle counts needed
+- Automatically adapts to actual operation timing
+- Simplifies maintenance and reduces fragility
 
 ### 5. Instrumented All Arithmetic Operations
 
@@ -91,11 +93,9 @@ Added busy tracking to **all 25+ locations** where `arith_enable <= 1'b1`:
 24. **FP80 → Integer** (line 2382) - 2 cycles
 25. **FP80 → Float** (line 2409) - 2 cycles
 
-Each location now sets:
-```verilog
-fpu_busy <= 1'b1;
-busy_countdown <= get_operation_cycles(operation_code);
-```
+Each location now:
+- **Sets** `fpu_busy <= 1'b1;` when starting the operation
+- **Clears** `fpu_busy <= 1'b0;` when the operation completes (arith_done goes high)
 
 ## Behavioral Changes
 
@@ -118,11 +118,12 @@ busy_countdown <= get_operation_cycles(operation_code);
 ## Limitations
 
 ### What Level 2 Provides:
-✅ Busy flag tracking with operation-specific cycle counts
+✅ Busy flag tracking using actual operation completion signals
 ✅ Wait instructions check busy state
 ✅ No-wait instructions bypass busy check
-✅ Automatic countdown management
+✅ Automatic busy flag management
 ✅ Partial CPU-FPU parallelism
+✅ Zero maintenance for operation timing changes
 
 ### What Level 2 Does NOT Provide:
 ❌ True asynchronous execution (still single-threaded FSM)
@@ -155,9 +156,14 @@ To achieve full 8087 compatibility:
 ## Summary
 
 Level 2 successfully implements moderate busy tracking that differentiates wait vs no-wait instruction behavior. The implementation adds:
-- **2 new registers** (fpu_busy, busy_countdown)
-- **2 helper functions** (is_nowait_instruction, get_operation_cycles)
+- **1 new register** (fpu_busy) - **Removed**: busy_countdown (replaced with arith_done signal)
+- **1 helper function** (is_nowait_instruction) - **Removed**: get_operation_cycles (no longer needed)
 - **25+ instrumentation points** across all arithmetic operations
 - **Modified control flow** in STATE_IDLE
+- **Automatic busy clearing** on operation completion
 
-This provides significant improvement in wait/no-wait instruction accuracy while maintaining synchronous design simplicity.
+This provides significant improvement in wait/no-wait instruction accuracy while maintaining synchronous design simplicity. The use of `arith_done` signal instead of hardcoded cycle counts makes the implementation:
+- **More maintainable**: No cycle counts to keep synchronized
+- **More accurate**: Tracks actual operation timing
+- **More robust**: Automatically adapts to timing changes
+- **Simpler**: Less code and fewer registers
