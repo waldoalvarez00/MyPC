@@ -50,7 +50,10 @@ module FPU_Core(
     input wire        control_write,    // Write control word
     output wire [15:0] status_out,      // Status word output
     output wire [15:0] control_out,     // Control word output
-    output wire [15:0] tag_word_out     // Tag word output
+    output wire [15:0] tag_word_out,    // Tag word output
+
+    // 8087 Exception Interface
+    output wire       int_request       // INT signal (active HIGH, 8087-style)
 );
 
     //=================================================================
@@ -149,12 +152,16 @@ module FPU_Core(
     localparam INST_FPREM1      = 8'h96;  // IEEE partial remainder
 
     // Control instructions
-    localparam INST_FINIT       = 8'hF0;  // Initialize FPU
+    localparam INST_FINIT       = 8'hF0;  // Initialize FPU (wait)
     localparam INST_FLDCW       = 8'hF1;  // Load control word
-    localparam INST_FSTCW       = 8'hF2;  // Store control word
-    localparam INST_FSTSW       = 8'hF3;  // Store status word
-    localparam INST_FCLEX       = 8'hF4;  // Clear exceptions
+    localparam INST_FSTCW       = 8'hF2;  // Store control word (wait)
+    localparam INST_FSTSW       = 8'hF3;  // Store status word (wait)
+    localparam INST_FCLEX       = 8'hF4;  // Clear exceptions (wait)
     localparam INST_FWAIT       = 8'hF5;  // Wait for FPU ready
+    localparam INST_FNINIT      = 8'hF6;  // Initialize FPU (no-wait)
+    localparam INST_FNSTCW      = 8'hF7;  // Store control word (no-wait)
+    localparam INST_FNSTSW      = 8'hF8;  // Store status word (no-wait)
+    localparam INST_FNCLEX      = 8'hF9;  // Clear exceptions (no-wait)
 
     //=================================================================
     // Component Wiring
@@ -176,6 +183,7 @@ module FPU_Core(
     reg         stack_dec_ptr;     // Decrement stack pointer (FDECSTP)
     reg         stack_free_reg;    // Mark register as free (FFREE)
     reg [2:0]   stack_free_index;  // Index of register to free
+    reg         stack_init_stack;  // Initialize stack (FINIT)
 
     FPU_RegisterStack register_stack (
         .clk(clk),
@@ -196,7 +204,8 @@ module FPU_Core(
         .inc_ptr(stack_inc_ptr),
         .dec_ptr(stack_dec_ptr),
         .free_reg(stack_free_reg),
-        .free_index(stack_free_index)
+        .free_index(stack_free_index),
+        .init_stack(stack_init_stack)
     );
 
     // Control Word
@@ -205,11 +214,21 @@ module FPU_Core(
     wire        mask_precision, mask_underflow, mask_overflow;
     wire        mask_zero_div, mask_denormal, mask_invalid;
 
+    // Internal control word interface (for FINIT/FLDCW instructions)
+    reg [15:0]  internal_control_in;
+    reg         internal_control_write;
+    wire [15:0] control_in_muxed;
+    wire        control_write_muxed;
+
+    // Multiplex external and internal control signals
+    assign control_in_muxed = internal_control_write ? internal_control_in : control_in;
+    assign control_write_muxed = internal_control_write | control_write;
+
     FPU_ControlWord control_word (
         .clk(clk),
         .reset(reset),
-        .control_in(control_in),
-        .write_enable(control_write),
+        .control_in(control_in_muxed),
+        .write_enable(control_write_muxed),
         .control_out(control_out),
         .rounding_mode(rounding_mode),
         .precision_mode(precision_mode),
@@ -282,6 +301,7 @@ module FPU_Core(
         .operation(final_arith_operation),
         .enable(final_arith_enable),
         .rounding_mode(rounding_mode),
+        .precision_mode(precision_mode),
         .operand_a(final_arith_operand_a),
         .operand_b(final_arith_operand_b),
         .int16_in(final_arith_int16_in),
@@ -314,6 +334,56 @@ module FPU_Core(
 
     // Tag word output
     assign tag_word_out = tag_word;
+
+    //=================================================================
+    // Exception Handler (8087-Style)
+    //=================================================================
+
+    // Exception control signals
+    reg exception_latch;    // Pulse when operation completes
+    reg exception_clear;    // Pulse on FCLEX/FNCLEX
+
+    // Exception handler outputs
+    wire exception_pending;
+    wire [5:0] latched_exceptions;
+    wire has_unmasked_exception_hw;  // Hardware detection from exception handler
+
+    FPU_Exception_Handler exception_handler (
+        .clk(clk),
+        .reset(reset),
+
+        // Exception inputs from arithmetic unit
+        .exception_invalid(arith_invalid),
+        .exception_denormal(arith_denormal),
+        .exception_zero_div(arith_zero_div),
+        .exception_overflow(arith_overflow),
+        .exception_underflow(arith_underflow),
+        .exception_precision(arith_inexact),  // Note: arith_inexact maps to precision exception
+
+        // Mask bits from control word
+        .mask_invalid(mask_invalid),
+        .mask_denormal(mask_denormal),
+        .mask_zero_div(mask_zero_div),
+        .mask_overflow(mask_overflow),
+        .mask_underflow(mask_underflow),
+        .mask_precision(mask_precision),
+
+        // Exception acknowledgment (from FCLEX/FNCLEX)
+        .exception_clear(exception_clear),
+
+        // Exception latch enable (when operation completes)
+        .exception_latch(exception_latch),
+
+        // INT signal output (active HIGH per 8087 spec)
+        .int_request(int_request),
+
+        // Internal exception status
+        .exception_pending(exception_pending),
+        .latched_exceptions(latched_exceptions),
+
+        // Highest priority unmasked exception
+        .has_unmasked_exception(has_unmasked_exception_hw)
+    );
 
     //=================================================================
     // BCD Converters
@@ -365,7 +435,7 @@ module FPU_Core(
 
     // Microsequencer control signals
     reg        microseq_start;
-    reg [3:0]  microseq_program_index;
+    reg [4:0]  microseq_program_index;  // 5 bits for 32 programs
     wire       microseq_complete;
     wire [79:0] microseq_data_out;
     wire [79:0] microseq_temp_result;  // Debug output: temp_result from microsequencer
@@ -496,6 +566,405 @@ module FPU_Core(
     );
 
     //=================================================================
+    // Exception Handling and NaN Detection Functions
+    //=================================================================
+
+    // Check if FP80 value is NaN (exponent = 0x7FFF, mantissa != 0)
+    function automatic is_nan;
+        input [79:0] fp_value;
+        begin
+            is_nan = (fp_value[78:64] == 15'h7FFF) && (fp_value[63:0] != 64'd0);
+        end
+    endfunction
+
+    // Check if FP80 value is Quiet NaN (bit 62 = 1, the quiet bit)
+    function automatic is_qnan;
+        input [79:0] fp_value;
+        begin
+            // QNaN: exp=0x7FFF, mantissa != 0x8000_0000_0000_0000 (not infinity), bit 62 = 1
+            is_qnan = (fp_value[78:64] == 15'h7FFF) &&
+                      (fp_value[63:0] != 64'h8000_0000_0000_0000) &&
+                      fp_value[62];  // Quiet bit = 1
+        end
+    endfunction
+
+    // Check if FP80 value is Signaling NaN (bit 62 = 0, the quiet bit)
+    function automatic is_snan;
+        input [79:0] fp_value;
+        begin
+            // SNaN: exp=0x7FFF, mantissa != 0x8000_0000_0000_0000 (not infinity), bit 62 = 0, has payload
+            is_snan = (fp_value[78:64] == 15'h7FFF) &&
+                      (fp_value[63:0] != 64'h8000_0000_0000_0000) &&
+                      !fp_value[62] &&  // Quiet bit = 0
+                      (fp_value[61:0] != 62'd0);  // Has some payload bits
+        end
+    endfunction
+
+    // Check if FP80 value is Infinity (exponent = 0x7FFF, mantissa = 0x8000_0000_0000_0000)
+    function automatic is_infinity;
+        input [79:0] fp_value;
+        begin
+            is_infinity = (fp_value[78:64] == 15'h7FFF) && (fp_value[63:0] == 64'h8000_0000_0000_0000);
+        end
+    endfunction
+
+    // Check if FP80 value is Zero (exponent = 0, mantissa = 0)
+    function automatic is_zero;
+        input [79:0] fp_value;
+        begin
+            is_zero = (fp_value[78:64] == 15'd0) && (fp_value[63:0] == 64'd0);
+        end
+    endfunction
+
+    // Get sign of FP80 value
+    function automatic get_sign;
+        input [79:0] fp_value;
+        begin
+            get_sign = fp_value[79];
+        end
+    endfunction
+
+    // Create QNaN with optional sign
+    function automatic [79:0] make_qnan;
+        input sign_bit;
+        begin
+            make_qnan = {sign_bit, 15'h7FFF, 64'hC000_0000_0000_0000};  // QNaN
+        end
+    endfunction
+
+    // Create Infinity with sign
+    function automatic [79:0] make_infinity;
+        input sign_bit;
+        begin
+            make_infinity = {sign_bit, 15'h7FFF, 64'h8000_0000_0000_0000};  // Infinity
+        end
+    endfunction
+
+    // Create Zero with sign
+    function automatic [79:0] make_zero;
+        input sign_bit;
+        begin
+            make_zero = {sign_bit, 15'd0, 64'd0};  // Zero
+        end
+    endfunction
+
+    // Check if FP80 value is denormal (exponent = 0, mantissa ≠ 0)
+    // Denormals represent very small numbers with gradual underflow
+    function automatic is_denormal;
+        input [79:0] fp_value;
+        begin
+            is_denormal = (fp_value[78:64] == 15'd0) && (fp_value[63:0] != 64'd0);
+        end
+    endfunction
+
+    // Normalize a denormal number
+    // Returns normalized FP80 value with proper exponent
+    function automatic [79:0] normalize_denormal;
+        input [79:0] fp_value;
+        reg [63:0] mant;
+        reg signed [15:0] exp;
+        integer i;
+        reg found_bit;
+        begin
+            if (!is_denormal(fp_value)) begin
+                // Not denormal, return as-is
+                normalize_denormal = fp_value;
+            end else begin
+                mant = fp_value[63:0];
+                exp = -16383;  // Starting exponent for denormals
+
+                // Find the leading 1 bit
+                found_bit = 0;
+                for (i = 63; i >= 0; i = i - 1) begin
+                    if (!found_bit && mant[i]) begin
+                        // Shift mantissa to put this bit at position 63
+                        mant = mant << (63 - i);
+                        // Adjust exponent accordingly
+                        exp = exp - (63 - i);
+                        found_bit = 1;
+                    end
+                end
+
+                // Create normalized value
+                normalize_denormal = {fp_value[79], exp + 16'sd16383, mant};
+            end
+        end
+    endfunction
+
+    // Create denormal from underflow
+    // When result underflows, create denormal instead of zero
+    function automatic [79:0] make_denormal;
+        input sign_bit;
+        input signed [15:0] true_exp;  // True exponent (not biased)
+        input [63:0] mantissa;         // Mantissa with integer bit at 63
+        reg [63:0] result_mant;
+        reg [15:0] shift_amount;
+        begin
+            // For denormals, exponent = 0
+            // Shift mantissa right by (1 - true_exp) positions
+            // true_exp should be negative for denormals
+            if (true_exp >= 0) begin
+                // Not actually denormal range
+                make_denormal = {sign_bit, true_exp + 16'sd16383, mantissa};
+            end else begin
+                shift_amount = -true_exp;
+                if (shift_amount < 64) begin
+                    result_mant = mantissa >> shift_amount;
+                    make_denormal = {sign_bit, 15'd0, result_mant};
+                end else begin
+                    // Underflow to zero
+                    make_denormal = make_zero(sign_bit);
+                end
+            end
+        end
+    endfunction
+
+    // Apply precision control to mantissa
+    // Masks lower bits based on precision setting
+    // PC = 00: 24-bit (single precision)
+    // PC = 10: 53-bit (double precision)
+    // PC = 11: 64-bit (extended precision - full FP80)
+    function automatic [63:0] apply_precision_control;
+        input [1:0] precision;
+        input [63:0] mantissa;
+        reg [63:0] mask;
+        begin
+            case (precision)
+                2'b00: begin
+                    // 24-bit precision: keep only top 24 bits (bit 63-40)
+                    // Mask: 0xFFFFFF0000000000
+                    mask = 64'hFFFFFF0000000000;
+                end
+                2'b10: begin
+                    // 53-bit precision: keep only top 53 bits (bit 63-11)
+                    // Mask: 0xFFFFFFFFFFFFE000
+                    mask = 64'hFFFFFFFFFFFFE000;
+                end
+                2'b11: begin
+                    // 64-bit precision: keep all bits (full FP80)
+                    mask = 64'hFFFFFFFFFFFFFFFF;
+                end
+                default: begin
+                    // Reserved (treat as full precision)
+                    mask = 64'hFFFFFFFFFFFFFFFF;
+                end
+            endcase
+            apply_precision_control = mantissa & mask;
+        end
+    endfunction
+
+    // NaN Propagation: Return NaN if any operand is NaN
+    // Priority: SNaN > QNaN (first operand) > QNaN (second operand)
+    function automatic [79:0] propagate_nan;
+        input [79:0] operand_a;
+        input [79:0] operand_b;
+        input has_operand_b;  // Some operations are unary
+        reg found_nan;
+        begin
+            found_nan = 1'b0;
+            propagate_nan = 80'd0;
+
+            // Check for SNaN in operand_a (triggers invalid)
+            if (is_snan(operand_a)) begin
+                // Convert SNaN to QNaN by setting bit 62 (quiet bit)
+                propagate_nan = operand_a | 80'h0000_4000_0000_0000_0000;
+                found_nan = 1'b1;
+            end
+            // Check for SNaN in operand_b (triggers invalid)
+            else if (has_operand_b && is_snan(operand_b)) begin
+                // Convert SNaN to QNaN by setting bit 62 (quiet bit)
+                propagate_nan = operand_b | 80'h0000_4000_0000_0000_0000;
+                found_nan = 1'b1;
+            end
+            // Check for QNaN in operand_a
+            else if (is_qnan(operand_a)) begin
+                propagate_nan = operand_a;  // Preserve payload
+                found_nan = 1'b1;
+            end
+            // Check for QNaN in operand_b
+            else if (has_operand_b && is_qnan(operand_b)) begin
+                propagate_nan = operand_b;  // Preserve payload
+                found_nan = 1'b1;
+            end
+
+            // If no NaN found, return zero (caller should check)
+            if (!found_nan)
+                propagate_nan = 80'd0;
+        end
+    endfunction
+
+    // Handle exception response based on masks
+    // Returns modified result if exception is masked
+    function automatic [79:0] handle_exception_response;
+        input is_invalid;
+        input is_overflow;
+        input is_underflow;
+        input is_zero_div;
+        input mask_invalid_in;
+        input mask_overflow_in;
+        input mask_underflow_in;
+        input mask_zero_div_in;
+        input [79:0] result_in;
+        input result_sign;
+        begin
+            handle_exception_response = result_in;  // Default: return original result
+
+            // Invalid operation: Return QNaN if masked
+            if (is_invalid && mask_invalid_in) begin
+                handle_exception_response = make_qnan(result_sign);
+            end
+            // Overflow: Return ±Infinity if masked
+            else if (is_overflow && mask_overflow_in) begin
+                handle_exception_response = make_infinity(result_sign);
+            end
+            // Underflow: Return ±Zero if masked (gradual underflow not fully implemented)
+            else if (is_underflow && mask_underflow_in) begin
+                handle_exception_response = make_zero(result_sign);
+            end
+            // Zero divide: Return ±Infinity if masked
+            else if (is_zero_div && mask_zero_div_in) begin
+                handle_exception_response = make_infinity(result_sign);
+            end
+        end
+    endfunction
+
+    // Check for invalid addition/subtraction: Inf - Inf (with appropriate signs)
+    function automatic is_invalid_add_sub;
+        input [79:0] operand_a;
+        input [79:0] operand_b;
+        input is_subtract;  // 1 for subtraction, 0 for addition
+        reg sign_a, sign_b;
+        reg both_inf;
+        reg opposite_signs;
+        begin
+            sign_a = operand_a[79];
+            sign_b = operand_b[79];
+            both_inf = is_infinity(operand_a) && is_infinity(operand_b);
+
+            // For subtraction, effective sign of b is flipped
+            if (is_subtract)
+                opposite_signs = (sign_a != sign_b);
+            else
+                opposite_signs = (sign_a == sign_b);
+
+            // Invalid if: Inf + (-Inf) or Inf - Inf (same sign)
+            is_invalid_add_sub = both_inf && !opposite_signs;
+        end
+    endfunction
+
+    // Check for invalid multiplication: 0 × Inf or Inf × 0
+    function automatic is_invalid_mul;
+        input [79:0] operand_a;
+        input [79:0] operand_b;
+        begin
+            is_invalid_mul = (is_zero(operand_a) && is_infinity(operand_b)) ||
+                             (is_infinity(operand_a) && is_zero(operand_b));
+        end
+    endfunction
+
+    // Check for invalid division: 0/0 or Inf/Inf
+    function automatic is_invalid_div;
+        input [79:0] operand_a;
+        input [79:0] operand_b;
+        begin
+            is_invalid_div = (is_zero(operand_a) && is_zero(operand_b)) ||
+                             (is_infinity(operand_a) && is_infinity(operand_b));
+        end
+    endfunction
+
+    // Check for invalid square root: sqrt(negative)
+    function automatic is_invalid_sqrt;
+        input [79:0] operand;
+        begin
+            // Invalid if operand is negative (sign bit = 1) and not zero and not NaN
+            // Note: sqrt(-0) = -0 is valid, sqrt(-NaN) propagates NaN
+            is_invalid_sqrt = operand[79] && !is_zero(operand) && !is_nan(operand);
+        end
+    endfunction
+
+    // Check if there are any unmasked exceptions pending
+    // Used by wait instructions (FINIT, FSTCW, FSTSW) to check before execution
+    function automatic has_unmasked_exceptions;
+        input [15:0] status_word;
+        input [15:0] control_word;
+        reg [5:0] exception_bits;
+        reg [5:0] mask_bits;
+        begin
+            // Extract exception flags [5:0] from status word
+            // Bit 0: Invalid Operation (IE)
+            // Bit 1: Denormalized Operand (DE)
+            // Bit 2: Zero Divide (ZE)
+            // Bit 3: Overflow (OE)
+            // Bit 4: Underflow (UE)
+            // Bit 5: Precision (PE)
+            exception_bits = status_word[5:0];
+
+            // Extract mask bits [5:0] from control word
+            // Same bit positions as exceptions
+            mask_bits = control_word[5:0];
+
+            // Check if any exception is set AND NOT masked (mask bit = 0 means unmasked)
+            // An exception is "unmasked" when the exception bit is 1 and mask bit is 0
+            has_unmasked_exceptions = |(exception_bits & ~mask_bits);
+        end
+    endfunction
+
+    // Pre-operation check: Returns 1 if operation should be short-circuited with NaN result
+    // Also sets should_return_nan and nan_result
+    function automatic should_shortcircuit_for_nan;
+        input [79:0] operand_a;
+        input [79:0] operand_b;
+        input has_two_operands;
+        input is_addition;
+        input is_subtraction;
+        input is_multiplication;
+        input is_division;
+        begin
+            // Check for existing NaN in operands
+            if (is_nan(operand_a) || (has_two_operands && is_nan(operand_b))) begin
+                should_shortcircuit_for_nan = 1'b1;
+            end
+            // Check for invalid operations
+            else if ((is_addition || is_subtraction) && has_two_operands &&
+                     is_invalid_add_sub(operand_a, operand_b, is_subtraction)) begin
+                should_shortcircuit_for_nan = 1'b1;
+            end
+            else if (is_multiplication && has_two_operands && is_invalid_mul(operand_a, operand_b)) begin
+                should_shortcircuit_for_nan = 1'b1;
+            end
+            else if (is_division && has_two_operands && is_invalid_div(operand_a, operand_b)) begin
+                should_shortcircuit_for_nan = 1'b1;
+            end
+            else begin
+                should_shortcircuit_for_nan = 1'b0;
+            end
+        end
+    endfunction
+
+    // Classify instruction as no-wait type (for Level 2 busy tracking)
+    function automatic is_nowait_instruction;
+        input [7:0] inst;
+        begin
+            is_nowait_instruction = (inst == INST_FNINIT) ||
+                                    (inst == INST_FNSTCW) ||
+                                    (inst == INST_FNSTSW) ||
+                                    (inst == INST_FNCLEX);
+        end
+    endfunction
+
+    // Removed get_operation_cycles() function
+    // Level 2 now uses arith_done signal instead of hardcoded cycle counts
+    // This automatically tracks actual operation completion timing
+
+    //=================================================================
+    // Level 2 Busy Tracking
+    //=================================================================
+
+    reg        fpu_busy;           // FPU has operation in progress
+                                   // Set when arith_enable goes high
+                                   // Cleared when operation completes (arith_done or state transition)
+
+    //=================================================================
     // Execution State Machine
     //=================================================================
 
@@ -522,6 +991,10 @@ module FPU_Core(
     reg signed [31:0] temp_int32;
     reg [31:0] temp_fp32;
     reg [63:0] temp_fp64;
+
+    // Pre-operation invalid detection
+    reg       preop_invalid;            // Pre-operation invalid operation detected
+    reg       preop_nan_detected;       // Pre-operation NaN detected
 
     // Captured memory operand format flags (from inputs, captured in STATE_DECODE)
     reg       captured_has_memory_op;
@@ -557,6 +1030,10 @@ module FPU_Core(
             temp_fp32 <= 32'd0;
             temp_fp64 <= 64'd0;
 
+            // Initialize pre-operation invalid detection
+            preop_invalid <= 1'b0;
+            preop_nan_detected <= 1'b0;
+
             // Initialize captured memory format flags
             captured_has_memory_op <= 1'b0;
             captured_operand_size <= 2'd0;
@@ -570,6 +1047,17 @@ module FPU_Core(
             mem_conv_is_load <= 1'b0;
             temp_uint64 <= 64'd0;
 
+            // Initialize internal control word signals
+            internal_control_in <= 16'd0;
+            internal_control_write <= 1'b0;
+
+            // Initialize Level 2 busy tracking
+            fpu_busy <= 1'b0;
+
+            // Initialize exception handler signals
+            exception_latch <= 1'b0;
+            exception_clear <= 1'b0;
+
             // Initialize all stack control signals
             stack_push <= 1'b0;
             stack_pop <= 1'b0;
@@ -577,6 +1065,11 @@ module FPU_Core(
             stack_write_reg <= 3'd0;
             stack_write_enable <= 1'b0;
             stack_read_sel <= 3'd0;
+            stack_inc_ptr <= 1'b0;
+            stack_dec_ptr <= 1'b0;
+            stack_free_reg <= 1'b0;
+            stack_free_index <= 3'd0;
+            stack_init_stack <= 1'b0;
 
             // Initialize arithmetic control signals
             arith_enable <= 1'b0;
@@ -628,34 +1121,53 @@ module FPU_Core(
             status_set_busy <= 1'b0;
             status_clear_busy <= 1'b0;
             status_clear_exc <= 1'b0;
+            internal_control_write <= 1'b0;
             stack_push <= 1'b0;
             stack_pop <= 1'b0;
             stack_write_enable <= 1'b0;
             stack_inc_ptr <= 1'b0;
             stack_dec_ptr <= 1'b0;
             stack_free_reg <= 1'b0;
+            stack_init_stack <= 1'b0;
             microseq_start <= 1'b0;  // One-shot signal for microsequencer
+            exception_latch <= 1'b0;  // Exception handler one-shot signal
+            exception_clear <= 1'b0;  // Exception handler one-shot signal
             // Note: arith_enable is NOT defaulted to 0, it's explicitly managed
+
+            // Level 2: Clear busy flag when arithmetic operations complete
+            // This is detected when arith_done goes high (handled in each operation's completion path)
+            // Operations clear fpu_busy when transitioning to WRITEBACK/DONE states
 
             case (state)
                 STATE_IDLE: begin
+                    // Level 2: ready signal allows no-wait instructions even when busy
+                    // Wait instructions require !fpu_busy, no-wait can proceed regardless
                     ready <= 1'b1;
+
                     if (execute) begin
                         current_inst <= instruction;
                         current_index <= stack_index;
                         stack_read_sel <= stack_index;
-                        ready <= 1'b0;
-                        error <= 1'b0;
-                        status_set_busy <= 1'b1;
 
-                        // Capture memory operation format flags immediately
-                        // (they may be cleared by testbench before STATE_DECODE/EXECUTE)
-                        captured_has_memory_op <= has_memory_op;
-                        captured_operand_size <= operand_size;
-                        captured_is_integer <= is_integer;
-                        captured_is_bcd <= is_bcd;
+                        // Level 2: Check if we can proceed based on instruction type and busy state
+                        if (fpu_busy && !is_nowait_instruction(instruction)) begin
+                            // Wait instruction while busy - must wait, don't proceed
+                            ready <= 1'b1;  // Stay ready but don't advance state
+                        end else begin
+                            // Can proceed: either not busy, or no-wait instruction
+                            ready <= 1'b0;
+                            error <= 1'b0;
+                            status_set_busy <= 1'b1;
 
-                        state <= STATE_DECODE;
+                            // Capture memory operation format flags immediately
+                            // (they may be cleared by testbench before STATE_DECODE/EXECUTE)
+                            captured_has_memory_op <= has_memory_op;
+                            captured_operand_size <= operand_size;
+                            captured_is_integer <= is_integer;
+                            captured_is_bcd <= is_bcd;
+
+                            state <= STATE_DECODE;
+                        end
                     end
                 end
 
@@ -709,15 +1221,46 @@ module FPU_Core(
                     // Start or wait for arithmetic operation
                     case (current_inst)
                         INST_FADD, INST_FADDP: begin
+                            // Check for NaN propagation or invalid operation
                             if (~arith_done) begin
                                 if (~arith_enable) begin
-                                    arith_operation <= 4'd0;  // OP_ADD
-                                    arith_operand_a <= temp_operand_a;
-                                    arith_operand_b <= temp_operand_b;
-                                    arith_enable <= 1'b1;
+                                    // Pre-operation checks
+                                    preop_nan_detected <= is_nan(temp_operand_a) || is_nan(temp_operand_b);
+                                    preop_invalid <= is_invalid_add_sub(temp_operand_a, temp_operand_b, 1'b0);
+
+                                    if (preop_nan_detected || preop_invalid) begin
+                                        // Short-circuit: return NaN immediately
+                                        temp_result <= propagate_nan(temp_operand_a, temp_operand_b, 1'b1);
+                                        if (preop_nan_detected && (is_snan(temp_operand_a) || is_snan(temp_operand_b)))
+                                            status_invalid <= 1'b1;  // SNaN triggers invalid
+                                        else if (preop_invalid)
+                                            status_invalid <= 1'b1;  // Inf - Inf triggers invalid
+                                        error <= !mask_invalid;  // Error if unmasked
+                                        state <= STATE_WRITEBACK;
+                                    end else begin
+                                        // Normal operation
+                                        arith_operation <= 4'd0;  // OP_ADD
+                                        arith_operand_a <= temp_operand_a;
+                                        arith_operand_b <= temp_operand_b;
+                                        arith_enable <= 1'b1;
+                                        fpu_busy <= 1'b1;
+                                    end
                                 end
                             end else begin
-                                temp_result <= arith_result;
+                                // Apply exception response handling
+                                temp_result <= handle_exception_response(
+                                    arith_invalid,
+                                    arith_overflow,
+                                    arith_underflow,
+                                    arith_zero_div,
+                                    mask_invalid,
+                                    mask_overflow,
+                                    mask_underflow,
+                                    mask_zero_div,
+                                    arith_result,
+                                    arith_result[79]  // Result sign
+                                );
+
                                 // Capture exceptions
                                 status_invalid <= arith_invalid;
                                 status_denormal <= arith_denormal;
@@ -725,69 +1268,172 @@ module FPU_Core(
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
+
+                                // Latch exceptions into exception handler
+                                exception_latch <= 1'b1;
+
+                                // Set error signal for unmasked exceptions
+                                error <= (arith_invalid && !mask_invalid) ||
+                                         (arith_overflow && !mask_overflow) ||
+                                         (arith_underflow && !mask_underflow) ||
+                                         (arith_zero_div && !mask_zero_div) ||
+                                         (arith_denormal && !mask_denormal);
+
                                 status_cc_write <= 1'b1;
                                 status_c0 <= arith_cc_equal;
+                                status_c1 <= arith_inexact;  // C1 = 1 if rounded (inexact)
                                 status_c2 <= arith_cc_less;
                                 status_c3 <= arith_cc_unordered;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
 
                         INST_FSUB, INST_FSUBP: begin
+                            // Check for NaN propagation or invalid operation
                             if (~arith_done) begin
                                 if (~arith_enable) begin
-                                    arith_operation <= 4'd1;  // OP_SUB
-                                    arith_operand_a <= temp_operand_a;
-                                    arith_operand_b <= temp_operand_b;
-                                    arith_enable <= 1'b1;
+                                    // Pre-operation checks
+                                    preop_nan_detected <= is_nan(temp_operand_a) || is_nan(temp_operand_b);
+                                    preop_invalid <= is_invalid_add_sub(temp_operand_a, temp_operand_b, 1'b1);
+
+                                    if (preop_nan_detected || preop_invalid) begin
+                                        // Short-circuit: return NaN immediately
+                                        temp_result <= propagate_nan(temp_operand_a, temp_operand_b, 1'b1);
+                                        if (preop_nan_detected && (is_snan(temp_operand_a) || is_snan(temp_operand_b)))
+                                            status_invalid <= 1'b1;  // SNaN triggers invalid
+                                        else if (preop_invalid)
+                                            status_invalid <= 1'b1;  // Inf - Inf (same sign) triggers invalid
+                                        error <= !mask_invalid;  // Error if unmasked
+                                        state <= STATE_WRITEBACK;
+                                    end else begin
+                                        // Normal operation
+                                        arith_operation <= 4'd1;  // OP_SUB
+                                        arith_operand_a <= temp_operand_a;
+                                        arith_operand_b <= temp_operand_b;
+                                        arith_enable <= 1'b1;
+                                        fpu_busy <= 1'b1;
+                                    end
                                 end
                             end else begin
-                                temp_result <= arith_result;
+                                // Apply exception response handling
+                                temp_result <= handle_exception_response(
+                                    arith_invalid, arith_overflow, arith_underflow, arith_zero_div,
+                                    mask_invalid, mask_overflow, mask_underflow, mask_zero_div,
+                                    arith_result, arith_result[79]
+                                );
                                 status_invalid <= arith_invalid;
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
+
+                                // Latch exceptions into exception handler
+                                exception_latch <= 1'b1;
+
+                                error <= (arith_invalid && !mask_invalid) || (arith_overflow && !mask_overflow) ||
+                                         (arith_underflow && !mask_underflow) || (arith_zero_div && !mask_zero_div);
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
 
                         INST_FMUL, INST_FMULP: begin
+                            // Check for NaN propagation or invalid operation (0 × Inf)
                             if (~arith_done) begin
                                 if (~arith_enable) begin
-                                    arith_operation <= 4'd2;  // OP_MUL
-                                    arith_operand_a <= temp_operand_a;
-                                    arith_operand_b <= temp_operand_b;
-                                    arith_enable <= 1'b1;
+                                    // Pre-operation checks
+                                    preop_nan_detected <= is_nan(temp_operand_a) || is_nan(temp_operand_b);
+                                    preop_invalid <= is_invalid_mul(temp_operand_a, temp_operand_b);
+
+                                    if (preop_nan_detected || preop_invalid) begin
+                                        // Short-circuit: return NaN immediately
+                                        temp_result <= propagate_nan(temp_operand_a, temp_operand_b, 1'b1);
+                                        if (preop_nan_detected && (is_snan(temp_operand_a) || is_snan(temp_operand_b)))
+                                            status_invalid <= 1'b1;  // SNaN triggers invalid
+                                        else if (preop_invalid)
+                                            status_invalid <= 1'b1;  // 0 × Inf triggers invalid
+                                        error <= !mask_invalid;  // Error if unmasked
+                                        state <= STATE_WRITEBACK;
+                                    end else begin
+                                        // Normal operation
+                                        arith_operation <= 4'd2;  // OP_MUL
+                                        arith_operand_a <= temp_operand_a;
+                                        arith_operand_b <= temp_operand_b;
+                                        arith_enable <= 1'b1;
+                                        fpu_busy <= 1'b1;
+                                    end
                                 end
                             end else begin
-                                temp_result <= arith_result;
+                                // Apply exception response handling
+                                temp_result <= handle_exception_response(
+                                    arith_invalid, arith_overflow, arith_underflow, arith_zero_div,
+                                    mask_invalid, mask_overflow, mask_underflow, mask_zero_div,
+                                    arith_result, arith_result[79]
+                                );
                                 status_invalid <= arith_invalid;
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
+
+                                // Latch exceptions into exception handler
+                                exception_latch <= 1'b1;
+
+                                error <= (arith_invalid && !mask_invalid) || (arith_overflow && !mask_overflow) ||
+                                         (arith_underflow && !mask_underflow) || (arith_zero_div && !mask_zero_div);
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
 
                         INST_FDIV, INST_FDIVP: begin
+                            // Check for NaN propagation or invalid operation
                             if (~arith_done) begin
                                 if (~arith_enable) begin
-                                    arith_operation <= 4'd3;  // OP_DIV
-                                    arith_operand_a <= temp_operand_a;
-                                    arith_operand_b <= temp_operand_b;
-                                    arith_enable <= 1'b1;
+                                    // Pre-operation checks
+                                    preop_nan_detected <= is_nan(temp_operand_a) || is_nan(temp_operand_b);
+                                    preop_invalid <= is_invalid_div(temp_operand_a, temp_operand_b);
+
+                                    if (preop_nan_detected || preop_invalid) begin
+                                        // Short-circuit: return NaN immediately
+                                        temp_result <= propagate_nan(temp_operand_a, temp_operand_b, 1'b1);
+                                        if (preop_nan_detected && (is_snan(temp_operand_a) || is_snan(temp_operand_b)))
+                                            status_invalid <= 1'b1;  // SNaN triggers invalid
+                                        else if (preop_invalid)
+                                            status_invalid <= 1'b1;  // 0/0 or Inf/Inf triggers invalid
+                                        error <= !mask_invalid;  // Error if unmasked
+                                        state <= STATE_WRITEBACK;
+                                    end else begin
+                                        // Normal operation
+                                        arith_operation <= 4'd3;  // OP_DIV
+                                        arith_operand_a <= temp_operand_a;
+                                        arith_operand_b <= temp_operand_b;
+                                        arith_enable <= 1'b1;
+                                        fpu_busy <= 1'b1;
+                                    end
                                 end
                             end else begin
-                                temp_result <= arith_result;
+                                // Apply exception response handling (especially for zero divide)
+                                temp_result <= handle_exception_response(
+                                    arith_invalid, arith_overflow, arith_underflow, arith_zero_div,
+                                    mask_invalid, mask_overflow, mask_underflow, mask_zero_div,
+                                    arith_result, arith_result[79]
+                                );
                                 status_invalid <= arith_invalid;
                                 status_zero_div <= arith_zero_div;
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
+
+                                // Latch exceptions into exception handler
+                                exception_latch <= 1'b1;
+
+                                error <= (arith_invalid && !mask_invalid) || (arith_overflow && !mask_overflow) ||
+                                         (arith_underflow && !mask_underflow) || (arith_zero_div && !mask_zero_div);
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -798,10 +1444,12 @@ module FPU_Core(
                                     arith_operation <= 4'd4;  // OP_INT16_TO_FP
                                     arith_int16_in <= temp_int32[15:0];
                                     arith_enable <= 1'b1;
+                                    fpu_busy <= 1'b1;
                                 end
                             end else begin
                                 temp_result <= arith_result;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -812,11 +1460,13 @@ module FPU_Core(
                                     arith_operation <= 4'd5;  // OP_INT32_TO_FP
                                     arith_int32_in <= temp_int32;
                                     arith_enable <= 1'b1;
+                                    fpu_busy <= 1'b1;
                                 end
                                 // else: keep enable high, wait for done
                             end else begin  // arith_done
                                 temp_result <= arith_result;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -827,13 +1477,19 @@ module FPU_Core(
                                     arith_operation <= 4'd6;  // OP_FP_TO_INT16
                                     arith_operand_a <= temp_operand_a;
                                     arith_enable <= 1'b1;
+                                    fpu_busy <= 1'b1;
                                 end
                             end else begin
                                 int_data_out <= {16'd0, arith_int16_out};
                                 status_invalid <= arith_invalid;
                                 status_overflow <= arith_overflow;
                                 status_precision <= arith_inexact;
+
+                                // Latch exceptions into exception handler
+                                exception_latch <= 1'b1;
+
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -844,13 +1500,19 @@ module FPU_Core(
                                     arith_operation <= 4'd7;  // OP_FP_TO_INT32
                                     arith_operand_a <= temp_operand_a;
                                     arith_enable <= 1'b1;
+                                    fpu_busy <= 1'b1;
                                 end
                             end else begin
                                 int_data_out <= arith_int32_out;
                                 status_invalid <= arith_invalid;
                                 status_overflow <= arith_overflow;
                                 status_precision <= arith_inexact;
+
+                                // Latch exceptions into exception handler
+                                exception_latch <= 1'b1;
+
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -861,10 +1523,12 @@ module FPU_Core(
                                     arith_operation <= 4'd8;  // OP_FP32_TO_FP80
                                     arith_fp32_in <= temp_fp32;
                                     arith_enable <= 1'b1;
+                                    fpu_busy <= 1'b1;
                                 end
                             end else begin
                                 temp_result <= arith_result;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -875,10 +1539,12 @@ module FPU_Core(
                                     arith_operation <= 4'd9;  // OP_FP64_TO_FP80
                                     arith_fp64_in <= temp_fp64;
                                     arith_enable <= 1'b1;
+                                    fpu_busy <= 1'b1;
                                 end
                             end else begin
                                 temp_result <= arith_result;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -895,6 +1561,7 @@ module FPU_Core(
                                     arith_operation <= 4'd10;  // OP_FP80_TO_FP32
                                     arith_operand_a <= temp_operand_a;
                                     arith_enable <= 1'b1;
+                                    fpu_busy <= 1'b1;
                                 end
                             end else begin
                                 data_out <= {48'd0, arith_fp32_out};
@@ -902,7 +1569,12 @@ module FPU_Core(
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
+
+                                // Latch exceptions into exception handler
+                                exception_latch <= 1'b1;
+
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -913,6 +1585,7 @@ module FPU_Core(
                                     arith_operation <= 4'd11;  // OP_FP80_TO_FP64
                                     arith_operand_a <= temp_operand_a;
                                     arith_enable <= 1'b1;
+                                    fpu_busy <= 1'b1;
                                 end
                             end else begin
                                 data_out <= {16'd0, arith_fp64_out};
@@ -920,24 +1593,56 @@ module FPU_Core(
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
+
+                                // Latch exceptions into exception handler
+                                exception_latch <= 1'b1;
+
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
 
                         // Transcendental instructions
                         INST_FSQRT: begin
+                            // Check for NaN propagation or invalid operation (sqrt of negative)
                             if (~arith_done) begin
                                 if (~arith_enable) begin
-                                    arith_operation <= 4'd12;  // OP_SQRT
-                                    arith_operand_a <= temp_operand_a;
-                                    arith_enable <= 1'b1;
+                                    // Pre-operation checks
+                                    preop_nan_detected <= is_nan(temp_operand_a);
+                                    preop_invalid <= is_invalid_sqrt(temp_operand_a);
+
+                                    if (preop_nan_detected || preop_invalid) begin
+                                        // Short-circuit: return NaN immediately
+                                        if (is_snan(temp_operand_a)) begin
+                                            // Propagate SNaN as QNaN
+                                            temp_result <= propagate_nan(temp_operand_a, 80'd0, 1'b0);
+                                            status_invalid <= 1'b1;  // SNaN triggers invalid
+                                        end else if (is_qnan(temp_operand_a)) begin
+                                            // Propagate QNaN unchanged
+                                            temp_result <= temp_operand_a;
+                                        end else begin
+                                            // sqrt(negative) → QNaN
+                                            temp_result <= make_qnan(1'b1);  // Negative QNaN for sqrt(negative)
+                                            status_invalid <= 1'b1;
+                                        end
+                                        error <= !mask_invalid;  // Error if unmasked
+                                        has_secondary_result <= 1'b0;
+                                        state <= STATE_WRITEBACK;
+                                    end else begin
+                                        // Normal operation
+                                        arith_operation <= 4'd12;  // OP_SQRT
+                                        arith_operand_a <= temp_operand_a;
+                                        arith_enable <= 1'b1;
+                                        fpu_busy <= 1'b1;
+                                    end
                                 end
                             end else begin
                                 temp_result <= arith_result;
                                 has_secondary_result <= 1'b0;
                                 status_invalid <= arith_invalid;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -948,12 +1653,14 @@ module FPU_Core(
                                     arith_operation <= 4'd13;  // OP_SIN
                                     arith_operand_a <= temp_operand_a;
                                     arith_enable <= 1'b1;
+                                    fpu_busy <= 1'b1;
                                 end
                             end else begin
                                 temp_result <= arith_result;
                                 has_secondary_result <= 1'b0;
                                 status_invalid <= arith_invalid;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -964,210 +1671,100 @@ module FPU_Core(
                                     arith_operation <= 4'd14;  // OP_COS
                                     arith_operand_a <= temp_operand_a;
                                     arith_enable <= 1'b1;
+                                    fpu_busy <= 1'b1;
                                 end
                             end else begin
                                 temp_result <= arith_result;
                                 has_secondary_result <= 1'b0;
                                 status_invalid <= arith_invalid;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
 
                         INST_FSINCOS: begin
-                            if (~arith_done) begin
-                                if (~arith_enable) begin
-                                    arith_operation <= 4'd15;  // OP_SINCOS
-                                    arith_operand_a <= temp_operand_a;
-                                    arith_enable <= 1'b1;
-                                end
-                            end else begin
-                                // Store both sin and cos results
-                                temp_result <= arith_result;              // sin(θ)
-                                temp_result_secondary <= arith_result_secondary;  // cos(θ)
-                                has_secondary_result <= arith_has_secondary;
-                                status_invalid <= arith_invalid;
-                                arith_enable <= 1'b0;
-                                state <= STATE_WRITEBACK;
-                            end
+                            // Sin and Cos simultaneously: Use microcode program 19
+                            microseq_data_in_source <= temp_operand_a;  // Angle (ST(0))
+                            microseq_program_index <= 5'd19;  // Program 19: FSINCOS at 0x0750
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         INST_FPTAN: begin
-                            if (~arith_done) begin
-                                if (~arith_enable) begin
-                                    arith_operation <= 5'd18;  // OP_TAN
-                                    arith_operand_a <= temp_operand_a;
-                                    arith_enable <= 1'b1;
-                                end
-                            end else begin
-                                // Store tan and 1.0 (for compatibility with 8087)
-                                temp_result <= arith_result;              // tan(θ)
-                                temp_result_secondary <= arith_result_secondary;  // 1.0
-                                has_secondary_result <= arith_has_secondary;
-                                status_invalid <= arith_invalid;
-                                arith_enable <= 1'b0;
-                                state <= STATE_WRITEBACK;
-                            end
+                            // Partial Tangent: Use microcode program 14
+                            microseq_data_in_source <= temp_operand_a;  // Angle (ST(0))
+                            microseq_program_index <= 5'd14;  // Program 14: FPTAN at 0x0700
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         INST_FPATAN: begin
-                            if (~arith_done) begin
-                                if (~arith_enable) begin
-                                    arith_operation <= 5'd19;  // OP_ATAN
-                                    arith_operand_a <= temp_operand_a;  // y (ST(1))
-                                    arith_operand_b <= temp_operand_b;  // x (ST(0))
-                                    arith_enable <= 1'b1;
-                                end
-                            end else begin
-                                temp_result <= arith_result;  // atan(y/x)
-                                has_secondary_result <= 1'b0;
-                                status_invalid <= arith_invalid;
-                                arith_enable <= 1'b0;
-                                state <= STATE_WRITEBACK;
-                            end
+                            // Partial Arctangent: Use microcode program 15
+                            microseq_data_in_source <= temp_operand_b;  // x (ST(0)) - loaded first
+                            // Note: microcode will need to load both x and y
+                            microseq_program_index <= 5'd15;  // Program 15: FPATAN at 0x0710
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         INST_F2XM1: begin
-                            if (~arith_done) begin
-                                if (~arith_enable) begin
-                                    arith_operation <= 5'd20;  // OP_F2XM1
-                                    arith_operand_a <= temp_operand_a;
-                                    arith_enable <= 1'b1;
-                                end
-                            end else begin
-                                temp_result <= arith_result;  // 2^x - 1
-                                has_secondary_result <= 1'b0;
-                                status_invalid <= arith_invalid;
-                                arith_enable <= 1'b0;
-                                state <= STATE_WRITEBACK;
-                            end
+                            // 2^x - 1: Use microcode program 16
+                            microseq_data_in_source <= temp_operand_a;  // x (ST(0))
+                            microseq_program_index <= 5'd16;  // Program 16: F2XM1 at 0x0720
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         INST_FYL2X: begin
-                            if (~arith_done) begin
-                                if (~arith_enable) begin
-                                    arith_operation <= 5'd21;  // OP_FYL2X
-                                    arith_operand_a <= temp_operand_b;  // x (ST(0))
-                                    arith_operand_b <= temp_operand_a;  // y (ST(1))
-                                    arith_enable <= 1'b1;
-                                end
-                            end else begin
-                                temp_result <= arith_result;  // y × log₂(x)
-                                has_secondary_result <= 1'b0;
-                                status_invalid <= arith_invalid;
-                                arith_enable <= 1'b0;
-                                state <= STATE_WRITEBACK;
-                            end
+                            // y × log₂(x): Use microcode program 17
+                            microseq_data_in_source <= temp_operand_b;  // x (ST(0))
+                            microseq_program_index <= 5'd17;  // Program 17: FYL2X at 0x0730
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         INST_FYL2XP1: begin
-                            if (~arith_done) begin
-                                if (~arith_enable) begin
-                                    arith_operation <= 5'd22;  // OP_FYL2XP1
-                                    arith_operand_a <= temp_operand_b;  // x (ST(0))
-                                    arith_operand_b <= temp_operand_a;  // y (ST(1))
-                                    arith_enable <= 1'b1;
-                                end
-                            end else begin
-                                temp_result <= arith_result;  // y × log₂(x+1)
-                                has_secondary_result <= 1'b0;
-                                status_invalid <= arith_invalid;
-                                arith_enable <= 1'b0;
-                                state <= STATE_WRITEBACK;
-                            end
+                            // y × log₂(x+1): Use microcode program 18
+                            microseq_data_in_source <= temp_operand_b;  // x (ST(0))
+                            microseq_program_index <= 5'd18;  // Program 18: FYL2XP1 at 0x0740
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         // ===== Advanced FP Operations =====
 
                         INST_FRNDINT: begin
-                            // Round to integer according to rounding mode
-                            // FP80 format: [79]=sign, [78:64]=exp, [63]=integer bit, [62:0]=mantissa
-
-                            // Check for special cases (NaN, Infinity, Zero)
-                            if (temp_operand_a[78:64] == 15'h7FFF || temp_operand_a[78:64] == 15'h0000) begin
-                                // NaN, Infinity, or Zero - return as-is
-                                temp_result <= temp_operand_a;
-                            end else if (temp_operand_a[78:64] < 15'h3FFF) begin
-                                // |value| < 1.0 - round to 0 or ±1 depending on rounding mode
-                                case (rounding_mode)
-                                    2'b00: temp_result <= 80'h00000000000000000000;  // Round to nearest (0)
-                                    2'b01: temp_result <= temp_operand_a[79] ? 80'hBFFF8000000000000000 : 80'h00000000000000000000;  // Round down
-                                    2'b10: temp_result <= temp_operand_a[79] ? 80'h00000000000000000000 : 80'h3FFF8000000000000000;  // Round up
-                                    2'b11: temp_result <= 80'h00000000000000000000;  // Round toward zero
-                                endcase
-                            end else if (temp_operand_a[78:64] >= 15'h403E) begin
-                                // exp >= 63: Already an integer (no fractional bits)
-                                temp_result <= temp_operand_a;
-                            end else begin
-                                // Normal case: round the fractional bits
-                                // For now, simple truncation (round toward zero)
-                                // TODO: Implement proper rounding modes
-                                temp_result <= temp_operand_a;
-                            end
-
-                            state <= STATE_WRITEBACK;
+                            // Round to integer: Use microcode program 21
+                            microseq_data_in_source <= temp_operand_a;  // Value (ST(0))
+                            microseq_program_index <= 5'd21;  // Program 21: FRNDINT at 0x0770
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         INST_FSCALE: begin
-                            // Scale ST(0) by 2^floor(ST(1))
-                            // FP80 format: [79]=sign, [78:64]=exp, [63:0]=mantissa
-                            // Simplified implementation: adds ST(1)'s unbiased exponent to ST(0)'s exponent
-
-                            // Check for special cases
-                            if (temp_operand_a[78:64] == 15'h7FFF || temp_operand_a[78:64] == 15'h0000 ||
-                                temp_operand_b[78:64] == 15'h7FFF || temp_operand_b[78:64] == 15'h0000) begin
-                                // NaN, Infinity, or Zero in either operand - return ST(0) unchanged
-                                temp_result <= temp_operand_a;
-                                status_invalid <= 1'b1;
-                            end else begin
-                                // Simplified scaling: add unbiased exponents
-                                // Scale factor approximation: ST(1)'s exponent - bias
-                                // New exponent: ST(0)'s exponent + scale factor
-                                // For simplicity, just add (ST(1)_exp - 0x3FFF) to ST(0)_exp
-                                // Proper check: exponent + (exp_b - 0x3FFF) within range
-
-                                // Just add the biased difference for now (simplified)
-                                temp_result <= {temp_operand_a[79],
-                                               temp_operand_a[78:64] + temp_operand_b[78:64] - 15'h3FFF,
-                                               temp_operand_a[63:0]};
-                            end
-
-                            state <= STATE_WRITEBACK;
+                            // Scale by power of 2: Use microcode program 11
+                            microseq_data_in_source <= temp_operand_a;  // Value (ST(0))
+                            microseq_program_index <= 5'd11;  // Program 11: FSCALE at 0x0500
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         INST_FXTRACT: begin
-                            // Extract exponent and mantissa
-                            // Pushes two values: mantissa [1.0, 2.0) in ST(0), exponent as FP in ST(1)
-
-                            // Check for special cases (NaN, Infinity, Zero)
-                            if (temp_operand_a[78:64] == 15'h7FFF || temp_operand_a[78:64] == 15'h0000) begin
-                                // NaN, Infinity, or Zero - return as-is for both values
-                                temp_result <= temp_operand_a;
-                                temp_result_secondary <= temp_operand_a;
-                                has_secondary_result <= 1'b1;
-                            end else begin
-                                // Normal case: Split into mantissa and exponent
-                                // Mantissa: Replace exponent with 0x3FFF to get value in [1.0, 2.0)
-                                temp_result <= {temp_operand_a[79], 15'h3FFF, temp_operand_a[63:0]};
-
-                                // Exponent: Convert (exp - 0x3FFF) to FP80
-                                // Simplified: For small integers, construct FP80 directly
-                                // If exp >= 0x3FFF: positive exponent
-                                // If exp < 0x3FFF: negative exponent
-                                if (temp_operand_a[78:64] >= 15'h3FFF) begin
-                                    // Positive or zero exponent
-                                    // exp_value = exp - 0x3FFF, convert to FP80
-                                    // For simplicity, just shift the unbiased exponent
-                                    temp_result_secondary <= {1'b0, temp_operand_a[78:64], 64'h8000000000000000};
-                                end else begin
-                                    // Negative exponent
-                                    temp_result_secondary <= {1'b1, 15'h3FFF - temp_operand_a[78:64], 64'h8000000000000000};
-                                end
-
-                                has_secondary_result <= 1'b1;
-                            end
-
-                            state <= STATE_WRITEBACK;
+                            // Extract exponent and significand: Use microcode program 10
+                            microseq_data_in_source <= temp_operand_a;  // Value (ST(0))
+                            microseq_program_index <= 5'd10;  // Program 10: FXTRACT at 0x0400
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         INST_FPREM: begin
@@ -1179,11 +1776,12 @@ module FPU_Core(
                         end
 
                         INST_FPREM1: begin
-                            // IEEE partial remainder: ST(0) = IEEE remainder(ST(0), ST(1))
-                            // This is a complex operation similar to FPREM
-                            // For now, return error (unsupported operation)
-                            status_invalid <= 1'b1;
-                            state <= STATE_DONE;
+                            // IEEE partial remainder: Use microcode program 20
+                            microseq_data_in_source <= temp_operand_a;  // Dividend (ST(0))
+                            microseq_program_index <= 5'd20;  // Program 20: FPREM1 at 0x0760
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         // BCD conversion instructions
@@ -1191,7 +1789,7 @@ module FPU_Core(
                             // BCD Load: Use microcode program 12 (BCD → Binary → FP80)
                             // This replaces ~33 lines of FSM orchestration logic with a single microcode call
                             microseq_data_in_source <= data_in;  // BCD input from memory/CPU
-                            microseq_program_index <= 4'd12;  // Program 12: FBLD at 0x0600
+                            microseq_program_index <= 5'd12;  // Program 12: FBLD at 0x0600
                             microseq_start <= 1'b1;
                             microseq_active <= 1'b1;
                             state <= STATE_WAIT_MICROSEQ;
@@ -1201,7 +1799,7 @@ module FPU_Core(
                             // BCD Store and Pop: Use microcode program 13 (FP80 → Binary → BCD)
                             // This replaces ~37 lines of FSM orchestration logic with a single microcode call
                             microseq_data_in_source <= temp_operand_a;  // FP80 value from ST(0)
-                            microseq_program_index <= 4'd13;  // Program 13: FBSTP at 0x0610
+                            microseq_program_index <= 5'd13;  // Program 13: FBSTP at 0x0610
                             microseq_start <= 1'b1;
                             microseq_active <= 1'b1;
                             state <= STATE_WAIT_MICROSEQ;
@@ -1255,7 +1853,112 @@ module FPU_Core(
                         end
 
                         INST_FCLEX: begin
+                            // Clear exceptions (wait version)
+                            // Check for unmasked exceptions first (wait behavior)
+                            if (exception_pending) begin
+                                // Unmasked exception pending - assert error and block
+                                error <= 1'b1;
+                                state <= STATE_DONE;
+                            end else begin
+                                // No unmasked exceptions - proceed with clear
+                                status_clear_exc <= 1'b1;
+                                exception_clear <= 1'b1;  // Clear exception handler
+                                state <= STATE_DONE;
+                            end
+                        end
+
+                        INST_FNCLEX: begin
+                            // Clear exceptions (no-wait version)
+                            // No exception checking - execute immediately
                             status_clear_exc <= 1'b1;
+                            exception_clear <= 1'b1;  // Clear exception handler
+                            state <= STATE_DONE;
+                        end
+
+                        INST_FINIT: begin
+                            // Initialize FPU (wait version)
+                            // Check for unmasked exceptions first (wait behavior)
+                            if (exception_pending) begin
+                                // Unmasked exception pending - assert error and block
+                                error <= 1'b1;
+                                state <= STATE_DONE;
+                            end else begin
+                                // No unmasked exceptions - proceed with initialization
+                                // 1. Initialize stack (clear all tags, reset pointer)
+                                stack_init_stack <= 1'b1;
+                                // 2. Clear all status exceptions
+                                status_clear_exc <= 1'b1;
+                                exception_clear <= 1'b1;  // Also clear exception handler
+                                // 3. Set control word to 0x037F (all exceptions masked, round to nearest, extended precision)
+                                internal_control_in <= 16'h037F;
+                                internal_control_write <= 1'b1;
+                                state <= STATE_DONE;
+                            end
+                        end
+
+                        INST_FNINIT: begin
+                            // Initialize FPU (no-wait version)
+                            // No exception checking - execute immediately (Level 1 no-wait behavior)
+                            // 1. Initialize stack (clear all tags, reset pointer)
+                            stack_init_stack <= 1'b1;
+                            // 2. Clear all status exceptions
+                            status_clear_exc <= 1'b1;
+                            // 3. Set control word to 0x037F (all exceptions masked, round to nearest, extended precision)
+                            internal_control_in <= 16'h037F;
+                            internal_control_write <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+
+                        INST_FLDCW: begin
+                            // Load control word from memory
+                            internal_control_in <= data_in[15:0];
+                            internal_control_write <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+
+                        INST_FSTCW: begin
+                            // Store control word to memory (wait version)
+                            // Check for unmasked exceptions first (wait behavior)
+                            if (exception_pending) begin
+                                // Unmasked exception pending - assert error and block
+                                error <= 1'b1;
+                                state <= STATE_DONE;
+                            end else begin
+                                // No unmasked exceptions - proceed with store
+                                data_out <= {64'd0, control_out};  // Zero-extend to 80 bits
+                                int_data_out <= {16'd0, control_out};  // For 16-bit output
+                                state <= STATE_DONE;
+                            end
+                        end
+
+                        INST_FNSTCW: begin
+                            // Store control word to memory (no-wait version)
+                            // No exception checking - execute immediately (Level 1 no-wait behavior)
+                            data_out <= {64'd0, control_out};  // Zero-extend to 80 bits
+                            int_data_out <= {16'd0, control_out};  // For 16-bit output
+                            state <= STATE_DONE;
+                        end
+
+                        INST_FSTSW: begin
+                            // Store status word to memory or AX (wait version)
+                            // Check for unmasked exceptions first (wait behavior)
+                            if (exception_pending) begin
+                                // Unmasked exception pending - assert error and block
+                                error <= 1'b1;
+                                state <= STATE_DONE;
+                            end else begin
+                                // No unmasked exceptions - proceed with store
+                                data_out <= {64'd0, status_out};  // Zero-extend to 80 bits
+                                int_data_out <= {16'd0, status_out};  // For 16-bit output or AX
+                                state <= STATE_DONE;
+                            end
+                        end
+
+                        INST_FNSTSW: begin
+                            // Store status word to memory or AX (no-wait version)
+                            // No exception checking - execute immediately (Level 1 no-wait behavior)
+                            data_out <= {64'd0, status_out};  // Zero-extend to 80 bits
+                            int_data_out <= {16'd0, status_out};  // For 16-bit output or AX
                             state <= STATE_DONE;
                         end
 
@@ -1289,6 +1992,7 @@ module FPU_Core(
                                     arith_operand_a <= temp_operand_a;  // ST(0)
                                     arith_operand_b <= temp_operand_b;  // ST(i) or memory
                                     arith_enable <= 1'b1;
+                                    fpu_busy <= 1'b1;
                                 end
                             end else begin
                                 // Map comparison results to condition codes per Intel 8087 spec
@@ -1308,6 +2012,7 @@ module FPU_Core(
                                     status_c0 <= arith_cc_less;
                                 end
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_STACK_OP;
                             end
                         end
@@ -1321,6 +2026,7 @@ module FPU_Core(
                                     arith_operand_a <= temp_operand_a;  // ST(0)
                                     arith_operand_b <= temp_operand_b;  // ST(1)
                                     arith_enable <= 1'b1;
+                                    fpu_busy <= 1'b1;
                                 end
                             end else begin
                                 // Set condition codes
@@ -1335,6 +2041,7 @@ module FPU_Core(
                                     status_c0 <= arith_cc_less;
                                 end
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_STACK_OP;
                             end
                         end
@@ -1362,6 +2069,7 @@ module FPU_Core(
                                     status_c0 <= arith_cc_less;
                                 end
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_DONE;
                             end
                         end
@@ -1438,8 +2146,16 @@ module FPU_Core(
                         end
 
                         INST_FWAIT: begin
-                            // Wait for FPU ready (no-op in single-threaded implementation)
-                            state <= STATE_DONE;
+                            // Wait for FPU ready and check for exceptions
+                            // 8087 behavior: FWAIT checks for pending exceptions
+                            if (exception_pending) begin
+                                // Unmasked exception pending - assert error
+                                error <= 1'b1;
+                                state <= STATE_DONE;
+                            end else begin
+                                // No exceptions - proceed
+                                state <= STATE_DONE;
+                            end
                         end
 
                         // ===== Constant Loading Instructions =====
@@ -1502,6 +2218,7 @@ module FPU_Core(
                                     arith_operand_a <= temp_operand_b;  // Swapped!
                                     arith_operand_b <= temp_operand_a;  // Swapped!
                                     arith_enable <= 1'b1;
+                                    fpu_busy <= 1'b1;
                                 end
                             end else begin
                                 temp_result <= arith_result;
@@ -1509,7 +2226,12 @@ module FPU_Core(
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
+
+                                // Latch exceptions into exception handler
+                                exception_latch <= 1'b1;
+
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -1523,6 +2245,7 @@ module FPU_Core(
                                     arith_operand_a <= temp_operand_b;  // Swapped!
                                     arith_operand_b <= temp_operand_a;  // Swapped!
                                     arith_enable <= 1'b1;
+                                    fpu_busy <= 1'b1;
                                 end
                             end else begin
                                 temp_result <= arith_result;
@@ -1532,6 +2255,7 @@ module FPU_Core(
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
                             end
                         end
@@ -1562,6 +2286,7 @@ module FPU_Core(
                                     status_c0 <= arith_cc_less;
                                 end
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_STACK_OP;
                             end
                         end
@@ -1588,6 +2313,7 @@ module FPU_Core(
                                     status_c0 <= arith_cc_less;
                                 end
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_STACK_OP;
                             end
                         end
@@ -1629,6 +2355,7 @@ module FPU_Core(
                                         arith_uint64_in <= temp_uint64;
                                         arith_uint64_sign_in <= 1'b0;  // Positive for now
                                         arith_enable <= 1'b1;
+                                        fpu_busy <= 1'b1;
                                     end
                                 end else begin
                                     arith_enable <= 1'b0;
@@ -1662,6 +2389,7 @@ module FPU_Core(
                                         end
                                     endcase
                                     arith_enable <= 1'b1;
+                                    fpu_busy <= 1'b1;
                                 end
                             end else begin
                                 arith_enable <= 1'b0;
@@ -1691,6 +2419,7 @@ module FPU_Core(
                                         end
                                     endcase
                                     arith_enable <= 1'b1;
+                                    fpu_busy <= 1'b1;
                                 end
                             end else begin
                                 $display("[DEBUG] FP load conversion done! arith_result=%h, temp_fp32=%h", arith_result, temp_fp32);
@@ -1714,6 +2443,7 @@ module FPU_Core(
                                         arith_operation <= 5'd17;  // OP_FP_TO_UINT64
                                         arith_operand_a <= temp_operand_a;
                                         arith_enable <= 1'b1;
+                                        fpu_busy <= 1'b1;
                                     end
                                 end else begin
                                     arith_enable <= 1'b0;
@@ -1750,6 +2480,7 @@ module FPU_Core(
                                         end
                                     endcase
                                     arith_enable <= 1'b1;
+                                    fpu_busy <= 1'b1;
                                 end
                             end else begin
                                 arith_enable <= 1'b0;
@@ -1775,6 +2506,7 @@ module FPU_Core(
                                         end
                                     endcase
                                     arith_enable <= 1'b1;
+                                    fpu_busy <= 1'b1;
                                 end
                             end else begin
                                 arith_enable <= 1'b0;

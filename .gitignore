@@ -53,6 +53,11 @@ Quartus/rtl/FPU8087/tb_integration_debug
 Quartus/rtl/FPU8087/tb_realtime_debug
 Quartus/rtl/FPU8087/tb_fpu8087_trivial_fixed
 Quartus/rtl/FPU8087/tb_advanced_ops
+Quartus/rtl/FPU8087/tb_exception_functions
+Quartus/rtl/FPU8087/tb_extended_prechecks
+Quartus/rtl/FPU8087/tb_fxtract_fscale
+Quartus/rtl/FPU8087/tb_denormal_precision
+Quartus/rtl/FPU8087/tb_control_instructions
 verilog_compile.log
 integration_compile.log
 cpu_fpu_compile.log
@@ -60,3 +65,6 @@ fpu_core_compile.log
 fpu_core_test.vcd
 bcd_microcode_compile.log
 bcd_microcode_test_results.txt
+
+# Icarus Verilog compiled executables
+sim_*
