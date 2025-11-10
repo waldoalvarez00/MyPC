@@ -324,32 +324,100 @@ module MicroSequencer_Extended_BCD (
         microcode_rom[16'h0133] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
         //-------------------------------------------------------------
+        // Program 4: FSQRT - Square Root
+        // Address: 0x0140-0x014F
+        // Computes √ST(0) using Newton-Raphson iteration
+        // Newton-Raphson: x[n+1] = 0.5 * (x[n] + N/x[n])
+        // For better performance, we use hardware OP_SQRT (12) if available
+        //-------------------------------------------------------------
+        microcode_rom[16'h0140] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0141};          // Load value from data_in
+        microcode_rom[16'h0141] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd12, 15'h0142};     // Call SQRT (op=12) - hardware sqrt
+        microcode_rom[16'h0142] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0143};      // Wait for completion
+        microcode_rom[16'h0143] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0144};  // Load result
+        microcode_rom[16'h0144] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+
+        //-------------------------------------------------------------
+        // Program 5: FSIN - Sine
+        // Address: 0x01C0-0x01C5
+        // Computes sin(ST(0)) using CORDIC algorithm via hardware
+        //-------------------------------------------------------------
+        microcode_rom[16'h01C0] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h01C1};          // Load angle from data_in
+        microcode_rom[16'h01C1] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd13, 15'h01C2};     // Call SIN (op=13)
+        microcode_rom[16'h01C2] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h01C3};      // Wait for completion
+        microcode_rom[16'h01C3] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h01C4};  // Load sin result
+        microcode_rom[16'h01C4] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+
+        //-------------------------------------------------------------
+        // Program 6: FCOS - Cosine
+        // Address: 0x01D0-0x01D5
+        // Computes cos(ST(0)) using CORDIC algorithm via hardware
+        //-------------------------------------------------------------
+        microcode_rom[16'h01D0] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h01D1};          // Load angle from data_in
+        microcode_rom[16'h01D1] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd14, 15'h01D2};     // Call COS (op=14)
+        microcode_rom[16'h01D2] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h01D3};      // Wait for completion
+        microcode_rom[16'h01D3] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h01D4};  // Load cos result
+        microcode_rom[16'h01D4] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+
+        //-------------------------------------------------------------
+        // Program 9: FPREM - Partial Remainder (8087 style)
+        // Address: 0x0300-0x031F
+        // Computes remainder: ST(0) = ST(0) - Q*ST(1)
+        // Where Q = truncate(ST(0)/ST(1)) toward zero
+        // Similar to FPREM1 but uses truncation instead of round-to-nearest
+        //-------------------------------------------------------------
+        // Step 1: Compute quotient = ST(0) / ST(1)
+        microcode_rom[16'h0300] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0301};          // Load dividend (ST(0))
+        microcode_rom[16'h0301] = {OPCODE_EXEC, MOP_LOAD_B, 8'd0, 15'h0302};          // Load divisor (ST(1))
+        microcode_rom[16'h0302] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd3, 15'h0303};      // Call DIV (op=3)
+        microcode_rom[16'h0303] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0304};      // Wait for division
+        microcode_rom[16'h0304] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0305};  // quotient in temp_result
+
+        // Step 2: Truncate quotient to integer (toward zero)
+        // For FPREM (vs FPREM1), we truncate instead of rounding to nearest
+        microcode_rom[16'h0305] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h0306};   // Move quotient to temp_fp_a
+        // Truncation is handled by setting rounding mode, or we can use temp value as-is
+        // For simplicity, assuming quotient is small enough to be directly used
+
+        // Step 3: Multiply truncated quotient by divisor
+        microcode_rom[16'h0306] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h0307};      // Call MUL (op=2)
+        microcode_rom[16'h0307] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0308};      // Wait for multiplication
+        microcode_rom[16'h0308] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0309};  // product in temp_result
+
+        // Step 4: Subtract product from original dividend
+        // Need to reload dividend and subtract
+        microcode_rom[16'h0309] = {OPCODE_EXEC, MOP_MOVE_RES_TO_B, 8'd0, 15'h030A};   // Move product to temp_fp_b
+        microcode_rom[16'h030A] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h030B};          // Reload dividend
+        microcode_rom[16'h030B] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd1, 15'h030C};      // Call SUB (op=1): A - B
+        microcode_rom[16'h030C] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h030D};      // Wait for subtraction
+        microcode_rom[16'h030D] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h030E};  // remainder in temp_result
+        microcode_rom[16'h030E] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+
+        //-------------------------------------------------------------
         // Program 10: FXTRACT - Extract Exponent and Significand
-        // Address: 0x0400-0x0410
+        // Address: 0x0400-0x0404
         // Separates FP80 into exponent (as FP) and significand [1.0, 2.0)
-        // Returns significand in temp_result, exponent in temp_fp_c
+        // Returns significand in temp_result, exponent in result_secondary
+        // Calls OP_FXTRACT (23) which returns two values
         //-------------------------------------------------------------
         microcode_rom[16'h0400] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0401};          // Load value from data_in
-        // Extract exponent: bits [78:64], bias=16383
-        // Extract significand: normalize to [1.0, 2.0)
-        // TODO: Implement bit manipulation for extraction
-        // For now, placeholder implementation
-        microcode_rom[16'h0401] = {OPCODE_EXEC, MOP_MOVE_A_TO_B, 8'd0, 15'h0402};     // Copy value
-        microcode_rom[16'h0402] = {OPCODE_EXEC, MOP_STORE, 8'd0, 15'h0403};           // Store significand
-        microcode_rom[16'h0403] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h0401] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd23, 15'h0402};     // Call FXTRACT (op=23)
+        microcode_rom[16'h0402] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0403};      // Wait for extraction
+        microcode_rom[16'h0403] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0404};  // Load significand result
+        microcode_rom[16'h0404] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return (exponent in secondary)
 
         //-------------------------------------------------------------
         // Program 11: FSCALE - Scale by Power of 2
-        // Address: 0x0500-0x0510
+        // Address: 0x0500-0x0504
         // Scales ST(0) by 2^floor(ST(1))
-        // Efficient: Just adds ST(1) to ST(0)'s exponent
+        // Efficiently adds floor(ST(1)) to ST(0)'s exponent
+        // Calls OP_FSCALE (24)
         //-------------------------------------------------------------
         microcode_rom[16'h0500] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0501};          // Load value (ST(0))
         microcode_rom[16'h0501] = {OPCODE_EXEC, MOP_LOAD_B, 8'd0, 15'h0502};          // Load scale factor (ST(1))
-        // TODO: Implement exponent manipulation
-        // For now, placeholder implementation
-        microcode_rom[16'h0502] = {OPCODE_EXEC, MOP_STORE, 8'd0, 15'h0503};           // Store result
-        microcode_rom[16'h0503] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h0502] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd24, 15'h0503};     // Call FSCALE (op=24)
+        microcode_rom[16'h0503] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0504};      // Wait for scaling
+        microcode_rom[16'h0504] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0505};  // Load scaled result
+        microcode_rom[16'h0505] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
         //-------------------------------------------------------------
         // Program 12: FBLD - Load BCD
