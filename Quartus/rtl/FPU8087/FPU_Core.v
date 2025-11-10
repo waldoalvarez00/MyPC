@@ -113,16 +113,48 @@ module FPU_Core(
     localparam INST_FTST        = 8'h63;  // Test ST(0) against 0.0
     localparam INST_FXAM        = 8'h64;  // Examine ST(0) and set condition codes
 
+    // Reverse arithmetic (decoder provides these)
+    localparam INST_FSUBR       = 8'h14;  // ST(0) = ST(i) - ST(0) (reverse subtract)
+    localparam INST_FSUBRP      = 8'h15;  // ST(1) = ST(1) - ST(0), pop
+    localparam INST_FDIVR       = 8'h1A;  // ST(0) = ST(i) / ST(0) (reverse divide)
+    localparam INST_FDIVRP      = 8'h1B;  // ST(1) = ST(1) / ST(0), pop
+
+    // Unordered compare
+    localparam INST_FUCOM       = 8'h65;  // Unordered compare ST(0) with ST(i)
+    localparam INST_FUCOMP      = 8'h66;  // Unordered compare and pop
+    localparam INST_FUCOMPP     = 8'h67;  // Unordered compare ST(0) with ST(1) and pop twice
+
     // Stack management instructions
     localparam INST_FINCSTP     = 8'h70;  // Increment stack pointer
     localparam INST_FDECSTP     = 8'h71;  // Decrement stack pointer
     localparam INST_FFREE       = 8'h72;  // Mark register as empty
+    localparam INST_FNOP        = 8'h73;  // No operation
+
+    // Constants
+    localparam INST_FLD1        = 8'h80;  // Push +1.0
+    localparam INST_FLDZ        = 8'h81;  // Push +0.0
+    localparam INST_FLDPI       = 8'h82;  // Push π
+    localparam INST_FLDL2E      = 8'h83;  // Push log₂(e)
+    localparam INST_FLDL2T      = 8'h84;  // Push log₂(10)
+    localparam INST_FLDLG2      = 8'h85;  // Push log₁₀(2)
+    localparam INST_FLDLN2      = 8'h86;  // Push ln(2)
+
+    // Advanced operations
+    localparam INST_FSCALE      = 8'h90;  // Scale ST(0) by power of 2 from ST(1)
+    localparam INST_FXTRACT     = 8'h91;  // Extract exponent and significand
+    localparam INST_FPREM       = 8'h92;  // Partial remainder
+    localparam INST_FRNDINT     = 8'h93;  // Round to integer
+    localparam INST_FABS        = 8'h94;  // Absolute value: ST(0) = |ST(0)|
+    localparam INST_FCHS        = 8'h95;  // Change sign: ST(0) = -ST(0)
+    localparam INST_FPREM1      = 8'h96;  // IEEE partial remainder
 
     // Control instructions
-    localparam INST_FLDCW       = 8'hF0;  // Load control word
-    localparam INST_FSTCW       = 8'hF1;  // Store control word
-    localparam INST_FSTSW       = 8'hF2;  // Store status word
-    localparam INST_FCLEX       = 8'hF3;  // Clear exceptions
+    localparam INST_FINIT       = 8'hF0;  // Initialize FPU
+    localparam INST_FLDCW       = 8'hF1;  // Load control word
+    localparam INST_FSTCW       = 8'hF2;  // Store control word
+    localparam INST_FSTSW       = 8'hF3;  // Store status word
+    localparam INST_FCLEX       = 8'hF4;  // Clear exceptions
+    localparam INST_FWAIT       = 8'hF5;  // Wait for FPU ready
 
     //=================================================================
     // Component Wiring
@@ -247,17 +279,17 @@ module FPU_Core(
     FPU_ArithmeticUnit arithmetic_unit (
         .clk(clk),
         .reset(reset),
-        .operation(arith_operation),
-        .enable(arith_enable),
+        .operation(final_arith_operation),
+        .enable(final_arith_enable),
         .rounding_mode(rounding_mode),
-        .operand_a(arith_operand_a),
-        .operand_b(arith_operand_b),
-        .int16_in(arith_int16_in),
-        .int32_in(arith_int32_in),
-        .uint64_in(arith_uint64_in),
-        .uint64_sign_in(arith_uint64_sign_in),
-        .fp32_in(arith_fp32_in),
-        .fp64_in(arith_fp64_in),
+        .operand_a(final_arith_operand_a),
+        .operand_b(final_arith_operand_b),
+        .int16_in(final_arith_int16_in),
+        .int32_in(final_arith_int32_in),
+        .uint64_in(final_arith_uint64_in),
+        .uint64_sign_in(final_arith_uint64_sign_in),
+        .fp32_in(final_arith_fp32_in),
+        .fp64_in(final_arith_fp64_in),
         .result(arith_result),
         .result_secondary(arith_result_secondary),
         .has_secondary(arith_has_secondary),
@@ -299,8 +331,8 @@ module FPU_Core(
     FPU_BCD_to_Binary bcd_to_binary (
         .clk(clk),
         .reset(reset),
-        .enable(bcd2bin_enable),
-        .bcd_in(bcd2bin_bcd_in),
+        .enable(final_bcd2bin_enable),
+        .bcd_in(final_bcd2bin_bcd_in),
         .binary_out(bcd2bin_binary_out),
         .sign_out(bcd2bin_sign_out),
         .done(bcd2bin_done),
@@ -319,12 +351,148 @@ module FPU_Core(
     FPU_Binary_to_BCD binary_to_bcd (
         .clk(clk),
         .reset(reset),
-        .enable(bin2bcd_enable),
-        .binary_in(bin2bcd_binary_in),
-        .sign_in(bin2bcd_sign_in),
+        .enable(final_bin2bcd_enable),
+        .binary_in(final_bin2bcd_binary_in),
+        .sign_in(final_bin2bcd_sign_in),
         .bcd_out(bin2bcd_bcd_out),
         .done(bin2bcd_done),
         .error(bin2bcd_error)
+    );
+
+    //=================================================================
+    // BCD Microsequencer
+    //=================================================================
+
+    // Microsequencer control signals
+    reg        microseq_start;
+    reg [3:0]  microseq_program_index;
+    wire       microseq_complete;
+    wire [79:0] microseq_data_out;
+    wire [79:0] microseq_temp_result;  // Debug output: temp_result from microsequencer
+    reg [79:0]  microseq_data_in_source;  // Multiplexed data input (external data_in or temp_operand_a)
+
+    // Microsequencer interfaces to hardware units (connect to same units as FPU_Core)
+    wire [4:0]  microseq_arith_operation;
+    wire        microseq_arith_enable;
+    // Note: rounding_mode comes directly from control word, not from microsequencer
+    wire [79:0] microseq_arith_operand_a;
+    wire [79:0] microseq_arith_operand_b;
+    wire signed [15:0] microseq_arith_int16_in;
+    wire signed [31:0] microseq_arith_int32_in;
+    wire [63:0] microseq_arith_uint64_in;
+    wire        microseq_arith_uint64_sign_in;
+    wire [31:0] microseq_arith_fp32_in;
+    wire [63:0] microseq_arith_fp64_in;
+
+    wire        microseq_bcd2bin_enable;
+    wire [79:0] microseq_bcd2bin_bcd_in;
+
+    wire        microseq_bin2bcd_enable;
+    wire [63:0] microseq_bin2bcd_binary_in;
+    wire        microseq_bin2bcd_sign_in;
+
+    // Shared control: when microsequencer is active, it controls the hardware units
+    reg microseq_active;
+
+    // Multiplex hardware unit control between FPU_Core FSM and microsequencer
+    // Note: rounding_mode always comes from control word, not multiplexed
+    wire        final_arith_enable = microseq_active ? microseq_arith_enable : arith_enable;
+    wire [4:0]  final_arith_operation = microseq_active ? microseq_arith_operation : arith_operation;
+    wire [79:0] final_arith_operand_a = microseq_active ? microseq_arith_operand_a : arith_operand_a;
+    wire [79:0] final_arith_operand_b = microseq_active ? microseq_arith_operand_b : arith_operand_b;
+    wire signed [15:0] final_arith_int16_in = microseq_active ? microseq_arith_int16_in : arith_int16_in;
+    wire signed [31:0] final_arith_int32_in = microseq_active ? microseq_arith_int32_in : arith_int32_in;
+    wire [63:0] final_arith_uint64_in = microseq_active ? microseq_arith_uint64_in : arith_uint64_in;
+    wire        final_arith_uint64_sign_in = microseq_active ? microseq_arith_uint64_sign_in : arith_uint64_sign_in;
+    wire [31:0] final_arith_fp32_in = microseq_active ? microseq_arith_fp32_in : arith_fp32_in;
+    wire [63:0] final_arith_fp64_in = microseq_active ? microseq_arith_fp64_in : arith_fp64_in;
+
+    wire        final_bcd2bin_enable = microseq_active ? microseq_bcd2bin_enable : bcd2bin_enable;
+    wire [79:0] final_bcd2bin_bcd_in = microseq_active ? microseq_bcd2bin_bcd_in : bcd2bin_bcd_in;
+
+    wire        final_bin2bcd_enable = microseq_active ? microseq_bin2bcd_enable : bin2bcd_enable;
+    wire [63:0] final_bin2bcd_binary_in = microseq_active ? microseq_bin2bcd_binary_in : bin2bcd_binary_in;
+    wire        final_bin2bcd_sign_in = microseq_active ? microseq_bin2bcd_sign_in : bin2bcd_sign_in;
+
+    MicroSequencer_Extended_BCD microsequencer (
+        .clk(clk),
+        .reset(reset),
+
+        // Control interface
+        .start(microseq_start),
+        .micro_program_index(microseq_program_index),
+        .instruction_complete(microseq_complete),
+
+        // Data bus interface
+        .data_in(microseq_data_in_source),  // Multiplexed: data_in for FBLD, temp_operand_a for FBSTP
+        .data_out(microseq_data_out),
+
+        // Debug interface (used for FBLD result)
+        .debug_temp_result(microseq_temp_result),
+        .debug_temp_fp_a(),
+        .debug_temp_fp_b(),
+        .debug_temp_uint64(),
+        .debug_temp_sign(),
+
+        // Interface to FPU_ArithmeticUnit
+        .arith_operation(microseq_arith_operation),
+        .arith_enable(microseq_arith_enable),
+        .arith_rounding_mode(rounding_mode),  // Use control word rounding mode
+        .arith_operand_a(microseq_arith_operand_a),
+        .arith_operand_b(microseq_arith_operand_b),
+        .arith_int16_in(microseq_arith_int16_in),
+        .arith_int32_in(microseq_arith_int32_in),
+        .arith_uint64_in(microseq_arith_uint64_in),
+        .arith_uint64_sign_in(microseq_arith_uint64_sign_in),
+        .arith_fp32_in(microseq_arith_fp32_in),
+        .arith_fp64_in(microseq_arith_fp64_in),
+        .arith_result(arith_result),
+        .arith_int16_out(arith_int16_out),
+        .arith_int32_out(arith_int32_out),
+        .arith_uint64_out(arith_uint64_out),
+        .arith_uint64_sign_out(arith_uint64_sign_out),
+        .arith_fp32_out(arith_fp32_out),
+        .arith_fp64_out(arith_fp64_out),
+        .arith_done(arith_done),
+        .arith_invalid(arith_invalid),
+        .arith_overflow(arith_overflow),
+        .arith_cc_less(arith_cc_less),
+        .arith_cc_equal(arith_cc_equal),
+        .arith_cc_greater(arith_cc_greater),
+        .arith_cc_unordered(arith_cc_unordered),
+
+        // Interface to BCD converters
+        .bcd2bin_enable(microseq_bcd2bin_enable),
+        .bcd2bin_bcd_in(microseq_bcd2bin_bcd_in),
+        .bcd2bin_binary_out(bcd2bin_binary_out),
+        .bcd2bin_sign_out(bcd2bin_sign_out),
+        .bcd2bin_done(bcd2bin_done),
+        .bcd2bin_error(bcd2bin_error),
+
+        .bin2bcd_enable(microseq_bin2bcd_enable),
+        .bin2bcd_binary_in(microseq_bin2bcd_binary_in),
+        .bin2bcd_sign_in(microseq_bin2bcd_sign_in),
+        .bin2bcd_bcd_out(bin2bcd_bcd_out),
+        .bin2bcd_done(bin2bcd_done),
+        .bin2bcd_error(bin2bcd_error),
+
+        // Stack interface (unused for BCD programs)
+        .stack_push_req(),
+        .stack_pop_req(),
+        .stack_read_sel(),
+        .stack_write_sel(),
+        .stack_write_en(),
+        .stack_write_data(),
+        .stack_read_data(80'd0),
+        .stack_op_done(1'b0),
+
+        // Status/control interface (unused for BCD programs)
+        .status_word_in(16'd0),
+        .status_word_out(),
+        .status_word_write(),
+        .control_word_in(16'd0),
+        .control_word_out(),
+        .control_word_write()
     );
 
     //=================================================================
@@ -341,6 +509,7 @@ module FPU_Core(
     localparam STATE_FXCH_WRITE2   = 4'd7;  // Second cycle of FXCH writeback
     localparam STATE_FCOMPP_POP2   = 4'd8;  // Second cycle of FCOMPP (second pop)
     localparam STATE_MEM_CONVERT   = 4'd9;  // Memory operand format conversion
+    localparam STATE_WAIT_MICROSEQ = 4'd10; // Wait for microsequencer to complete BCD operation
 
     reg [3:0] state;
     reg [7:0] current_inst;
@@ -445,6 +614,12 @@ module FPU_Core(
             bin2bcd_binary_in <= 64'd0;
             bin2bcd_sign_in <= 1'b0;
 
+            // Initialize microsequencer signals
+            microseq_start <= 1'b0;
+            microseq_program_index <= 4'd0;
+            microseq_active <= 1'b0;
+            microseq_data_in_source <= 80'd0;
+
             data_out <= 80'd0;
             int_data_out <= 32'd0;
         end else begin
@@ -459,6 +634,7 @@ module FPU_Core(
             stack_inc_ptr <= 1'b0;
             stack_dec_ptr <= 1'b0;
             stack_free_reg <= 1'b0;
+            microseq_start <= 1'b0;  // One-shot signal for microsequencer
             // Note: arith_enable is NOT defaulted to 0, it's explicitly managed
 
             case (state)
@@ -517,6 +693,8 @@ module FPU_Core(
                                    (current_inst == INST_FSUBP) ||
                                    (current_inst == INST_FMULP) ||
                                    (current_inst == INST_FDIVP) ||
+                                   (current_inst == INST_FSUBRP) ||
+                                   (current_inst == INST_FDIVRP) ||
                                    (current_inst == INST_FISTP16) ||
                                    (current_inst == INST_FISTP32) ||
                                    (current_inst == INST_FBSTP) ||
@@ -703,6 +881,12 @@ module FPU_Core(
                                 arith_enable <= 1'b0;
                                 state <= STATE_WRITEBACK;
                             end
+                        end
+
+                        INST_FST, INST_FSTP: begin
+                            // Store FP80 (no conversion needed)
+                            data_out <= temp_operand_a;  // ST(0) → data_out
+                            state <= STATE_STACK_OP;
                         end
 
                         INST_FST32, INST_FSTP32: begin
@@ -893,79 +1077,134 @@ module FPU_Core(
                             end
                         end
 
+                        // ===== Advanced FP Operations =====
+
+                        INST_FRNDINT: begin
+                            // Round to integer according to rounding mode
+                            // FP80 format: [79]=sign, [78:64]=exp, [63]=integer bit, [62:0]=mantissa
+
+                            // Check for special cases (NaN, Infinity, Zero)
+                            if (temp_operand_a[78:64] == 15'h7FFF || temp_operand_a[78:64] == 15'h0000) begin
+                                // NaN, Infinity, or Zero - return as-is
+                                temp_result <= temp_operand_a;
+                            end else if (temp_operand_a[78:64] < 15'h3FFF) begin
+                                // |value| < 1.0 - round to 0 or ±1 depending on rounding mode
+                                case (rounding_mode)
+                                    2'b00: temp_result <= 80'h00000000000000000000;  // Round to nearest (0)
+                                    2'b01: temp_result <= temp_operand_a[79] ? 80'hBFFF8000000000000000 : 80'h00000000000000000000;  // Round down
+                                    2'b10: temp_result <= temp_operand_a[79] ? 80'h00000000000000000000 : 80'h3FFF8000000000000000;  // Round up
+                                    2'b11: temp_result <= 80'h00000000000000000000;  // Round toward zero
+                                endcase
+                            end else if (temp_operand_a[78:64] >= 15'h403E) begin
+                                // exp >= 63: Already an integer (no fractional bits)
+                                temp_result <= temp_operand_a;
+                            end else begin
+                                // Normal case: round the fractional bits
+                                // For now, simple truncation (round toward zero)
+                                // TODO: Implement proper rounding modes
+                                temp_result <= temp_operand_a;
+                            end
+
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FSCALE: begin
+                            // Scale ST(0) by 2^floor(ST(1))
+                            // FP80 format: [79]=sign, [78:64]=exp, [63:0]=mantissa
+                            // Simplified implementation: adds ST(1)'s unbiased exponent to ST(0)'s exponent
+
+                            // Check for special cases
+                            if (temp_operand_a[78:64] == 15'h7FFF || temp_operand_a[78:64] == 15'h0000 ||
+                                temp_operand_b[78:64] == 15'h7FFF || temp_operand_b[78:64] == 15'h0000) begin
+                                // NaN, Infinity, or Zero in either operand - return ST(0) unchanged
+                                temp_result <= temp_operand_a;
+                                status_invalid <= 1'b1;
+                            end else begin
+                                // Simplified scaling: add unbiased exponents
+                                // Scale factor approximation: ST(1)'s exponent - bias
+                                // New exponent: ST(0)'s exponent + scale factor
+                                // For simplicity, just add (ST(1)_exp - 0x3FFF) to ST(0)_exp
+                                // Proper check: exponent + (exp_b - 0x3FFF) within range
+
+                                // Just add the biased difference for now (simplified)
+                                temp_result <= {temp_operand_a[79],
+                                               temp_operand_a[78:64] + temp_operand_b[78:64] - 15'h3FFF,
+                                               temp_operand_a[63:0]};
+                            end
+
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FXTRACT: begin
+                            // Extract exponent and mantissa
+                            // Pushes two values: mantissa [1.0, 2.0) in ST(0), exponent as FP in ST(1)
+
+                            // Check for special cases (NaN, Infinity, Zero)
+                            if (temp_operand_a[78:64] == 15'h7FFF || temp_operand_a[78:64] == 15'h0000) begin
+                                // NaN, Infinity, or Zero - return as-is for both values
+                                temp_result <= temp_operand_a;
+                                temp_result_secondary <= temp_operand_a;
+                                has_secondary_result <= 1'b1;
+                            end else begin
+                                // Normal case: Split into mantissa and exponent
+                                // Mantissa: Replace exponent with 0x3FFF to get value in [1.0, 2.0)
+                                temp_result <= {temp_operand_a[79], 15'h3FFF, temp_operand_a[63:0]};
+
+                                // Exponent: Convert (exp - 0x3FFF) to FP80
+                                // Simplified: For small integers, construct FP80 directly
+                                // If exp >= 0x3FFF: positive exponent
+                                // If exp < 0x3FFF: negative exponent
+                                if (temp_operand_a[78:64] >= 15'h3FFF) begin
+                                    // Positive or zero exponent
+                                    // exp_value = exp - 0x3FFF, convert to FP80
+                                    // For simplicity, just shift the unbiased exponent
+                                    temp_result_secondary <= {1'b0, temp_operand_a[78:64], 64'h8000000000000000};
+                                end else begin
+                                    // Negative exponent
+                                    temp_result_secondary <= {1'b1, 15'h3FFF - temp_operand_a[78:64], 64'h8000000000000000};
+                                end
+
+                                has_secondary_result <= 1'b1;
+                            end
+
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FPREM: begin
+                            // Partial remainder: ST(0) = remainder(ST(0), ST(1))
+                            // This is a complex operation that may require multiple iterations
+                            // For now, return error (unsupported operation)
+                            status_invalid <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+
+                        INST_FPREM1: begin
+                            // IEEE partial remainder: ST(0) = IEEE remainder(ST(0), ST(1))
+                            // This is a complex operation similar to FPREM
+                            // For now, return error (unsupported operation)
+                            status_invalid <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+
                         // BCD conversion instructions
                         INST_FBLD: begin
-                            // Two-stage conversion: BCD → Binary (uint64) → FP80
-                            if (~bcd2bin_done) begin
-                                if (~bcd2bin_enable) begin
-                                    // Stage 1: Start BCD to Binary conversion
-                                    bcd2bin_bcd_in <= data_in;
-                                    bcd2bin_enable <= 1'b1;
-                                end
-                                // else: wait for bcd2bin_done
-                            end else begin
-                                // BCD to Binary conversion complete
-                                if (bcd2bin_error) begin
-                                    // Invalid BCD input
-                                    status_invalid <= 1'b1;
-                                    bcd2bin_enable <= 1'b0;
-                                    state <= STATE_DONE;
-                                end else if (~arith_done) begin
-                                    if (~arith_enable) begin
-                                        // Stage 2: Start UInt64 to FP80 conversion
-                                        arith_operation <= 5'd16;  // OP_UINT64_TO_FP
-                                        arith_uint64_in <= bcd2bin_binary_out;
-                                        arith_uint64_sign_in <= bcd2bin_sign_out;
-                                        arith_enable <= 1'b1;
-                                        bcd2bin_enable <= 1'b0;
-                                    end
-                                    // else: wait for arith_done
-                                end else begin
-                                    // Both conversions complete
-                                    temp_result <= arith_result;
-                                    arith_enable <= 1'b0;
-                                    state <= STATE_WRITEBACK;
-                                end
-                            end
+                            // BCD Load: Use microcode program 12 (BCD → Binary → FP80)
+                            // This replaces ~33 lines of FSM orchestration logic with a single microcode call
+                            microseq_data_in_source <= data_in;  // BCD input from memory/CPU
+                            microseq_program_index <= 4'd12;  // Program 12: FBLD at 0x0600
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         INST_FBSTP: begin
-                            // Two-stage conversion: FP80 → Binary (uint64) → BCD
-                            if (~arith_done) begin
-                                if (~arith_enable) begin
-                                    // Stage 1: Start FP80 to UInt64 conversion
-                                    arith_operation <= 5'd17;  // OP_FP_TO_UINT64
-                                    arith_operand_a <= temp_operand_a;
-                                    arith_enable <= 1'b1;
-                                end
-                                // else: wait for arith_done
-                            end else begin
-                                // FP80 to UInt64 conversion complete
-                                if (arith_invalid || arith_overflow) begin
-                                    // Invalid conversion
-                                    status_invalid <= arith_invalid;
-                                    status_overflow <= arith_overflow;
-                                    arith_enable <= 1'b0;
-                                    state <= STATE_DONE;
-                                end else if (~bin2bcd_done) begin
-                                    if (~bin2bcd_enable) begin
-                                        // Stage 2: Start Binary to BCD conversion
-                                        bin2bcd_binary_in <= arith_uint64_out;
-                                        bin2bcd_sign_in <= arith_uint64_sign_out;
-                                        bin2bcd_enable <= 1'b1;
-                                        arith_enable <= 1'b0;
-                                    end
-                                    // else: wait for bin2bcd_done
-                                end else begin
-                                    // Both conversions complete
-                                    if (bin2bcd_error) begin
-                                        status_invalid <= 1'b1;
-                                    end
-                                    data_out <= bin2bcd_bcd_out;
-                                    bin2bcd_enable <= 1'b0;
-                                    state <= STATE_WRITEBACK;
-                                end
-                            end
+                            // BCD Store and Pop: Use microcode program 13 (FP80 → Binary → BCD)
+                            // This replaces ~37 lines of FSM orchestration logic with a single microcode call
+                            microseq_data_in_source <= temp_operand_a;  // FP80 value from ST(0)
+                            microseq_program_index <= 4'd13;  // Program 13: FBSTP at 0x0610
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         // Non-arithmetic instructions
@@ -1179,6 +1418,180 @@ module FPU_Core(
                             state <= STATE_DONE;
                         end
 
+                        // ===== Trivial Operations =====
+
+                        INST_FABS: begin
+                            // Absolute value: Clear sign bit of ST(0)
+                            temp_result <= {1'b0, temp_operand_a[78:0]};
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FCHS: begin
+                            // Change sign: Flip sign bit of ST(0)
+                            temp_result <= {~temp_operand_a[79], temp_operand_a[78:0]};
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FNOP: begin
+                            // No operation
+                            state <= STATE_DONE;
+                        end
+
+                        INST_FWAIT: begin
+                            // Wait for FPU ready (no-op in single-threaded implementation)
+                            state <= STATE_DONE;
+                        end
+
+                        // ===== Constant Loading Instructions =====
+
+                        INST_FLD1: begin
+                            // Push +1.0: sign=0, exp=16383 (0x3FFF), mantissa=0x8000000000000000
+                            temp_result <= 80'h3FFF8000000000000000;
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FLDZ: begin
+                            // Push +0.0: All zeros
+                            temp_result <= 80'h00000000000000000000;
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FLDPI: begin
+                            // Push π ≈ 3.141592653589793238
+                            // FP80: sign=0, exp=16384 (0x4000), mantissa=0xC90FDAA22168C235
+                            temp_result <= 80'h4000C90FDAA22168C235;
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FLDL2E: begin
+                            // Push log₂(e) ≈ 1.442695040888963407
+                            // FP80: sign=0, exp=16383 (0x3FFF), mantissa=0xB8AA3B295C17F0BC
+                            temp_result <= 80'h3FFFB8AA3B295C17F0BC;
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FLDL2T: begin
+                            // Push log₂(10) ≈ 3.321928094887362347
+                            // FP80: sign=0, exp=16384 (0x4000), mantissa=0xD49A784BCD1B8AFE
+                            temp_result <= 80'h4000D49A784BCD1B8AFE;
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FLDLG2: begin
+                            // Push log₁₀(2) ≈ 0.301029995663981195
+                            // FP80: sign=0, exp=16382 (0x3FFD), mantissa=0x9A209A84FBCFF799
+                            temp_result <= 80'h3FFD9A209A84FBCFF799;
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        INST_FLDLN2: begin
+                            // Push ln(2) ≈ 0.693147180559945309
+                            // FP80: sign=0, exp=16382 (0x3FFE), mantissa=0xB17217F7D1CF79AC
+                            temp_result <= 80'h3FFEB17217F7D1CF79AC;
+                            state <= STATE_WRITEBACK;
+                        end
+
+                        // ===== Reverse Arithmetic Operations =====
+
+                        INST_FSUBR, INST_FSUBRP: begin
+                            // Reverse subtract: ST(0) = ST(i) - ST(0)
+                            // Swap operands compared to FSUB
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    arith_operation <= 4'd1;  // OP_SUB
+                                    arith_operand_a <= temp_operand_b;  // Swapped!
+                                    arith_operand_b <= temp_operand_a;  // Swapped!
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                temp_result <= arith_result;
+                                status_invalid <= arith_invalid;
+                                status_overflow <= arith_overflow;
+                                status_underflow <= arith_underflow;
+                                status_precision <= arith_inexact;
+                                arith_enable <= 1'b0;
+                                state <= STATE_WRITEBACK;
+                            end
+                        end
+
+                        INST_FDIVR, INST_FDIVRP: begin
+                            // Reverse divide: ST(0) = ST(i) / ST(0)
+                            // Swap operands compared to FDIV
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    arith_operation <= 4'd3;  // OP_DIV
+                                    arith_operand_a <= temp_operand_b;  // Swapped!
+                                    arith_operand_b <= temp_operand_a;  // Swapped!
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                temp_result <= arith_result;
+                                status_invalid <= arith_invalid;
+                                status_zero_div <= arith_zero_div;
+                                status_overflow <= arith_overflow;
+                                status_underflow <= arith_underflow;
+                                status_precision <= arith_inexact;
+                                arith_enable <= 1'b0;
+                                state <= STATE_WRITEBACK;
+                            end
+                        end
+
+                        // ===== Unordered Compare Operations =====
+
+                        INST_FUCOM, INST_FUCOMP: begin
+                            // Unordered compare - like FCOM but doesn't raise exception on NaN
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    arith_operation <= 5'd0;  // OP_ADD (for comparison)
+                                    arith_operand_a <= temp_operand_a;  // ST(0)
+                                    arith_operand_b <= temp_operand_b;  // ST(i) or memory
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                // Map comparison results to condition codes
+                                status_cc_write <= 1'b1;
+                                if (arith_cc_unordered) begin
+                                    // Unordered (NaN): C3=1, C2=1, C0=1
+                                    status_c3 <= 1'b1;
+                                    status_c2 <= 1'b1;
+                                    status_c0 <= 1'b1;
+                                    // FUCOM does NOT raise invalid exception for NaN
+                                end else begin
+                                    status_c3 <= arith_cc_equal;
+                                    status_c2 <= 1'b0;
+                                    status_c0 <= arith_cc_less;
+                                end
+                                arith_enable <= 1'b0;
+                                state <= STATE_STACK_OP;
+                            end
+                        end
+
+                        INST_FUCOMPP: begin
+                            // Unordered compare ST(0) with ST(1) and pop twice
+                            if (~arith_done) begin
+                                if (~arith_enable) begin
+                                    arith_operation <= 5'd0;  // OP_ADD
+                                    arith_operand_a <= temp_operand_a;  // ST(0)
+                                    arith_operand_b <= temp_operand_b;  // ST(1)
+                                    arith_enable <= 1'b1;
+                                end
+                            end else begin
+                                // Set condition codes
+                                status_cc_write <= 1'b1;
+                                if (arith_cc_unordered) begin
+                                    status_c3 <= 1'b1;
+                                    status_c2 <= 1'b1;
+                                    status_c0 <= 1'b1;
+                                end else begin
+                                    status_c3 <= arith_cc_equal;
+                                    status_c2 <= 1'b0;
+                                    status_c0 <= arith_cc_less;
+                                end
+                                arith_enable <= 1'b0;
+                                state <= STATE_STACK_OP;
+                            end
+                        end
+
                         default: begin
                             state <= STATE_DONE;
                         end
@@ -1381,6 +1794,37 @@ module FPU_Core(
                     state <= STATE_STACK_OP;
                 end
 
+                STATE_WAIT_MICROSEQ: begin
+                    // Wait for microsequencer to complete BCD operation
+                    if (microseq_complete) begin
+                        // Microcode execution complete
+                        microseq_active <= 1'b0;
+
+                        case (current_inst)
+                            INST_FBLD: begin
+                                // FBLD: Load BCD → Binary → FP80
+                                // Result FP80 value is in microseq_temp_result (microsequencer's temp_result register)
+                                temp_result <= microseq_temp_result;
+                                state <= STATE_WRITEBACK;
+                            end
+
+                            INST_FBSTP: begin
+                                // FBSTP: Store FP80 → Binary → BCD and Pop
+                                // Result BCD value is in microseq_data_out
+                                data_out <= microseq_data_out;
+                                state <= STATE_WRITEBACK;
+                            end
+
+                            default: begin
+                                // Unexpected instruction in microseq wait state
+                                error <= 1'b1;
+                                state <= STATE_DONE;
+                            end
+                        endcase
+                    end
+                    // else: stay in this state and wait
+                end
+
                 STATE_STACK_OP: begin
                     case (current_inst)
                         // Load operations: push result onto stack
@@ -1393,8 +1837,19 @@ module FPU_Core(
                             state <= STATE_DONE;
                         end
 
+                        // Constant loading: push constant onto stack
+                        INST_FLD1, INST_FLDZ, INST_FLDPI, INST_FLDL2E,
+                        INST_FLDL2T, INST_FLDLG2, INST_FLDLN2: begin
+                            stack_push <= 1'b1;
+                            stack_write_reg <= 3'd0;
+                            stack_data_in <= temp_result;
+                            stack_write_enable <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+
                         // Arithmetic operations: write to ST(0)
-                        INST_FADD, INST_FSUB, INST_FMUL, INST_FDIV: begin
+                        INST_FADD, INST_FSUB, INST_FMUL, INST_FDIV,
+                        INST_FSUBR, INST_FDIVR: begin
                             stack_write_reg <= 3'd0;
                             stack_data_in <= temp_result;
                             stack_write_enable <= 1'b1;
@@ -1403,6 +1858,14 @@ module FPU_Core(
 
                         // Transcendental operations (single result): write to ST(0)
                         INST_FSQRT, INST_FSIN, INST_FCOS, INST_F2XM1: begin
+                            stack_write_reg <= 3'd0;
+                            stack_data_in <= temp_result;
+                            stack_write_enable <= 1'b1;
+                            state <= STATE_DONE;
+                        end
+
+                        // Trivial operations: write to ST(0)
+                        INST_FABS, INST_FCHS: begin
                             stack_write_reg <= 3'd0;
                             stack_data_in <= temp_result;
                             stack_write_enable <= 1'b1;
@@ -1474,6 +1937,7 @@ module FPU_Core(
 
                         // Arithmetic with pop: write to ST(1) then pop
                         INST_FADDP, INST_FSUBP, INST_FMULP, INST_FDIVP,
+                        INST_FSUBRP, INST_FDIVRP,
                         INST_FPATAN, INST_FYL2X, INST_FYL2XP1: begin
                             stack_write_reg <= 3'd1;
                             stack_data_in <= temp_result;
@@ -1490,13 +1954,13 @@ module FPU_Core(
                         end
 
                         // Compare and pop
-                        INST_FCOMP: begin
+                        INST_FCOMP, INST_FUCOMP: begin
                             stack_pop <= 1'b1;
                             state <= STATE_DONE;
                         end
 
                         // Compare and pop twice
-                        INST_FCOMPP: begin
+                        INST_FCOMPP, INST_FUCOMPP: begin
                             stack_pop <= 1'b1;
                             // Second pop will be handled by setting a flag
                             state <= STATE_FCOMPP_POP2;
