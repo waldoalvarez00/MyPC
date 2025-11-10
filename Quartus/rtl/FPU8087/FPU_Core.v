@@ -828,6 +828,33 @@ module FPU_Core(
         end
     endfunction
 
+    // Check if there are any unmasked exceptions pending
+    // Used by wait instructions (FINIT, FSTCW, FSTSW) to check before execution
+    function automatic has_unmasked_exceptions;
+        input [15:0] status_word;
+        input [15:0] control_word;
+        reg [5:0] exception_bits;
+        reg [5:0] mask_bits;
+        begin
+            // Extract exception flags [5:0] from status word
+            // Bit 0: Invalid Operation (IE)
+            // Bit 1: Denormalized Operand (DE)
+            // Bit 2: Zero Divide (ZE)
+            // Bit 3: Overflow (OE)
+            // Bit 4: Underflow (UE)
+            // Bit 5: Precision (PE)
+            exception_bits = status_word[5:0];
+
+            // Extract mask bits [5:0] from control word
+            // Same bit positions as exceptions
+            mask_bits = control_word[5:0];
+
+            // Check if any exception is set AND NOT masked (mask bit = 0 means unmasked)
+            // An exception is "unmasked" when the exception bit is 1 and mask bit is 0
+            has_unmasked_exceptions = |(exception_bits & ~mask_bits);
+        end
+    endfunction
+
     // Pre-operation check: Returns 1 if operation should be short-circuited with NaN result
     // Also sets should_return_nan and nan_result
     function automatic should_shortcircuit_for_nan;
@@ -1668,9 +1695,29 @@ module FPU_Core(
                             state <= STATE_DONE;
                         end
 
-                        INST_FINIT, INST_FNINIT: begin
-                            // Initialize FPU: Reset stack, control word, status word
-                            // (FINIT and FNINIT are functionally identical in this synchronous implementation)
+                        INST_FINIT: begin
+                            // Initialize FPU (wait version)
+                            // Check for unmasked exceptions first (Level 1 wait behavior)
+                            if (has_unmasked_exceptions(status_out, control_out)) begin
+                                // Unmasked exception exists - assert error and block
+                                error <= 1'b1;
+                                state <= STATE_DONE;
+                            end else begin
+                                // No unmasked exceptions - proceed with initialization
+                                // 1. Initialize stack (clear all tags, reset pointer)
+                                stack_init_stack <= 1'b1;
+                                // 2. Clear all status exceptions
+                                status_clear_exc <= 1'b1;
+                                // 3. Set control word to 0x037F (all exceptions masked, round to nearest, extended precision)
+                                internal_control_in <= 16'h037F;
+                                internal_control_write <= 1'b1;
+                                state <= STATE_DONE;
+                            end
+                        end
+
+                        INST_FNINIT: begin
+                            // Initialize FPU (no-wait version)
+                            // No exception checking - execute immediately (Level 1 no-wait behavior)
                             // 1. Initialize stack (clear all tags, reset pointer)
                             stack_init_stack <= 1'b1;
                             // 2. Clear all status exceptions
@@ -1688,16 +1735,47 @@ module FPU_Core(
                             state <= STATE_DONE;
                         end
 
-                        INST_FSTCW, INST_FNSTCW: begin
-                            // Store control word to memory
-                            // (FSTCW and FNSTCW are functionally identical in this synchronous implementation)
+                        INST_FSTCW: begin
+                            // Store control word to memory (wait version)
+                            // Check for unmasked exceptions first (Level 1 wait behavior)
+                            if (has_unmasked_exceptions(status_out, control_out)) begin
+                                // Unmasked exception exists - assert error and block
+                                error <= 1'b1;
+                                state <= STATE_DONE;
+                            end else begin
+                                // No unmasked exceptions - proceed with store
+                                data_out <= {64'd0, control_out};  // Zero-extend to 80 bits
+                                int_data_out <= {16'd0, control_out};  // For 16-bit output
+                                state <= STATE_DONE;
+                            end
+                        end
+
+                        INST_FNSTCW: begin
+                            // Store control word to memory (no-wait version)
+                            // No exception checking - execute immediately (Level 1 no-wait behavior)
                             data_out <= {64'd0, control_out};  // Zero-extend to 80 bits
                             int_data_out <= {16'd0, control_out};  // For 16-bit output
                             state <= STATE_DONE;
                         end
 
-                        INST_FSTSW, INST_FNSTSW: begin
-                            // Store status word to memory or AX
+                        INST_FSTSW: begin
+                            // Store status word to memory or AX (wait version)
+                            // Check for unmasked exceptions first (Level 1 wait behavior)
+                            if (has_unmasked_exceptions(status_out, control_out)) begin
+                                // Unmasked exception exists - assert error and block
+                                error <= 1'b1;
+                                state <= STATE_DONE;
+                            end else begin
+                                // No unmasked exceptions - proceed with store
+                                data_out <= {64'd0, status_out};  // Zero-extend to 80 bits
+                                int_data_out <= {16'd0, status_out};  // For 16-bit output or AX
+                                state <= STATE_DONE;
+                            end
+                        end
+
+                        INST_FNSTSW: begin
+                            // Store status word to memory or AX (no-wait version)
+                            // No exception checking - execute immediately (Level 1 no-wait behavior)
                             data_out <= {64'd0, status_out};  // Zero-extend to 80 bits
                             int_data_out <= {16'd0, status_out};  // For 16-bit output or AX
                             state <= STATE_DONE;
