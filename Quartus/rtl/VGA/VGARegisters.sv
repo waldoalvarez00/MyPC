@@ -384,6 +384,19 @@ always_ff @(posedge clk)
 	 
 	 
 
+// Use simulation-compatible DAC RAM for Icarus Verilog and other simulators
+`ifdef ICARUS
+DACRam_sim DACRam(.clock_a(clk),
+                  .address_a(data_m_wr_en ? dac_wr_idx : dac_rd_idx),
+                  .data_a({dac_component_rg, data_m_data_in[13:8]}),
+                  .wren_a(sel_dac && data_m_wr_en && dac_wr_offs == 2'b10),
+                  .q_a(sys_dac_rd),
+                  .clock_b(vga_clk),
+                  .address_b(vga_dac_idx),
+                  .data_b(18'b0),
+                  .wren_b(1'b0),
+                  .q_b(vga_dac_rd));
+`else
 DACRam DACRam(.clock_a(clk),
               .address_a(data_m_wr_en ? dac_wr_idx : dac_rd_idx),
               .data_a({dac_component_rg, data_m_data_in[13:8]}),
@@ -394,6 +407,7 @@ DACRam DACRam(.clock_a(clk),
               .data_b(18'b0),
               .wren_b(1'b0),
               .q_b(vga_dac_rd));
+`endif
 				  
 				  
 				  

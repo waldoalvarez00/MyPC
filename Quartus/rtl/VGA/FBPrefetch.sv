@@ -32,13 +32,25 @@ module FBPrefetch(input logic sys_clk,
 localparam cols = 640;
 localparam rows = 400;
 
-wire [8:0] vga_address;
+logic [8:0] vga_address;
 wire [8:0] sys_address = {sys_cur_buffer, words_done};
 
 assign fb_access = words_done < words_per_row & ~fb_ack;
 
 
-
+// Use simulation-compatible RAM for Icarus Verilog and other simulators
+`ifdef ICARUS
+VGAPrefetchRAM_sim VGAPrefetchRAM(.clock_a(sys_clk),
+                                  .address_a(sys_address),
+                                  .data_a(fb_data),
+                                  .wren_a(fb_ack),
+                                  .q_a(),
+                                  .clock_b(vga_clk),
+                                  .address_b(vga_address),
+                                  .data_b(16'b0),
+                                  .wren_b(1'b0),
+                                  .q_b(q));
+`else
 VGAPrefetchRAM VGAPrefetchRAM(.clock_a(sys_clk),
                               .address_a(sys_address),
                               .data_a(fb_data),
@@ -49,6 +61,7 @@ VGAPrefetchRAM VGAPrefetchRAM(.clock_a(sys_clk),
                               .data_b(16'b0),
                               .wren_b(1'b0),
                               .q_b(q));
+`endif
 	
 	
 										
