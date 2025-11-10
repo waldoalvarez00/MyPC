@@ -255,10 +255,12 @@ module vga_framebuffer_integration_tb;
         integer frame_target;
         integer timeout_cycles;
         integer cycles_elapsed;
+        integer last_line_count;
         begin
             frame_target = vsync_count + num_frames;
             cycles_elapsed = 0;
             timeout_cycles = 50000000;  // 50M cycles @ 25MHz = 2 seconds
+            last_line_count = line_count;
 
             $display("[DEBUG] Waiting for %0d frames (current vsync_count: %0d)", num_frames, vsync_count);
 
@@ -266,16 +268,18 @@ module vga_framebuffer_integration_tb;
                 @(posedge vga_clk);
                 cycles_elapsed = cycles_elapsed + 1;
 
-                // Progress indicator every 1M cycles
-                if (cycles_elapsed % 1000000 == 0) begin
-                    $display("[DEBUG] Progress: %0d M cycles, vsync_count=%0d, target=%0d",
-                             cycles_elapsed/1000000, vsync_count, frame_target);
+                // Progress indicator every 500K cycles (more frequent for Mode 12h)
+                if (cycles_elapsed % 500000 == 0) begin
+                    $display("[DEBUG] Progress: %0d K cycles, vsync=%0d, lines=%0d (delta=%0d)",
+                             cycles_elapsed/1000, vsync_count, line_count, line_count - last_line_count);
+                    last_line_count = line_count;
                 end
             end
 
             if (cycles_elapsed >= timeout_cycles) begin
                 $display("[WARNING] wait_frames timed out after %0d cycles", cycles_elapsed);
-                $display("[DEBUG] Final vsync_count=%0d, target was %0d", vsync_count, frame_target);
+                $display("[DEBUG] Final vsync_count=%0d, target was %0d, lines=%0d",
+                         vsync_count, frame_target, line_count);
             end else begin
                 $display("[DEBUG] Completed %0d frames in %0d cycles", num_frames, cycles_elapsed);
             end
@@ -424,8 +428,11 @@ module vga_framebuffer_integration_tb;
             write_crtc_register(6'h12, 8'd223);  // 479 low byte (223 = 0xDF)
             $display("[DEBUG] CRTC 0x12 written: %d = 0x%h (vert_display_end_low)", 223, 223);
 
-            write_crtc_register(6'h07, 8'h42);  // Overflow: bit 8=1, bit 9=0
-            $display("[DEBUG] CRTC 0x07 written: 0x42 (overflow, binary: 01000010)");
+            // For 479 lines: 479 = 0b1_11011111
+            // bit 9 = 0, bit 8 = 1, bits[7:0] = 223
+            // Overflow register bit 1 = vert_disp_end[8], bit 6 = vert_disp_end[9]
+            write_crtc_register(6'h07, 8'h02);  // Overflow: bit 1=1 (bit 8), bit 6=0 (bit 9)
+            $display("[DEBUG] CRTC 0x07 written: 0x02 (overflow, binary: 00000010)");
             $display("[DEBUG]   bit 1 (vert_disp_end bit 8): 1");
             $display("[DEBUG]   bit 6 (vert_disp_end bit 9): 0");
             $display("[DEBUG] Expected vert_display_end = {0, 1, 223} = 479");
@@ -446,11 +453,19 @@ module vga_framebuffer_integration_tb;
             $display("[DEBUG] If mode_640 = 1, mode detection should see 640-wide mode");
 
             vsync_count = 0;
+            line_count = 0;
             $display("[DEBUG] Starting frame wait for Mode 12h (640x480 is slower)...");
             $display("[INFO] Note: 640x480 mode requires ~525 lines * 800 pixels = 420,000 clocks per frame");
             $display("[INFO] At 25MHz VGA clock, this is ~16.8ms per frame");
 
+            // Check initial sync states
+            $display("[DEBUG] Initial state: vsync=%b, hsync=%b, line_count=%0d",
+                     vga_vsync, vga_hsync, line_count);
+
             wait_frames(1);  // Reduce to 1 frame for faster testing
+
+            $display("[DEBUG] Final state: vsync=%b, hsync=%b, line_count=%0d",
+                     vga_vsync, vga_hsync, line_count);
 
             if (mode_num == MODE_12H) begin
                 $display("[PASS] Mode 12h correctly detected");
@@ -527,7 +542,7 @@ module vga_framebuffer_integration_tb;
 
     // Timeout watchdog
     initial begin
-        #100000000;  // 100ms timeout
+        #200000000;  // 200ms timeout (increased for slower modes)
         $display("ERROR: Simulation timeout!");
         $finish;
     end
