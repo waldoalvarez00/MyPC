@@ -50,7 +50,10 @@ module FPU_Core(
     input wire        control_write,    // Write control word
     output wire [15:0] status_out,      // Status word output
     output wire [15:0] control_out,     // Control word output
-    output wire [15:0] tag_word_out     // Tag word output
+    output wire [15:0] tag_word_out,    // Tag word output
+
+    // 8087 Exception Interface
+    output wire       int_request       // INT signal (active HIGH, 8087-style)
 );
 
     //=================================================================
@@ -153,11 +156,12 @@ module FPU_Core(
     localparam INST_FLDCW       = 8'hF1;  // Load control word
     localparam INST_FSTCW       = 8'hF2;  // Store control word (wait)
     localparam INST_FSTSW       = 8'hF3;  // Store status word (wait)
-    localparam INST_FCLEX       = 8'hF4;  // Clear exceptions
+    localparam INST_FCLEX       = 8'hF4;  // Clear exceptions (wait)
     localparam INST_FWAIT       = 8'hF5;  // Wait for FPU ready
     localparam INST_FNINIT      = 8'hF6;  // Initialize FPU (no-wait)
     localparam INST_FNSTCW      = 8'hF7;  // Store control word (no-wait)
     localparam INST_FNSTSW      = 8'hF8;  // Store status word (no-wait)
+    localparam INST_FNCLEX      = 8'hF9;  // Clear exceptions (no-wait)
 
     //=================================================================
     // Component Wiring
@@ -330,6 +334,56 @@ module FPU_Core(
 
     // Tag word output
     assign tag_word_out = tag_word;
+
+    //=================================================================
+    // Exception Handler (8087-Style)
+    //=================================================================
+
+    // Exception control signals
+    reg exception_latch;    // Pulse when operation completes
+    reg exception_clear;    // Pulse on FCLEX/FNCLEX
+
+    // Exception handler outputs
+    wire exception_pending;
+    wire [5:0] latched_exceptions;
+    wire has_unmasked_exception_hw;  // Hardware detection from exception handler
+
+    FPU_Exception_Handler exception_handler (
+        .clk(clk),
+        .reset(reset),
+
+        // Exception inputs from arithmetic unit
+        .exception_invalid(arith_invalid),
+        .exception_denormal(arith_denormal),
+        .exception_zero_div(arith_zero_div),
+        .exception_overflow(arith_overflow),
+        .exception_underflow(arith_underflow),
+        .exception_precision(arith_inexact),  // Note: arith_inexact maps to precision exception
+
+        // Mask bits from control word
+        .mask_invalid(mask_invalid),
+        .mask_denormal(mask_denormal),
+        .mask_zero_div(mask_zero_div),
+        .mask_overflow(mask_overflow),
+        .mask_underflow(mask_underflow),
+        .mask_precision(mask_precision),
+
+        // Exception acknowledgment (from FCLEX/FNCLEX)
+        .exception_clear(exception_clear),
+
+        // Exception latch enable (when operation completes)
+        .exception_latch(exception_latch),
+
+        // INT signal output (active HIGH per 8087 spec)
+        .int_request(int_request),
+
+        // Internal exception status
+        .exception_pending(exception_pending),
+        .latched_exceptions(latched_exceptions),
+
+        // Highest priority unmasked exception
+        .has_unmasked_exception(has_unmasked_exception_hw)
+    );
 
     //=================================================================
     // BCD Converters
@@ -1000,6 +1054,10 @@ module FPU_Core(
             // Initialize Level 2 busy tracking
             fpu_busy <= 1'b0;
 
+            // Initialize exception handler signals
+            exception_latch <= 1'b0;
+            exception_clear <= 1'b0;
+
             // Initialize all stack control signals
             stack_push <= 1'b0;
             stack_pop <= 1'b0;
@@ -1072,6 +1130,8 @@ module FPU_Core(
             stack_free_reg <= 1'b0;
             stack_init_stack <= 1'b0;
             microseq_start <= 1'b0;  // One-shot signal for microsequencer
+            exception_latch <= 1'b0;  // Exception handler one-shot signal
+            exception_clear <= 1'b0;  // Exception handler one-shot signal
             // Note: arith_enable is NOT defaulted to 0, it's explicitly managed
 
             // Level 2: Clear busy flag when arithmetic operations complete
@@ -1209,6 +1269,9 @@ module FPU_Core(
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
 
+                                // Latch exceptions into exception handler
+                                exception_latch <= 1'b1;
+
                                 // Set error signal for unmasked exceptions
                                 error <= (arith_invalid && !mask_invalid) ||
                                          (arith_overflow && !mask_overflow) ||
@@ -1264,6 +1327,10 @@ module FPU_Core(
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
+
+                                // Latch exceptions into exception handler
+                                exception_latch <= 1'b1;
+
                                 error <= (arith_invalid && !mask_invalid) || (arith_overflow && !mask_overflow) ||
                                          (arith_underflow && !mask_underflow) || (arith_zero_div && !mask_zero_div);
                                 arith_enable <= 1'b0;
@@ -1309,6 +1376,10 @@ module FPU_Core(
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
+
+                                // Latch exceptions into exception handler
+                                exception_latch <= 1'b1;
+
                                 error <= (arith_invalid && !mask_invalid) || (arith_overflow && !mask_overflow) ||
                                          (arith_underflow && !mask_underflow) || (arith_zero_div && !mask_zero_div);
                                 arith_enable <= 1'b0;
@@ -1355,6 +1426,10 @@ module FPU_Core(
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
+
+                                // Latch exceptions into exception handler
+                                exception_latch <= 1'b1;
+
                                 error <= (arith_invalid && !mask_invalid) || (arith_overflow && !mask_overflow) ||
                                          (arith_underflow && !mask_underflow) || (arith_zero_div && !mask_zero_div);
                                 arith_enable <= 1'b0;
@@ -1409,6 +1484,10 @@ module FPU_Core(
                                 status_invalid <= arith_invalid;
                                 status_overflow <= arith_overflow;
                                 status_precision <= arith_inexact;
+
+                                // Latch exceptions into exception handler
+                                exception_latch <= 1'b1;
+
                                 arith_enable <= 1'b0;
                                 fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
@@ -1428,6 +1507,10 @@ module FPU_Core(
                                 status_invalid <= arith_invalid;
                                 status_overflow <= arith_overflow;
                                 status_precision <= arith_inexact;
+
+                                // Latch exceptions into exception handler
+                                exception_latch <= 1'b1;
+
                                 arith_enable <= 1'b0;
                                 fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
@@ -1486,6 +1569,10 @@ module FPU_Core(
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
+
+                                // Latch exceptions into exception handler
+                                exception_latch <= 1'b1;
+
                                 arith_enable <= 1'b0;
                                 fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
@@ -1506,6 +1593,10 @@ module FPU_Core(
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
+
+                                // Latch exceptions into exception handler
+                                exception_latch <= 1'b1;
+
                                 arith_enable <= 1'b0;
                                 fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
@@ -1762,15 +1853,33 @@ module FPU_Core(
                         end
 
                         INST_FCLEX: begin
+                            // Clear exceptions (wait version)
+                            // Check for unmasked exceptions first (wait behavior)
+                            if (exception_pending) begin
+                                // Unmasked exception pending - assert error and block
+                                error <= 1'b1;
+                                state <= STATE_DONE;
+                            end else begin
+                                // No unmasked exceptions - proceed with clear
+                                status_clear_exc <= 1'b1;
+                                exception_clear <= 1'b1;  // Clear exception handler
+                                state <= STATE_DONE;
+                            end
+                        end
+
+                        INST_FNCLEX: begin
+                            // Clear exceptions (no-wait version)
+                            // No exception checking - execute immediately
                             status_clear_exc <= 1'b1;
+                            exception_clear <= 1'b1;  // Clear exception handler
                             state <= STATE_DONE;
                         end
 
                         INST_FINIT: begin
                             // Initialize FPU (wait version)
-                            // Check for unmasked exceptions first (Level 1 wait behavior)
-                            if (has_unmasked_exceptions(status_out, control_out)) begin
-                                // Unmasked exception exists - assert error and block
+                            // Check for unmasked exceptions first (wait behavior)
+                            if (exception_pending) begin
+                                // Unmasked exception pending - assert error and block
                                 error <= 1'b1;
                                 state <= STATE_DONE;
                             end else begin
@@ -1779,6 +1888,7 @@ module FPU_Core(
                                 stack_init_stack <= 1'b1;
                                 // 2. Clear all status exceptions
                                 status_clear_exc <= 1'b1;
+                                exception_clear <= 1'b1;  // Also clear exception handler
                                 // 3. Set control word to 0x037F (all exceptions masked, round to nearest, extended precision)
                                 internal_control_in <= 16'h037F;
                                 internal_control_write <= 1'b1;
@@ -1808,9 +1918,9 @@ module FPU_Core(
 
                         INST_FSTCW: begin
                             // Store control word to memory (wait version)
-                            // Check for unmasked exceptions first (Level 1 wait behavior)
-                            if (has_unmasked_exceptions(status_out, control_out)) begin
-                                // Unmasked exception exists - assert error and block
+                            // Check for unmasked exceptions first (wait behavior)
+                            if (exception_pending) begin
+                                // Unmasked exception pending - assert error and block
                                 error <= 1'b1;
                                 state <= STATE_DONE;
                             end else begin
@@ -1831,9 +1941,9 @@ module FPU_Core(
 
                         INST_FSTSW: begin
                             // Store status word to memory or AX (wait version)
-                            // Check for unmasked exceptions first (Level 1 wait behavior)
-                            if (has_unmasked_exceptions(status_out, control_out)) begin
-                                // Unmasked exception exists - assert error and block
+                            // Check for unmasked exceptions first (wait behavior)
+                            if (exception_pending) begin
+                                // Unmasked exception pending - assert error and block
                                 error <= 1'b1;
                                 state <= STATE_DONE;
                             end else begin
@@ -2036,8 +2146,16 @@ module FPU_Core(
                         end
 
                         INST_FWAIT: begin
-                            // Wait for FPU ready (no-op in single-threaded implementation)
-                            state <= STATE_DONE;
+                            // Wait for FPU ready and check for exceptions
+                            // 8087 behavior: FWAIT checks for pending exceptions
+                            if (exception_pending) begin
+                                // Unmasked exception pending - assert error
+                                error <= 1'b1;
+                                state <= STATE_DONE;
+                            end else begin
+                                // No exceptions - proceed
+                                state <= STATE_DONE;
+                            end
                         end
 
                         // ===== Constant Loading Instructions =====
@@ -2108,6 +2226,10 @@ module FPU_Core(
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
+
+                                // Latch exceptions into exception handler
+                                exception_latch <= 1'b1;
+
                                 arith_enable <= 1'b0;
                                 fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
