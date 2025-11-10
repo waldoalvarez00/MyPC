@@ -507,19 +507,26 @@ module FPU_Core(
         end
     endfunction
 
-    // Check if FP80 value is Quiet NaN (bit 63 = 1)
+    // Check if FP80 value is Quiet NaN (bit 62 = 1, the quiet bit)
     function automatic is_qnan;
         input [79:0] fp_value;
         begin
-            is_qnan = (fp_value[78:64] == 15'h7FFF) && fp_value[63];
+            // QNaN: exp=0x7FFF, mantissa != 0x8000_0000_0000_0000 (not infinity), bit 62 = 1
+            is_qnan = (fp_value[78:64] == 15'h7FFF) &&
+                      (fp_value[63:0] != 64'h8000_0000_0000_0000) &&
+                      fp_value[62];  // Quiet bit = 1
         end
     endfunction
 
-    // Check if FP80 value is Signaling NaN (bit 63 = 0, mantissa != 0)
+    // Check if FP80 value is Signaling NaN (bit 62 = 0, the quiet bit)
     function automatic is_snan;
         input [79:0] fp_value;
         begin
-            is_snan = (fp_value[78:64] == 15'h7FFF) && !fp_value[63] && (fp_value[62:0] != 63'd0);
+            // SNaN: exp=0x7FFF, mantissa != 0x8000_0000_0000_0000 (not infinity), bit 62 = 0, has payload
+            is_snan = (fp_value[78:64] == 15'h7FFF) &&
+                      (fp_value[63:0] != 64'h8000_0000_0000_0000) &&
+                      !fp_value[62] &&  // Quiet bit = 0
+                      (fp_value[61:0] != 62'd0);  // Has some payload bits
         end
     endfunction
 
@@ -584,12 +591,14 @@ module FPU_Core(
 
             // Check for SNaN in operand_a (triggers invalid)
             if (is_snan(operand_a)) begin
-                propagate_nan = {operand_a[79], 15'h7FFF, 64'hC000_0000_0000_0000 | operand_a[62:0]};  // Convert to QNaN
+                // Convert SNaN to QNaN by setting bit 62 (quiet bit)
+                propagate_nan = operand_a | 80'h0000_4000_0000_0000_0000;
                 found_nan = 1'b1;
             end
             // Check for SNaN in operand_b (triggers invalid)
             else if (has_operand_b && is_snan(operand_b)) begin
-                propagate_nan = {operand_b[79], 15'h7FFF, 64'hC000_0000_0000_0000 | operand_b[62:0]};  // Convert to QNaN
+                // Convert SNaN to QNaN by setting bit 62 (quiet bit)
+                propagate_nan = operand_b | 80'h0000_4000_0000_0000_0000;
                 found_nan = 1'b1;
             end
             // Check for QNaN in operand_a
