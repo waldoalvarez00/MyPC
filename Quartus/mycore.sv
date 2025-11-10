@@ -205,7 +205,9 @@ assign AUDIO_L = 0;
 assign AUDIO_R = 0;
 assign AUDIO_MIX = 0;
 
-assign LED_DISK = 0;
+// Floppy activity indicator: Show disk activity LED when floppy is reading/writing
+// floppy_request[0] = read request, floppy_request[1] = write request
+assign LED_DISK = {1'b0, |floppy_request};  // LED on when any floppy activity
 assign LED_POWER = 0;
 assign BUTTONS = 0;
 
