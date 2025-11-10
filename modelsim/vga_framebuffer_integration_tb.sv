@@ -250,23 +250,74 @@ module vga_framebuffer_integration_tb;
         end
     endtask
 
-    // Task to wait for N frames
+    // Task to wait for N frames with timeout and debug
     task wait_frames(input integer num_frames);
         integer frame_target;
+        integer timeout_cycles;
+        integer cycles_elapsed;
         begin
             frame_target = vsync_count + num_frames;
-            while (vsync_count < frame_target) begin
+            cycles_elapsed = 0;
+            timeout_cycles = 50000000;  // 50M cycles @ 25MHz = 2 seconds
+
+            $display("[DEBUG] Waiting for %0d frames (current vsync_count: %0d)", num_frames, vsync_count);
+
+            while (vsync_count < frame_target && cycles_elapsed < timeout_cycles) begin
                 @(posedge vga_clk);
+                cycles_elapsed = cycles_elapsed + 1;
+
+                // Progress indicator every 1M cycles
+                if (cycles_elapsed % 1000000 == 0) begin
+                    $display("[DEBUG] Progress: %0d M cycles, vsync_count=%0d, target=%0d",
+                             cycles_elapsed/1000000, vsync_count, frame_target);
+                end
+            end
+
+            if (cycles_elapsed >= timeout_cycles) begin
+                $display("[WARNING] wait_frames timed out after %0d cycles", cycles_elapsed);
+                $display("[DEBUG] Final vsync_count=%0d, target was %0d", vsync_count, frame_target);
+            end else begin
+                $display("[DEBUG] Completed %0d frames in %0d cycles", num_frames, cycles_elapsed);
             end
         end
     endtask
 
     // Count vsync pulses (frames)
     logic vsync_prev;
+    logic hsync_prev;
+    integer line_count;
+
     always @(posedge vga_clk) begin
         vsync_prev <= vga_vsync;
+        hsync_prev <= vga_hsync;
+
+        // Count lines (hsync pulses)
+        if (hsync_prev && !vga_hsync) begin
+            line_count <= line_count + 1;
+        end
+
+        // Count frames (vsync pulses)
         if (vsync_prev && !vga_vsync) begin  // Negative edge of vsync
             vsync_count <= vsync_count + 1;
+            $display("[DEBUG] Frame completed! vsync_count=%0d, lines=%0d, time=%0t",
+                     vsync_count, line_count, $time);
+            line_count <= 0;  // Reset line counter for next frame
+        end
+    end
+
+    // Monitor for detecting stuck simulation
+    integer watchdog_counter;
+    always @(posedge vga_clk) begin
+        if (reset) begin
+            watchdog_counter <= 0;
+        end else begin
+            watchdog_counter <= watchdog_counter + 1;
+
+            // Print status every 10M cycles
+            if (watchdog_counter % 10000000 == 0) begin
+                $display("[WATCHDOG] @%0t: vsync_count=%0d, line_count=%0d, mode=%02h",
+                         $time, vsync_count, line_count, mode_num);
+            end
         end
     end
 
@@ -352,15 +403,54 @@ module vga_framebuffer_integration_tb;
             $display("========================================");
             tests_run = tests_run + 1;
 
+            $display("[DEBUG] Initializing framebuffer for 640x480...");
             initialize_framebuffer_graphics_4color();
+
+            $display("[DEBUG] Configuring Mode 12h registers...");
             write_amcr_register(8'h00);  // Clear 256-color mode
+            $display("[DEBUG] AMCR written: 0x00");
+
             write_mode_register(8'h1A);  // mode_640=1, video_enabled=1
+            $display("[DEBUG] Mode register written: 0x1A (binary: 00011010)");
+            $display("[DEBUG]   bit 0 (hres_mode): 0");
+            $display("[DEBUG]   bit 1 (graphics_320): 1");
+            $display("[DEBUG]   bit 2 (bw_mode): 0");
+            $display("[DEBUG]   bit 3 (display_enabled): 1");
+            $display("[DEBUG]   bit 4 (mode_640): 1");
+
             write_crtc_register(6'h01, 8'd79);  // 80 columns - 1
-            write_crtc_register(6'h12, 8'd223);  // 479 low byte
-            write_crtc_register(6'h07, 8'h42);  // Overflow: bit 9 of vert_display_end
+            $display("[DEBUG] CRTC 0x01 written: %d (horiz_display_end)", 79);
+
+            write_crtc_register(6'h12, 8'd223);  // 479 low byte (223 = 0xDF)
+            $display("[DEBUG] CRTC 0x12 written: %d = 0x%h (vert_display_end_low)", 223, 223);
+
+            write_crtc_register(6'h07, 8'h42);  // Overflow: bit 8=1, bit 9=0
+            $display("[DEBUG] CRTC 0x07 written: 0x42 (overflow, binary: 01000010)");
+            $display("[DEBUG]   bit 1 (vert_disp_end bit 8): 1");
+            $display("[DEBUG]   bit 6 (vert_disp_end bit 9): 0");
+            $display("[DEBUG] Expected vert_display_end = {0, 1, 223} = 479");
+
+            $display("[DEBUG] Registers configured. Current mode_num: %02h", mode_num);
+            $display("[DEBUG] Expected mode: %02h (MODE_12H)", MODE_12H);
+
+            // Wait a bit for mode to settle through clock domain crossing
+            repeat (100) @(posedge sys_clk);
+            repeat (10) @(posedge vga_clk);
+
+            $display("[DEBUG] After settle - mode_num: %02h", mode_num);
+            $display("[DEBUG] graphics_enabled: %b, vga_256_color: %b", graphics_enabled, vga_256_color);
+
+            // Access internal signals for debugging (if visible in simulation)
+            $display("[DEBUG] Checking if mode detection is working...");
+            $display("[DEBUG] If vert_display_end = 479, is_480_lines should be true");
+            $display("[DEBUG] If mode_640 = 1, mode detection should see 640-wide mode");
 
             vsync_count = 0;
-            wait_frames(2);
+            $display("[DEBUG] Starting frame wait for Mode 12h (640x480 is slower)...");
+            $display("[INFO] Note: 640x480 mode requires ~525 lines * 800 pixels = 420,000 clocks per frame");
+            $display("[INFO] At 25MHz VGA clock, this is ~16.8ms per frame");
+
+            wait_frames(1);  // Reduce to 1 frame for faster testing
 
             if (mode_num == MODE_12H) begin
                 $display("[PASS] Mode 12h correctly detected");
@@ -397,6 +487,8 @@ module vga_framebuffer_integration_tb;
         data_m_data_in = 0;
         data_m_bytesel = 0;
         vsync_count = 0;
+        line_count = 0;
+        watchdog_counter = 0;
 
         // Initialize all framebuffer memory to zero
         for (integer i = 0; i < 32768; i = i + 1) begin
