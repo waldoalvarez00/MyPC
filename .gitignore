@@ -47,6 +47,11 @@ Quartus/rtl/FPU8087/tb_int32_simple
 Quartus/rtl/FPU8087/tb_hybrid
 Quartus/rtl/FPU8087/tb_transcendental
 Quartus/rtl/FPU8087/tb_fpu_core_bcd_microcode
+Quartus/rtl/FPU8087/tb_decoder_debug
+Quartus/rtl/FPU8087/tb_fstp_debug
+Quartus/rtl/FPU8087/tb_integration_debug
+Quartus/rtl/FPU8087/tb_realtime_debug
+Quartus/rtl/FPU8087/tb_fpu8087_trivial_fixed
 verilog_compile.log
 integration_compile.log
 cpu_fpu_compile.log
