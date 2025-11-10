@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 module FPU_Status_Word(
     input clk,
     input reset,

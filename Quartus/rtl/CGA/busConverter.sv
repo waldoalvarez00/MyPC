@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 module busConverter #(
     parameter AW = 14 // Address Width for the memory
 )(

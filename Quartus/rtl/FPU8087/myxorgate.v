@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 module sclock_enable(Clk_M,slow_clk_en);
 
 input Clk_M;

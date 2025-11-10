@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 // the HDL compiler should infer this is a ROM
 
 module mathconstantsrom_32x80bits(

@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 
 // Your suggestion to simultaneously compare each byte of the 64-bit number with zero and then use
 // the combined result of these comparisons to look up a table is indeed a more efficient and parallel

@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 // VGA/EGA/CGA/MDA Video Mode Definitions
 // Comprehensive mode support for PC-compatible video
 

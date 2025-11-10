@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 module ieee754_rounding_unit_extended(
     input clk,              // Clock input
     input [79:0] in,        // Input floating-point number (80-bit extended precision)

@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 //
 // KF8237_Timing_And_Control
 // Timing And Control Logic

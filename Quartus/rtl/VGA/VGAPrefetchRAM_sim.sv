@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 // Simulation-compatible dual-port RAM for VGA Prefetch
 // This module provides a behavioral implementation compatible with Icarus Verilog
 // For synthesis, use VGAPrefetchRAM.sv with Altera IP

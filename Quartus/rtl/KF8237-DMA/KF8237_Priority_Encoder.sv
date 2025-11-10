@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 //
 // KF8237_Priority_Encoder
 // Priority Encoder And Rotating Priority Logic

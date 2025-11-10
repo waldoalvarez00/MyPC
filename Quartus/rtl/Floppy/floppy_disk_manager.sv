@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 //============================================================================
 //
 //  Floppy Disk Manager for MiSTer

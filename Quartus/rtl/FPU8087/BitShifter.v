@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 module multiplexer_based_bit_shifter_right(
     input [63:0] data_in,
     input [2:0] shift_amount,  // 3 bits for 0-7 bit shifts

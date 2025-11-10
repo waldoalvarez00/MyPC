@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 //
 // KF8255
 // 8255A-LIKE PROGRAMMABLE PERIPHERAL INTERFACE

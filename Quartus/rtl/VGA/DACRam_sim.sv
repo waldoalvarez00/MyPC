@@ -1,3 +1,4 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
 // Simulation-compatible DAC RAM for VGA 256-color palette
 // This module provides a behavioral implementation compatible with Icarus Verilog
 // For synthesis, use DACRam.v with Altera IP
