@@ -278,17 +278,17 @@ module FPU_Core(
     FPU_ArithmeticUnit arithmetic_unit (
         .clk(clk),
         .reset(reset),
-        .operation(arith_operation),
-        .enable(arith_enable),
+        .operation(final_arith_operation),
+        .enable(final_arith_enable),
         .rounding_mode(rounding_mode),
-        .operand_a(arith_operand_a),
-        .operand_b(arith_operand_b),
-        .int16_in(arith_int16_in),
-        .int32_in(arith_int32_in),
-        .uint64_in(arith_uint64_in),
-        .uint64_sign_in(arith_uint64_sign_in),
-        .fp32_in(arith_fp32_in),
-        .fp64_in(arith_fp64_in),
+        .operand_a(final_arith_operand_a),
+        .operand_b(final_arith_operand_b),
+        .int16_in(final_arith_int16_in),
+        .int32_in(final_arith_int32_in),
+        .uint64_in(final_arith_uint64_in),
+        .uint64_sign_in(final_arith_uint64_sign_in),
+        .fp32_in(final_arith_fp32_in),
+        .fp64_in(final_arith_fp64_in),
         .result(arith_result),
         .result_secondary(arith_result_secondary),
         .has_secondary(arith_has_secondary),
@@ -330,8 +330,8 @@ module FPU_Core(
     FPU_BCD_to_Binary bcd_to_binary (
         .clk(clk),
         .reset(reset),
-        .enable(bcd2bin_enable),
-        .bcd_in(bcd2bin_bcd_in),
+        .enable(final_bcd2bin_enable),
+        .bcd_in(final_bcd2bin_bcd_in),
         .binary_out(bcd2bin_binary_out),
         .sign_out(bcd2bin_sign_out),
         .done(bcd2bin_done),
@@ -350,12 +350,148 @@ module FPU_Core(
     FPU_Binary_to_BCD binary_to_bcd (
         .clk(clk),
         .reset(reset),
-        .enable(bin2bcd_enable),
-        .binary_in(bin2bcd_binary_in),
-        .sign_in(bin2bcd_sign_in),
+        .enable(final_bin2bcd_enable),
+        .binary_in(final_bin2bcd_binary_in),
+        .sign_in(final_bin2bcd_sign_in),
         .bcd_out(bin2bcd_bcd_out),
         .done(bin2bcd_done),
         .error(bin2bcd_error)
+    );
+
+    //=================================================================
+    // BCD Microsequencer
+    //=================================================================
+
+    // Microsequencer control signals
+    reg        microseq_start;
+    reg [3:0]  microseq_program_index;
+    wire       microseq_complete;
+    wire [79:0] microseq_data_out;
+    wire [79:0] microseq_temp_result;  // Debug output: temp_result from microsequencer
+    reg [79:0]  microseq_data_in_source;  // Multiplexed data input (external data_in or temp_operand_a)
+
+    // Microsequencer interfaces to hardware units (connect to same units as FPU_Core)
+    wire [4:0]  microseq_arith_operation;
+    wire        microseq_arith_enable;
+    // Note: rounding_mode comes directly from control word, not from microsequencer
+    wire [79:0] microseq_arith_operand_a;
+    wire [79:0] microseq_arith_operand_b;
+    wire signed [15:0] microseq_arith_int16_in;
+    wire signed [31:0] microseq_arith_int32_in;
+    wire [63:0] microseq_arith_uint64_in;
+    wire        microseq_arith_uint64_sign_in;
+    wire [31:0] microseq_arith_fp32_in;
+    wire [63:0] microseq_arith_fp64_in;
+
+    wire        microseq_bcd2bin_enable;
+    wire [79:0] microseq_bcd2bin_bcd_in;
+
+    wire        microseq_bin2bcd_enable;
+    wire [63:0] microseq_bin2bcd_binary_in;
+    wire        microseq_bin2bcd_sign_in;
+
+    // Shared control: when microsequencer is active, it controls the hardware units
+    reg microseq_active;
+
+    // Multiplex hardware unit control between FPU_Core FSM and microsequencer
+    // Note: rounding_mode always comes from control word, not multiplexed
+    wire        final_arith_enable = microseq_active ? microseq_arith_enable : arith_enable;
+    wire [4:0]  final_arith_operation = microseq_active ? microseq_arith_operation : arith_operation;
+    wire [79:0] final_arith_operand_a = microseq_active ? microseq_arith_operand_a : arith_operand_a;
+    wire [79:0] final_arith_operand_b = microseq_active ? microseq_arith_operand_b : arith_operand_b;
+    wire signed [15:0] final_arith_int16_in = microseq_active ? microseq_arith_int16_in : arith_int16_in;
+    wire signed [31:0] final_arith_int32_in = microseq_active ? microseq_arith_int32_in : arith_int32_in;
+    wire [63:0] final_arith_uint64_in = microseq_active ? microseq_arith_uint64_in : arith_uint64_in;
+    wire        final_arith_uint64_sign_in = microseq_active ? microseq_arith_uint64_sign_in : arith_uint64_sign_in;
+    wire [31:0] final_arith_fp32_in = microseq_active ? microseq_arith_fp32_in : arith_fp32_in;
+    wire [63:0] final_arith_fp64_in = microseq_active ? microseq_arith_fp64_in : arith_fp64_in;
+
+    wire        final_bcd2bin_enable = microseq_active ? microseq_bcd2bin_enable : bcd2bin_enable;
+    wire [79:0] final_bcd2bin_bcd_in = microseq_active ? microseq_bcd2bin_bcd_in : bcd2bin_bcd_in;
+
+    wire        final_bin2bcd_enable = microseq_active ? microseq_bin2bcd_enable : bin2bcd_enable;
+    wire [63:0] final_bin2bcd_binary_in = microseq_active ? microseq_bin2bcd_binary_in : bin2bcd_binary_in;
+    wire        final_bin2bcd_sign_in = microseq_active ? microseq_bin2bcd_sign_in : bin2bcd_sign_in;
+
+    MicroSequencer_Extended_BCD microsequencer (
+        .clk(clk),
+        .reset(reset),
+
+        // Control interface
+        .start(microseq_start),
+        .micro_program_index(microseq_program_index),
+        .instruction_complete(microseq_complete),
+
+        // Data bus interface
+        .data_in(microseq_data_in_source),  // Multiplexed: data_in for FBLD, temp_operand_a for FBSTP
+        .data_out(microseq_data_out),
+
+        // Debug interface (used for FBLD result)
+        .debug_temp_result(microseq_temp_result),
+        .debug_temp_fp_a(),
+        .debug_temp_fp_b(),
+        .debug_temp_uint64(),
+        .debug_temp_sign(),
+
+        // Interface to FPU_ArithmeticUnit
+        .arith_operation(microseq_arith_operation),
+        .arith_enable(microseq_arith_enable),
+        .arith_rounding_mode(rounding_mode),  // Use control word rounding mode
+        .arith_operand_a(microseq_arith_operand_a),
+        .arith_operand_b(microseq_arith_operand_b),
+        .arith_int16_in(microseq_arith_int16_in),
+        .arith_int32_in(microseq_arith_int32_in),
+        .arith_uint64_in(microseq_arith_uint64_in),
+        .arith_uint64_sign_in(microseq_arith_uint64_sign_in),
+        .arith_fp32_in(microseq_arith_fp32_in),
+        .arith_fp64_in(microseq_arith_fp64_in),
+        .arith_result(arith_result),
+        .arith_int16_out(arith_int16_out),
+        .arith_int32_out(arith_int32_out),
+        .arith_uint64_out(arith_uint64_out),
+        .arith_uint64_sign_out(arith_uint64_sign_out),
+        .arith_fp32_out(arith_fp32_out),
+        .arith_fp64_out(arith_fp64_out),
+        .arith_done(arith_done),
+        .arith_invalid(arith_invalid),
+        .arith_overflow(arith_overflow),
+        .arith_cc_less(arith_cc_less),
+        .arith_cc_equal(arith_cc_equal),
+        .arith_cc_greater(arith_cc_greater),
+        .arith_cc_unordered(arith_cc_unordered),
+
+        // Interface to BCD converters
+        .bcd2bin_enable(microseq_bcd2bin_enable),
+        .bcd2bin_bcd_in(microseq_bcd2bin_bcd_in),
+        .bcd2bin_binary_out(bcd2bin_binary_out),
+        .bcd2bin_sign_out(bcd2bin_sign_out),
+        .bcd2bin_done(bcd2bin_done),
+        .bcd2bin_error(bcd2bin_error),
+
+        .bin2bcd_enable(microseq_bin2bcd_enable),
+        .bin2bcd_binary_in(microseq_bin2bcd_binary_in),
+        .bin2bcd_sign_in(microseq_bin2bcd_sign_in),
+        .bin2bcd_bcd_out(bin2bcd_bcd_out),
+        .bin2bcd_done(bin2bcd_done),
+        .bin2bcd_error(bin2bcd_error),
+
+        // Stack interface (unused for BCD programs)
+        .stack_push_req(),
+        .stack_pop_req(),
+        .stack_read_sel(),
+        .stack_write_sel(),
+        .stack_write_en(),
+        .stack_write_data(),
+        .stack_read_data(80'd0),
+        .stack_op_done(1'b0),
+
+        // Status/control interface (unused for BCD programs)
+        .status_word_in(16'd0),
+        .status_word_out(),
+        .status_word_write(),
+        .control_word_in(16'd0),
+        .control_word_out(),
+        .control_word_write()
     );
 
     //=================================================================
@@ -372,6 +508,7 @@ module FPU_Core(
     localparam STATE_FXCH_WRITE2   = 4'd7;  // Second cycle of FXCH writeback
     localparam STATE_FCOMPP_POP2   = 4'd8;  // Second cycle of FCOMPP (second pop)
     localparam STATE_MEM_CONVERT   = 4'd9;  // Memory operand format conversion
+    localparam STATE_WAIT_MICROSEQ = 4'd10; // Wait for microsequencer to complete BCD operation
 
     reg [3:0] state;
     reg [7:0] current_inst;
@@ -476,6 +613,12 @@ module FPU_Core(
             bin2bcd_binary_in <= 64'd0;
             bin2bcd_sign_in <= 1'b0;
 
+            // Initialize microsequencer signals
+            microseq_start <= 1'b0;
+            microseq_program_index <= 4'd0;
+            microseq_active <= 1'b0;
+            microseq_data_in_source <= 80'd0;
+
             data_out <= 80'd0;
             int_data_out <= 32'd0;
         end else begin
@@ -490,6 +633,7 @@ module FPU_Core(
             stack_inc_ptr <= 1'b0;
             stack_dec_ptr <= 1'b0;
             stack_free_reg <= 1'b0;
+            microseq_start <= 1'b0;  // One-shot signal for microsequencer
             // Note: arith_enable is NOT defaulted to 0, it's explicitly managed
 
             case (state)
@@ -934,77 +1078,23 @@ module FPU_Core(
 
                         // BCD conversion instructions
                         INST_FBLD: begin
-                            // Two-stage conversion: BCD → Binary (uint64) → FP80
-                            if (~bcd2bin_done) begin
-                                if (~bcd2bin_enable) begin
-                                    // Stage 1: Start BCD to Binary conversion
-                                    bcd2bin_bcd_in <= data_in;
-                                    bcd2bin_enable <= 1'b1;
-                                end
-                                // else: wait for bcd2bin_done
-                            end else begin
-                                // BCD to Binary conversion complete
-                                if (bcd2bin_error) begin
-                                    // Invalid BCD input
-                                    status_invalid <= 1'b1;
-                                    bcd2bin_enable <= 1'b0;
-                                    state <= STATE_DONE;
-                                end else if (~arith_done) begin
-                                    if (~arith_enable) begin
-                                        // Stage 2: Start UInt64 to FP80 conversion
-                                        arith_operation <= 5'd16;  // OP_UINT64_TO_FP
-                                        arith_uint64_in <= bcd2bin_binary_out;
-                                        arith_uint64_sign_in <= bcd2bin_sign_out;
-                                        arith_enable <= 1'b1;
-                                        bcd2bin_enable <= 1'b0;
-                                    end
-                                    // else: wait for arith_done
-                                end else begin
-                                    // Both conversions complete
-                                    temp_result <= arith_result;
-                                    arith_enable <= 1'b0;
-                                    state <= STATE_WRITEBACK;
-                                end
-                            end
+                            // BCD Load: Use microcode program 12 (BCD → Binary → FP80)
+                            // This replaces ~33 lines of FSM orchestration logic with a single microcode call
+                            microseq_data_in_source <= data_in;  // BCD input from memory/CPU
+                            microseq_program_index <= 4'd12;  // Program 12: FBLD at 0x0600
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         INST_FBSTP: begin
-                            // Two-stage conversion: FP80 → Binary (uint64) → BCD
-                            if (~arith_done) begin
-                                if (~arith_enable) begin
-                                    // Stage 1: Start FP80 to UInt64 conversion
-                                    arith_operation <= 5'd17;  // OP_FP_TO_UINT64
-                                    arith_operand_a <= temp_operand_a;
-                                    arith_enable <= 1'b1;
-                                end
-                                // else: wait for arith_done
-                            end else begin
-                                // FP80 to UInt64 conversion complete
-                                if (arith_invalid || arith_overflow) begin
-                                    // Invalid conversion
-                                    status_invalid <= arith_invalid;
-                                    status_overflow <= arith_overflow;
-                                    arith_enable <= 1'b0;
-                                    state <= STATE_DONE;
-                                end else if (~bin2bcd_done) begin
-                                    if (~bin2bcd_enable) begin
-                                        // Stage 2: Start Binary to BCD conversion
-                                        bin2bcd_binary_in <= arith_uint64_out;
-                                        bin2bcd_sign_in <= arith_uint64_sign_out;
-                                        bin2bcd_enable <= 1'b1;
-                                        arith_enable <= 1'b0;
-                                    end
-                                    // else: wait for bin2bcd_done
-                                end else begin
-                                    // Both conversions complete
-                                    if (bin2bcd_error) begin
-                                        status_invalid <= 1'b1;
-                                    end
-                                    data_out <= bin2bcd_bcd_out;
-                                    bin2bcd_enable <= 1'b0;
-                                    state <= STATE_WRITEBACK;
-                                end
-                            end
+                            // BCD Store and Pop: Use microcode program 13 (FP80 → Binary → BCD)
+                            // This replaces ~37 lines of FSM orchestration logic with a single microcode call
+                            microseq_data_in_source <= temp_operand_a;  // FP80 value from ST(0)
+                            microseq_program_index <= 4'd13;  // Program 13: FBSTP at 0x0610
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         // Non-arithmetic instructions
@@ -1592,6 +1682,37 @@ module FPU_Core(
                 STATE_WRITEBACK: begin
                     // No action, just transition
                     state <= STATE_STACK_OP;
+                end
+
+                STATE_WAIT_MICROSEQ: begin
+                    // Wait for microsequencer to complete BCD operation
+                    if (microseq_complete) begin
+                        // Microcode execution complete
+                        microseq_active <= 1'b0;
+
+                        case (current_inst)
+                            INST_FBLD: begin
+                                // FBLD: Load BCD → Binary → FP80
+                                // Result FP80 value is in microseq_temp_result (microsequencer's temp_result register)
+                                temp_result <= microseq_temp_result;
+                                state <= STATE_WRITEBACK;
+                            end
+
+                            INST_FBSTP: begin
+                                // FBSTP: Store FP80 → Binary → BCD and Pop
+                                // Result BCD value is in microseq_data_out
+                                data_out <= microseq_data_out;
+                                state <= STATE_WRITEBACK;
+                            end
+
+                            default: begin
+                                // Unexpected instruction in microseq wait state
+                                error <= 1'b1;
+                                state <= STATE_DONE;
+                            end
+                        endcase
+                    end
+                    // else: stay in this state and wait
                 end
 
                 STATE_STACK_OP: begin
