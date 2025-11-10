@@ -57,46 +57,50 @@ wire [3:0] dac_r = vga_dac_rd[17:14];
 wire [3:0] dac_g = vga_dac_rd[11:8];
 wire [3:0] dac_b = vga_dac_rd[5:2];
 
-reg [11:0] text_color_lut [0:15] = '{
-    12'h0_0_0, // black
-    12'h0_0_a, // blue
-    12'h0_a_0, // green
-    12'h0_a_a, // cyan
-    12'ha_0_0, // red
-    12'ha_0_a, // magenta
-    12'ha_5_0, // brown
-    12'ha_a_a, // white
-    12'h5_5_5, // gray
-    12'h5_5_f, // bright blue
-    12'h5_f_5, // bright green
-    12'h5_f_f, // bright cyan
-    12'hf_5_5, // bright red
-    12'hf_5_f, // bright magenta
-    12'hf_f_5, // yellow
-    12'hf_f_f  // bright white
-};
+reg [11:0] text_color_lut [0:15];
+reg [11:0] graphics_color_lut [0:15];
 
-reg [11:0] graphics_color_lut [0:15] = '{
-    12'h0_0_0, // black
-    12'h0_a_0, // green
-    12'ha_0_0, // red
-    12'ha_5_0, // brown
-    12'h0_0_0, // black
-    12'h5_f_5, // bright green
-    12'hf_5_5, // bright red
-    12'hf_f_5,  // yellow
+// Initialize color lookup tables
+initial begin
+    // Text color LUT (16 EGA colors)
+    text_color_lut[0]  = 12'h0_0_0;  // black
+    text_color_lut[1]  = 12'h0_0_a;  // blue
+    text_color_lut[2]  = 12'h0_a_0;  // green
+    text_color_lut[3]  = 12'h0_a_a;  // cyan
+    text_color_lut[4]  = 12'ha_0_0;  // red
+    text_color_lut[5]  = 12'ha_0_a;  // magenta
+    text_color_lut[6]  = 12'ha_5_0;  // brown
+    text_color_lut[7]  = 12'ha_a_a;  // white
+    text_color_lut[8]  = 12'h5_5_5;  // gray
+    text_color_lut[9]  = 12'h5_5_f;  // bright blue
+    text_color_lut[10] = 12'h5_f_5;  // bright green
+    text_color_lut[11] = 12'h5_f_f;  // bright cyan
+    text_color_lut[12] = 12'hf_5_5;  // bright red
+    text_color_lut[13] = 12'hf_5_f;  // bright magenta
+    text_color_lut[14] = 12'hf_f_5;  // yellow
+    text_color_lut[15] = 12'hf_f_f;  // bright white
+
+    // Graphics color LUT (CGA colors with alternate palettes)
+    graphics_color_lut[0]  = 12'h0_0_0;  // black
+    graphics_color_lut[1]  = 12'h0_a_0;  // green
+    graphics_color_lut[2]  = 12'ha_0_0;  // red
+    graphics_color_lut[3]  = 12'ha_5_0;  // brown
+    graphics_color_lut[4]  = 12'h0_0_0;  // black
+    graphics_color_lut[5]  = 12'h5_f_5;  // bright green
+    graphics_color_lut[6]  = 12'hf_5_5;  // bright red
+    graphics_color_lut[7]  = 12'hf_f_5;  // yellow
     // Alternate palette
-    12'h0_0_0, // black
-    12'h0_a_a, // cyan
-    12'ha_0_a, // magenta
-    12'ha_a_a, // white
-    12'h0_0_0, // black
-    12'h5_f_f, // bright cyan
-    12'hf_5_f, // bright magenta
-    12'hf_f_f  // bright white
-};
+    graphics_color_lut[8]  = 12'h0_0_0;  // black
+    graphics_color_lut[9]  = 12'h0_a_a;  // cyan
+    graphics_color_lut[10] = 12'ha_0_a;  // magenta
+    graphics_color_lut[11] = 12'ha_a_a;  // white
+    graphics_color_lut[12] = 12'h0_0_0;  // black
+    graphics_color_lut[13] = 12'h5_f_f;  // bright cyan
+    graphics_color_lut[14] = 12'hf_5_f;  // bright magenta
+    graphics_color_lut[15] = 12'hf_f_f;  // bright white
+end
 
-wire [11:0] graphics_pixel_color_int;
+logic [11:0] graphics_pixel_color_int;
 
 always_comb begin
     if (vga_256_color) begin
