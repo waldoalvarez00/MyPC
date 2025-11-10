@@ -644,6 +644,82 @@ module FPU_Core(
         end
     endfunction
 
+    // Check for invalid addition/subtraction: Inf - Inf (with appropriate signs)
+    function automatic is_invalid_add_sub;
+        input [79:0] operand_a;
+        input [79:0] operand_b;
+        input is_subtract;  // 1 for subtraction, 0 for addition
+        reg sign_a, sign_b;
+        reg both_inf;
+        reg opposite_signs;
+        begin
+            sign_a = operand_a[79];
+            sign_b = operand_b[79];
+            both_inf = is_infinity(operand_a) && is_infinity(operand_b);
+
+            // For subtraction, effective sign of b is flipped
+            if (is_subtract)
+                opposite_signs = (sign_a != sign_b);
+            else
+                opposite_signs = (sign_a == sign_b);
+
+            // Invalid if: Inf + (-Inf) or Inf - Inf (same sign)
+            is_invalid_add_sub = both_inf && !opposite_signs;
+        end
+    endfunction
+
+    // Check for invalid multiplication: 0 × Inf or Inf × 0
+    function automatic is_invalid_mul;
+        input [79:0] operand_a;
+        input [79:0] operand_b;
+        begin
+            is_invalid_mul = (is_zero(operand_a) && is_infinity(operand_b)) ||
+                             (is_infinity(operand_a) && is_zero(operand_b));
+        end
+    endfunction
+
+    // Check for invalid division: 0/0 or Inf/Inf
+    function automatic is_invalid_div;
+        input [79:0] operand_a;
+        input [79:0] operand_b;
+        begin
+            is_invalid_div = (is_zero(operand_a) && is_zero(operand_b)) ||
+                             (is_infinity(operand_a) && is_infinity(operand_b));
+        end
+    endfunction
+
+    // Pre-operation check: Returns 1 if operation should be short-circuited with NaN result
+    // Also sets should_return_nan and nan_result
+    function automatic should_shortcircuit_for_nan;
+        input [79:0] operand_a;
+        input [79:0] operand_b;
+        input has_two_operands;
+        input is_addition;
+        input is_subtraction;
+        input is_multiplication;
+        input is_division;
+        begin
+            // Check for existing NaN in operands
+            if (is_nan(operand_a) || (has_two_operands && is_nan(operand_b))) begin
+                should_shortcircuit_for_nan = 1'b1;
+            end
+            // Check for invalid operations
+            else if ((is_addition || is_subtraction) && has_two_operands &&
+                     is_invalid_add_sub(operand_a, operand_b, is_subtraction)) begin
+                should_shortcircuit_for_nan = 1'b1;
+            end
+            else if (is_multiplication && has_two_operands && is_invalid_mul(operand_a, operand_b)) begin
+                should_shortcircuit_for_nan = 1'b1;
+            end
+            else if (is_division && has_two_operands && is_invalid_div(operand_a, operand_b)) begin
+                should_shortcircuit_for_nan = 1'b1;
+            end
+            else begin
+                should_shortcircuit_for_nan = 1'b0;
+            end
+        end
+    endfunction
+
     //=================================================================
     // Execution State Machine
     //=================================================================
@@ -671,6 +747,10 @@ module FPU_Core(
     reg signed [31:0] temp_int32;
     reg [31:0] temp_fp32;
     reg [63:0] temp_fp64;
+
+    // Pre-operation invalid detection
+    reg       preop_invalid;            // Pre-operation invalid operation detected
+    reg       preop_nan_detected;       // Pre-operation NaN detected
 
     // Captured memory operand format flags (from inputs, captured in STATE_DECODE)
     reg       captured_has_memory_op;
@@ -705,6 +785,10 @@ module FPU_Core(
             temp_int32 <= 32'd0;
             temp_fp32 <= 32'd0;
             temp_fp64 <= 64'd0;
+
+            // Initialize pre-operation invalid detection
+            preop_invalid <= 1'b0;
+            preop_nan_detected <= 1'b0;
 
             // Initialize captured memory format flags
             captured_has_memory_op <= 1'b0;
@@ -858,12 +942,29 @@ module FPU_Core(
                     // Start or wait for arithmetic operation
                     case (current_inst)
                         INST_FADD, INST_FADDP: begin
+                            // Check for NaN propagation or invalid operation
                             if (~arith_done) begin
                                 if (~arith_enable) begin
-                                    arith_operation <= 4'd0;  // OP_ADD
-                                    arith_operand_a <= temp_operand_a;
-                                    arith_operand_b <= temp_operand_b;
-                                    arith_enable <= 1'b1;
+                                    // Pre-operation checks
+                                    preop_nan_detected <= is_nan(temp_operand_a) || is_nan(temp_operand_b);
+                                    preop_invalid <= is_invalid_add_sub(temp_operand_a, temp_operand_b, 1'b0);
+
+                                    if (preop_nan_detected || preop_invalid) begin
+                                        // Short-circuit: return NaN immediately
+                                        temp_result <= propagate_nan(temp_operand_a, temp_operand_b, 1'b1);
+                                        if (preop_nan_detected && (is_snan(temp_operand_a) || is_snan(temp_operand_b)))
+                                            status_invalid <= 1'b1;  // SNaN triggers invalid
+                                        else if (preop_invalid)
+                                            status_invalid <= 1'b1;  // Inf - Inf triggers invalid
+                                        error <= !mask_invalid;  // Error if unmasked
+                                        state <= STATE_WRITEBACK;
+                                    end else begin
+                                        // Normal operation
+                                        arith_operation <= 4'd0;  // OP_ADD
+                                        arith_operand_a <= temp_operand_a;
+                                        arith_operand_b <= temp_operand_b;
+                                        arith_enable <= 1'b1;
+                                    end
                                 end
                             end else begin
                                 // Apply exception response handling
@@ -906,12 +1007,29 @@ module FPU_Core(
                         end
 
                         INST_FSUB, INST_FSUBP: begin
+                            // Check for NaN propagation or invalid operation
                             if (~arith_done) begin
                                 if (~arith_enable) begin
-                                    arith_operation <= 4'd1;  // OP_SUB
-                                    arith_operand_a <= temp_operand_a;
-                                    arith_operand_b <= temp_operand_b;
-                                    arith_enable <= 1'b1;
+                                    // Pre-operation checks
+                                    preop_nan_detected <= is_nan(temp_operand_a) || is_nan(temp_operand_b);
+                                    preop_invalid <= is_invalid_add_sub(temp_operand_a, temp_operand_b, 1'b1);
+
+                                    if (preop_nan_detected || preop_invalid) begin
+                                        // Short-circuit: return NaN immediately
+                                        temp_result <= propagate_nan(temp_operand_a, temp_operand_b, 1'b1);
+                                        if (preop_nan_detected && (is_snan(temp_operand_a) || is_snan(temp_operand_b)))
+                                            status_invalid <= 1'b1;  // SNaN triggers invalid
+                                        else if (preop_invalid)
+                                            status_invalid <= 1'b1;  // Inf - Inf (same sign) triggers invalid
+                                        error <= !mask_invalid;  // Error if unmasked
+                                        state <= STATE_WRITEBACK;
+                                    end else begin
+                                        // Normal operation
+                                        arith_operation <= 4'd1;  // OP_SUB
+                                        arith_operand_a <= temp_operand_a;
+                                        arith_operand_b <= temp_operand_b;
+                                        arith_enable <= 1'b1;
+                                    end
                                 end
                             end else begin
                                 // Apply exception response handling
@@ -958,12 +1076,29 @@ module FPU_Core(
                         end
 
                         INST_FDIV, INST_FDIVP: begin
+                            // Check for NaN propagation or invalid operation
                             if (~arith_done) begin
                                 if (~arith_enable) begin
-                                    arith_operation <= 4'd3;  // OP_DIV
-                                    arith_operand_a <= temp_operand_a;
-                                    arith_operand_b <= temp_operand_b;
-                                    arith_enable <= 1'b1;
+                                    // Pre-operation checks
+                                    preop_nan_detected <= is_nan(temp_operand_a) || is_nan(temp_operand_b);
+                                    preop_invalid <= is_invalid_div(temp_operand_a, temp_operand_b);
+
+                                    if (preop_nan_detected || preop_invalid) begin
+                                        // Short-circuit: return NaN immediately
+                                        temp_result <= propagate_nan(temp_operand_a, temp_operand_b, 1'b1);
+                                        if (preop_nan_detected && (is_snan(temp_operand_a) || is_snan(temp_operand_b)))
+                                            status_invalid <= 1'b1;  // SNaN triggers invalid
+                                        else if (preop_invalid)
+                                            status_invalid <= 1'b1;  // 0/0 or Inf/Inf triggers invalid
+                                        error <= !mask_invalid;  // Error if unmasked
+                                        state <= STATE_WRITEBACK;
+                                    end else begin
+                                        // Normal operation
+                                        arith_operation <= 4'd3;  // OP_DIV
+                                        arith_operand_a <= temp_operand_a;
+                                        arith_operand_b <= temp_operand_b;
+                                        arith_enable <= 1'b1;
+                                    end
                                 end
                             end else begin
                                 // Apply exception response handling (especially for zero divide)
