@@ -223,49 +223,58 @@ module tb_hybrid_execution();
         reg [79:0] direct_result;
         reg [79:0] micro_result;
         integer cycles;
+        reg sqrt_test;  // Flag for SQRT testing
 
         begin
             $display("\n----------------------------------------");
             $display("Test: %0s", test_name);
             $display("Operation: %0d, A=0x%020X, B=0x%020X", operation, operand_a_val, operand_b_val);
 
+            sqrt_test = (operation == 5'd12);  // SQRT operation
+
             //=============================================================
             // Method 1: Direct Arithmetic Unit Call
             //=============================================================
-            $display("\n[Direct Execution]");
-
-            use_microcode_path = 1'b0;  // Select direct mode
-
-            @(posedge clk);
-            direct_arith_operand_a <= operand_a_val;
-            direct_arith_operand_b <= operand_b_val;
-            direct_arith_operation <= operation;
-            direct_arith_enable <= 1'b1;
-            direct_arith_rounding_mode <= 2'b00;  // Round to nearest
-
-            @(posedge clk);
-            direct_arith_enable <= 1'b0;
-
-            // Wait for completion
-            // Note: SQRT needs ~1425 cycles (15 iterations × 95 cycles)
-            cycles = 0;
-            while (!arith_done && cycles < 2000) begin
-                @(posedge clk);
-                cycles = cycles + 1;
-            end
-
-            if (arith_done) begin
-                direct_result = arith_result;
-                $display("  Direct result: 0x%020X (cycles=%0d)", direct_result, cycles);
+            if (sqrt_test) begin
+                $display("\n[Direct Execution]");
+                $display("  SKIPPED: SQRT hardware removed (microcode-only)");
+                $display("  Note: FPU_SQRT_Newton eliminated for 22% area reduction");
+                direct_result = 80'h0;  // Not tested
             end else begin
-                $display("  ERROR: Direct execution timeout!");
-                fail_count = fail_count + 1;
-                test_count = test_count + 1;
-                disable test_arithmetic_operation;  // Exit task
-            end
+                $display("\n[Direct Execution]");
 
-            // Let arithmetic unit settle
-            repeat(5) @(posedge clk);
+                use_microcode_path = 1'b0;  // Select direct mode
+
+                @(posedge clk);
+                direct_arith_operand_a <= operand_a_val;
+                direct_arith_operand_b <= operand_b_val;
+                direct_arith_operation <= operation;
+                direct_arith_enable <= 1'b1;
+                direct_arith_rounding_mode <= 2'b00;  // Round to nearest
+
+                @(posedge clk);
+                direct_arith_enable <= 1'b0;
+
+                // Wait for completion
+                cycles = 0;
+                while (!arith_done && cycles < 2000) begin
+                    @(posedge clk);
+                    cycles = cycles + 1;
+                end
+
+                if (arith_done) begin
+                    direct_result = arith_result;
+                    $display("  Direct result: 0x%020X (cycles=%0d)", direct_result, cycles);
+                end else begin
+                    $display("  ERROR: Direct execution timeout!");
+                    fail_count = fail_count + 1;
+                    test_count = test_count + 1;
+                    disable test_arithmetic_operation;  // Exit task
+                end
+
+                // Let arithmetic unit settle
+                repeat(5) @(posedge clk);
+            end
 
             //=============================================================
             // Method 2: Microcode Execution
@@ -330,20 +339,34 @@ module tb_hybrid_execution();
             //=============================================================
             $display("\n[Results]");
             $display("  Expected:  0x%020X", expected_result);
-            $display("  Direct:    0x%020X", direct_result);
+            if (!sqrt_test) begin
+                $display("  Direct:    0x%020X", direct_result);
+            end
             $display("  Microcode: 0x%020X", micro_result);
 
-            if (direct_result == expected_result && micro_result == expected_result) begin
-                $display("  ✓ PASS: Both execution paths match expected");
-                pass_count = pass_count + 1;
-            end else begin
-                if (direct_result != expected_result) begin
-                    $display("  ✗ FAIL: Direct execution mismatch!");
-                end
-                if (micro_result != expected_result) begin
+            if (sqrt_test) begin
+                // SQRT: Only test microcode path (hardware removed)
+                if (micro_result == expected_result) begin
+                    $display("  ✓ PASS: Microcode execution matches expected (hardware-free)");
+                    pass_count = pass_count + 1;
+                end else begin
                     $display("  ✗ FAIL: Microcode execution mismatch!");
+                    fail_count = fail_count + 1;
                 end
-                fail_count = fail_count + 1;
+            end else begin
+                // Other operations: Test both paths
+                if (direct_result == expected_result && micro_result == expected_result) begin
+                    $display("  ✓ PASS: Both execution paths match expected");
+                    pass_count = pass_count + 1;
+                end else begin
+                    if (direct_result != expected_result) begin
+                        $display("  ✗ FAIL: Direct execution mismatch!");
+                    end
+                    if (micro_result != expected_result) begin
+                        $display("  ✗ FAIL: Microcode execution mismatch!");
+                    end
+                    fail_count = fail_count + 1;
+                end
             end
 
             test_count = test_count + 1;

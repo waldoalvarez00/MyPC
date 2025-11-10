@@ -76,13 +76,18 @@ module FPU_IEEE754_Divide(
 
     reg        result_sign;
     reg signed [16:0] result_exp;   // 17-bit signed to handle overflow/underflow
-    reg [127:0] dividend;           // Extended dividend for division
+    reg signed [128:0] remainder;   // Signed partial remainder (129-bit for sign)
     reg [63:0]  divisor;            // Divisor
     reg [66:0]  quotient;           // Quotient with guard/round/sticky
     reg [66:0]  result_mant;        // Normalized result with guard/round/sticky
 
     reg        round_bit, sticky_bit;
     reg [6:0]  div_count;           // Division iteration counter
+
+    // SRT Division specific registers
+    reg signed [1:0] quotient_digits [0:66];  // Signed-digit quotient: {-1, 0, 1}
+    reg [63:0]  divisor_half;       // divisor >> 1 for SRT selection
+    integer     srt_i;              // Loop variable for quotient conversion
 
     //=================================================================
     // Special Value Detection
@@ -201,40 +206,115 @@ module FPU_IEEE754_Divide(
                         // result_exp = exp_a - exp_b + 16383 (using 17-bit signed arithmetic)
                         result_exp = {2'b00, exp_a} - {2'b00, exp_b} + 17'sd16383;
 
-                        // Perform division: mant_a / mant_b
-                        // We need extra precision for guard/round/sticky bits
-                        // Shift dividend left by 67 bits to get 67-bit quotient
-                        dividend = {mant_a, 64'd0};  // 128-bit dividend
+                        // SRT-2 Division Initialization
+                        // SRT allows negative remainders, solving the mant_a < mant_b problem
                         divisor = mant_b;
-                        quotient = 67'd0;
-                        div_count = 7'd0;
+                        divisor_half = mant_b >> 1;             // For SRT selection function
+
+                        // Initialize all quotient digits to 0
+                        for (srt_i = 0; srt_i <= 66; srt_i = srt_i + 1) begin
+                            quotient_digits[srt_i] = 2'sd0;
+                        end
+
+                        // Pre-normalize: Handle quotient integer bit based on mant_a vs mant_b
+                        // This ensures SRT starts with R < D and correct quotient range
+                        if (mant_a >= mant_b) begin
+                            quotient_digits[0] = 2'sd1;          // Q >= 1.0: set integer bit
+                            remainder = {1'b0, mant_a - mant_b, 64'd0};  // R = mant_a - mant_b
+                            div_count = 7'd1;                    // Start from bit 65
+                            $display("[DIV_DEBUG] SRT-2 Init (mant_a >= mant_b): q[0]=1, R[127:64]=0x%016X",
+                                     remainder[127:64]);
+                        end else begin
+                            quotient_digits[0] = 2'sd0;          // Q < 1.0: integer bit is 0
+                            remainder = {1'b0, mant_a, 64'd0};   // R = mant_a (already < mant_b)
+                            div_count = 7'd1;                    // Start from bit 65 (skip bit 66)
+                            $display("[DIV_DEBUG] SRT-2 Init (mant_a < mant_b): q[0]=0, R[127:64]=0x%016X",
+                                     remainder[127:64]);
+                        end
 
                         state <= STATE_NORMALIZE;
                     end
                 end
 
                 STATE_NORMALIZE: begin
-                    // Perform iterative division (67 iterations for 67-bit quotient)
+                    // SRT-2 Division Algorithm (67 iterations for 67-bit quotient)
+                    // Quotient digits: {-1, 0, 1}
                     if (div_count < 7'd67) begin
-                        // Non-restoring division algorithm (simplified)
-                        if (dividend[127:64] >= divisor) begin
-                            dividend[127:64] = dividend[127:64] - divisor;
-                            quotient[66 - div_count] = 1'b1;
+                        if (div_count == 7'd0) begin
+                            $display("[DIV_DEBUG] START SRT-2 Division: R[127:64]=0x%016X, D=0x%016X, D/2=0x%016X",
+                                     remainder[127:64], divisor, divisor_half);
                         end
-                        dividend = dividend << 1;
+
+                        // SRT-2 Selection Function
+                        // Compare current R with D/2 to select quotient digit
+                        // Selection rules:
+                        //   If R >= D/2: q = +1
+                        //   If R < -D/2: q = -1
+                        //   Otherwise: q = 0
+
+                        // Select quotient digit BEFORE shifting
+                        if (!remainder[128] && remainder[127:64] >= divisor_half) begin
+                            // R is positive and >= D/2: select q = +1
+                            quotient_digits[div_count] = 2'sd1;
+                            if (div_count < 7'd5)
+                                $display("[DIV_DEBUG] Iter %0d: R[127:64]=0x%016X >= D/2, q=+1",
+                                         div_count, remainder[127:64]);
+                        end else if (remainder[128] && (-remainder) > {1'b0, divisor_half, 64'd0}) begin
+                            // R is negative and |R| > D/2: select q = -1
+                            quotient_digits[div_count] = -2'sd1;
+                            if (div_count < 7'd5)
+                                $display("[DIV_DEBUG] Iter %0d: R[127:64]=0x%016X < -D/2, q=-1",
+                                         div_count, remainder[127:64]);
+                        end else begin
+                            // |R| < D/2: select q = 0
+                            quotient_digits[div_count] = 2'sd0;
+                            if (div_count < 7'd5)
+                                $display("[DIV_DEBUG] Iter %0d: |R| < D/2, q=0, R[127:64]=0x%016X",
+                                         div_count, remainder[127:64]);
+                        end
+
+                        // Apply: R_next = 2*R - q*D
+                        remainder = remainder << 1;  // 2*R
+                        if (quotient_digits[div_count] == 2'sd1) begin
+                            remainder = remainder - {1'b0, divisor, 64'd0};  // 2*R - D
+                        end else if (quotient_digits[div_count] == -2'sd1) begin
+                            remainder = remainder + {1'b0, divisor, 64'd0};  // 2*R + D
+                        end
+                        // If q=0, R_next = 2*R (already shifted)
+
                         div_count = div_count + 7'd1;
                     end else begin
-                        // Division complete
+                        // Division complete - Convert signed-digit quotient to binary
+                        $display("[DIV_DEBUG] SRT-2 complete, converting signed-digit quotient to binary...");
+
+                        // Convert: Start from MSB, accumulate quotient
+                        // Q_binary = sum(q[i] * 2^(66-i)) for i=0 to 66
+                        quotient = 67'd0;
+                        for (srt_i = 0; srt_i <= 66; srt_i = srt_i + 1) begin
+                            if (quotient_digits[srt_i] == 2'sd1) begin
+                                // Add 2^(66-i) to quotient
+                                quotient = quotient + (67'd1 << (66 - srt_i));
+                            end else if (quotient_digits[srt_i] == -2'sd1) begin
+                                // Subtract 2^(66-i) from quotient
+                                quotient = quotient - (67'd1 << (66 - srt_i));
+                            end
+                            // If q[i] == 0, no change to quotient
+                        end
+
                         result_mant = quotient;
+                        $display("[DIV_DEBUG] Binary quotient=0x%017X, bit[66]=%b, bit[65]=%b",
+                                 quotient, quotient[66], quotient[65]);
 
                         // Check if normalization is needed
                         // The quotient should have the integer bit at position 66
                         if (result_mant[66]) begin
                             // Already normalized
+                            $display("[DIV_DEBUG] Already normalized at bit 66");
                         end else if (result_mant[65]) begin
                             // Need to shift left by 1
                             result_mant = result_mant << 1;
                             result_exp = result_exp - 17'sd1;
+                            $display("[DIV_DEBUG] Shifted left by 1, new mant=0x%017X, exp=%0d", result_mant, result_exp);
                         end else begin
                             // Find leading 1 and shift
                             integer i;
@@ -250,6 +330,7 @@ module FPU_IEEE754_Divide(
                             if (shift_amount > 0 && shift_amount < 67) begin
                                 result_mant = result_mant << shift_amount;
                                 result_exp = result_exp - shift_amount;
+                                $display("[DIV_DEBUG] Shifted left by %0d, new mant=0x%017X, exp=%0d", shift_amount, result_mant, result_exp);
                             end
                         end
 
@@ -335,6 +416,8 @@ module FPU_IEEE754_Divide(
 
                 STATE_PACK: begin
                     // Pack result
+                    $display("[DIV_DEBUG] PACK: sign=%b, exp=0x%04X, mant[63:0]=0x%016X, mant[66:64]=0b%03b",
+                             result_sign, result_exp[14:0], result_mant[63:0], result_mant[66:64]);
                     result <= {result_sign, result_exp[14:0], result_mant[63:0]};
                     done <= 1'b1;
                     state <= STATE_IDLE;

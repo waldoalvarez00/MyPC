@@ -91,7 +91,7 @@ module FPU_IEEE754_AddSub(
     reg [67:0] aligned_mant_a;  // Extended with guard, round, sticky bits
     reg [67:0] aligned_mant_b;
 
-    reg [5:0]  norm_shift;  // Normalization shift amount
+    reg [6:0]  norm_shift;  // Normalization shift amount (up to 66)
     reg        round_bit, sticky_bit;
     integer    i;  // Loop variable
 
@@ -377,29 +377,29 @@ module FPU_IEEE754_AddSub(
                     // Find leading 1 in result_mant
                     // Integer bit should be at position 66 after normalization
                     // Count how many positions we need to shift left
-                    norm_shift = 6'd0;
+                    norm_shift = 7'd0;
 
                     if (result_mant[66]) begin
                         // Already normalized - integer bit at position 66
-                        norm_shift = 6'd0;
+                        norm_shift = 7'd0;
                     end else if (result_mant[65]) begin
-                        norm_shift = 6'd1;
+                        norm_shift = 7'd1;
                     end else if (result_mant[64]) begin
-                        norm_shift = 6'd2;
+                        norm_shift = 7'd2;
                     end else if (result_mant[63]) begin
-                        norm_shift = 6'd3;
+                        norm_shift = 7'd3;
                     end else if (result_mant[62]) begin
-                        norm_shift = 6'd4;
+                        norm_shift = 7'd4;
                     end else if (result_mant[61]) begin
-                        norm_shift = 6'd5;
+                        norm_shift = 7'd5;
                     end else if (result_mant[60]) begin
-                        norm_shift = 6'd6;
+                        norm_shift = 7'd6;
                     end else begin
                         // Need to count more carefully for larger shifts
-                        norm_shift = 6'd64; // Max shift
+                        norm_shift = 7'd64; // Max shift
                         for (i = 59; i >= 0; i = i - 1) begin
                             if (result_mant[i]) begin
-                                norm_shift = 6'd66 - i[5:0];
+                                norm_shift = 7'd66 - i[6:0];
                                 i = -1; // Break loop
                             end
                         end
