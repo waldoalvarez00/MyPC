@@ -52,6 +52,7 @@ Quartus/rtl/FPU8087/tb_fstp_debug
 Quartus/rtl/FPU8087/tb_integration_debug
 Quartus/rtl/FPU8087/tb_realtime_debug
 Quartus/rtl/FPU8087/tb_fpu8087_trivial_fixed
+Quartus/rtl/FPU8087/tb_advanced_ops
 verilog_compile.log
 integration_compile.log
 cpu_fpu_compile.log
