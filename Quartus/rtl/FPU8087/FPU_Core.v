@@ -282,6 +282,7 @@ module FPU_Core(
         .operation(final_arith_operation),
         .enable(final_arith_enable),
         .rounding_mode(rounding_mode),
+        .precision_mode(precision_mode),
         .operand_a(final_arith_operand_a),
         .operand_b(final_arith_operand_b),
         .int16_in(final_arith_int16_in),
@@ -575,6 +576,111 @@ module FPU_Core(
         input sign_bit;
         begin
             make_zero = {sign_bit, 15'd0, 64'd0};  // Zero
+        end
+    endfunction
+
+    // Check if FP80 value is denormal (exponent = 0, mantissa ≠ 0)
+    // Denormals represent very small numbers with gradual underflow
+    function automatic is_denormal;
+        input [79:0] fp_value;
+        begin
+            is_denormal = (fp_value[78:64] == 15'd0) && (fp_value[63:0] != 64'd0);
+        end
+    endfunction
+
+    // Normalize a denormal number
+    // Returns normalized FP80 value with proper exponent
+    function automatic [79:0] normalize_denormal;
+        input [79:0] fp_value;
+        reg [63:0] mant;
+        reg signed [15:0] exp;
+        integer i;
+        reg found_bit;
+        begin
+            if (!is_denormal(fp_value)) begin
+                // Not denormal, return as-is
+                normalize_denormal = fp_value;
+            end else begin
+                mant = fp_value[63:0];
+                exp = -16383;  // Starting exponent for denormals
+
+                // Find the leading 1 bit
+                found_bit = 0;
+                for (i = 63; i >= 0; i = i - 1) begin
+                    if (!found_bit && mant[i]) begin
+                        // Shift mantissa to put this bit at position 63
+                        mant = mant << (63 - i);
+                        // Adjust exponent accordingly
+                        exp = exp - (63 - i);
+                        found_bit = 1;
+                    end
+                end
+
+                // Create normalized value
+                normalize_denormal = {fp_value[79], exp + 16'sd16383, mant};
+            end
+        end
+    endfunction
+
+    // Create denormal from underflow
+    // When result underflows, create denormal instead of zero
+    function automatic [79:0] make_denormal;
+        input sign_bit;
+        input signed [15:0] true_exp;  // True exponent (not biased)
+        input [63:0] mantissa;         // Mantissa with integer bit at 63
+        reg [63:0] result_mant;
+        reg [15:0] shift_amount;
+        begin
+            // For denormals, exponent = 0
+            // Shift mantissa right by (1 - true_exp) positions
+            // true_exp should be negative for denormals
+            if (true_exp >= 0) begin
+                // Not actually denormal range
+                make_denormal = {sign_bit, true_exp + 16'sd16383, mantissa};
+            end else begin
+                shift_amount = -true_exp;
+                if (shift_amount < 64) begin
+                    result_mant = mantissa >> shift_amount;
+                    make_denormal = {sign_bit, 15'd0, result_mant};
+                end else begin
+                    // Underflow to zero
+                    make_denormal = make_zero(sign_bit);
+                end
+            end
+        end
+    endfunction
+
+    // Apply precision control to mantissa
+    // Masks lower bits based on precision setting
+    // PC = 00: 24-bit (single precision)
+    // PC = 10: 53-bit (double precision)
+    // PC = 11: 64-bit (extended precision - full FP80)
+    function automatic [63:0] apply_precision_control;
+        input [1:0] precision;
+        input [63:0] mantissa;
+        reg [63:0] mask;
+        begin
+            case (precision)
+                2'b00: begin
+                    // 24-bit precision: keep only top 24 bits (bit 63-40)
+                    // Mask: 0xFFFFFF0000000000
+                    mask = 64'hFFFFFF0000000000;
+                end
+                2'b10: begin
+                    // 53-bit precision: keep only top 53 bits (bit 63-11)
+                    // Mask: 0xFFFFFFFFFFFFE000
+                    mask = 64'hFFFFFFFFFFFFE000;
+                end
+                2'b11: begin
+                    // 64-bit precision: keep all bits (full FP80)
+                    mask = 64'hFFFFFFFFFFFFFFFF;
+                end
+                default: begin
+                    // Reserved (treat as full precision)
+                    mask = 64'hFFFFFFFFFFFFFFFF;
+                end
+            endcase
+            apply_precision_control = mantissa & mask;
         end
     endfunction
 

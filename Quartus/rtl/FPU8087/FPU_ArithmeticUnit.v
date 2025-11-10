@@ -21,6 +21,7 @@ module FPU_ArithmeticUnit(
     input wire [4:0]  operation,        // Operation selector (5 bits: 0-17 for BCD)
     input wire        enable,           // Start operation
     input wire [1:0]  rounding_mode,    // Rounding mode
+    input wire [1:0]  precision_mode,   // Precision control (00=24-bit, 10=53-bit, 11=64-bit)
 
     // Operands (80-bit FP)
     input wire [79:0] operand_a,
@@ -298,6 +299,14 @@ module FPU_ArithmeticUnit(
         end
     endfunction
 
+    // Check if FP80 value is denormal (exponent = 0, mantissa ≠ 0)
+    function automatic is_denormal_helper;
+        input [79:0] fp_value;
+        begin
+            is_denormal_helper = (fp_value[78:64] == 15'd0) && (fp_value[63:0] != 64'd0);
+        end
+    endfunction
+
     // Helper: Convert signed 16-bit integer to FP80
     function automatic [79:0] int16_to_fp80;
         input signed [15:0] int_val;
@@ -463,6 +472,17 @@ module FPU_ArithmeticUnit(
         flag_overflow = 1'b0;
         flag_underflow = 1'b0;
         flag_inexact = 1'b0;
+
+        // Check for denormal operands (except for conversion operations)
+        if (enable && (operation <= OP_DIV || operation == OP_SQRT ||
+                      operation == OP_SIN || operation == OP_COS || operation == OP_SINCOS ||
+                      operation == OP_TAN || operation == OP_ATAN || operation == OP_F2XM1 ||
+                      operation == OP_FYL2X || operation == OP_FYL2XP1 ||
+                      operation == OP_FXTRACT || operation == OP_FSCALE)) begin
+            if (is_denormal_helper(operand_a) || is_denormal_helper(operand_b)) begin
+                flag_denormal = 1'b1;
+            end
+        end
 
         // Select outputs based on operation
         case (operation)
