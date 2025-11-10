@@ -622,11 +622,60 @@ module MicroSequencer_Extended_BCD (
                                     $display("[MICROSEQ_BCD] LOAD_A: %h", data_in);
                                 end
 
+                                MOP_LOAD_B: begin
+                                    temp_fp_b <= data_in;
+                                    pc <= next_addr;
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ_BCD] LOAD_B: %h", data_in);
+                                end
+
                                 MOP_STORE: begin
                                     data_out <= temp_result;
                                     pc <= next_addr;
                                     state <= STATE_FETCH;
                                     $display("[MICROSEQ_BCD] STORE: %h", temp_result);
+                                end
+
+                                MOP_MOVE_RES_TO_A: begin
+                                    temp_fp_a <= temp_result;
+                                    pc <= next_addr;
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ_BCD] MOVE_RES_TO_A: %h", temp_result);
+                                end
+
+                                MOP_MOVE_RES_TO_B: begin
+                                    temp_fp_b <= temp_result;
+                                    pc <= next_addr;
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ_BCD] MOVE_RES_TO_B: %h", temp_result);
+                                end
+
+                                MOP_MOVE_A_TO_B: begin
+                                    temp_fp_b <= temp_fp_a;
+                                    pc <= next_addr;
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ_BCD] MOVE_A_TO_B: %h", temp_fp_a);
+                                end
+
+                                MOP_MOVE_A_TO_C: begin
+                                    temp_fp_c <= temp_fp_a;
+                                    pc <= next_addr;
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ_BCD] MOVE_A_TO_C: %h", temp_fp_a);
+                                end
+
+                                MOP_MOVE_C_TO_A: begin
+                                    temp_fp_a <= temp_fp_c;
+                                    pc <= next_addr;
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ_BCD] MOVE_C_TO_A: %h", temp_fp_c);
+                                end
+
+                                MOP_MOVE_C_TO_B: begin
+                                    temp_fp_b <= temp_fp_c;
+                                    pc <= next_addr;
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ_BCD] MOVE_C_TO_B: %h", temp_fp_c);
                                 end
 
                                 MOP_CALL_ARITH: begin

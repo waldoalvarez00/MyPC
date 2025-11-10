@@ -172,6 +172,7 @@ module tb_microcode_extended;
     //------------------------------------------------------------------------
 
     task run_test_fadd;
+        integer timeout;
         begin
             test_name = "FADD (Program 0)";
             test_num = test_num + 1;
@@ -183,11 +184,20 @@ module tb_microcode_extended;
             #10;
             start = 0;
 
-            wait(instruction_complete == 1);
-            #10;
+            // Wait with timeout (1000 cycles = 10us)
+            timeout = 0;
+            while (instruction_complete == 0 && timeout < 1000) begin
+                #10;
+                timeout = timeout + 1;
+            end
 
-            $display("  PASS: Microcode completed");
-            passed_tests = passed_tests + 1;
+            if (timeout >= 1000) begin
+                $display("  FAIL: Timeout waiting for completion");
+                failed_tests = failed_tests + 1;
+            end else begin
+                $display("  PASS: Microcode completed in %0d cycles", timeout);
+                passed_tests = passed_tests + 1;
+            end
 
             reset = 1;
             #20;
