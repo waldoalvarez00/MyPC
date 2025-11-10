@@ -365,7 +365,7 @@ module FPU_Core(
 
     // Microsequencer control signals
     reg        microseq_start;
-    reg [3:0]  microseq_program_index;
+    reg [4:0]  microseq_program_index;  // 5 bits for 32 programs
     wire       microseq_complete;
     wire [79:0] microseq_data_out;
     wire [79:0] microseq_temp_result;  // Debug output: temp_result from microsequencer
@@ -975,199 +975,87 @@ module FPU_Core(
                         end
 
                         INST_FSINCOS: begin
-                            if (~arith_done) begin
-                                if (~arith_enable) begin
-                                    arith_operation <= 4'd15;  // OP_SINCOS
-                                    arith_operand_a <= temp_operand_a;
-                                    arith_enable <= 1'b1;
-                                end
-                            end else begin
-                                // Store both sin and cos results
-                                temp_result <= arith_result;              // sin(θ)
-                                temp_result_secondary <= arith_result_secondary;  // cos(θ)
-                                has_secondary_result <= arith_has_secondary;
-                                status_invalid <= arith_invalid;
-                                arith_enable <= 1'b0;
-                                state <= STATE_WRITEBACK;
-                            end
+                            // Sin and Cos simultaneously: Use microcode program 19
+                            microseq_data_in_source <= temp_operand_a;  // Angle (ST(0))
+                            microseq_program_index <= 5'd19;  // Program 19: FSINCOS at 0x0750
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         INST_FPTAN: begin
-                            if (~arith_done) begin
-                                if (~arith_enable) begin
-                                    arith_operation <= 5'd18;  // OP_TAN
-                                    arith_operand_a <= temp_operand_a;
-                                    arith_enable <= 1'b1;
-                                end
-                            end else begin
-                                // Store tan and 1.0 (for compatibility with 8087)
-                                temp_result <= arith_result;              // tan(θ)
-                                temp_result_secondary <= arith_result_secondary;  // 1.0
-                                has_secondary_result <= arith_has_secondary;
-                                status_invalid <= arith_invalid;
-                                arith_enable <= 1'b0;
-                                state <= STATE_WRITEBACK;
-                            end
+                            // Partial Tangent: Use microcode program 14
+                            microseq_data_in_source <= temp_operand_a;  // Angle (ST(0))
+                            microseq_program_index <= 5'd14;  // Program 14: FPTAN at 0x0700
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         INST_FPATAN: begin
-                            if (~arith_done) begin
-                                if (~arith_enable) begin
-                                    arith_operation <= 5'd19;  // OP_ATAN
-                                    arith_operand_a <= temp_operand_a;  // y (ST(1))
-                                    arith_operand_b <= temp_operand_b;  // x (ST(0))
-                                    arith_enable <= 1'b1;
-                                end
-                            end else begin
-                                temp_result <= arith_result;  // atan(y/x)
-                                has_secondary_result <= 1'b0;
-                                status_invalid <= arith_invalid;
-                                arith_enable <= 1'b0;
-                                state <= STATE_WRITEBACK;
-                            end
+                            // Partial Arctangent: Use microcode program 15
+                            microseq_data_in_source <= temp_operand_b;  // x (ST(0)) - loaded first
+                            // Note: microcode will need to load both x and y
+                            microseq_program_index <= 5'd15;  // Program 15: FPATAN at 0x0710
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         INST_F2XM1: begin
-                            if (~arith_done) begin
-                                if (~arith_enable) begin
-                                    arith_operation <= 5'd20;  // OP_F2XM1
-                                    arith_operand_a <= temp_operand_a;
-                                    arith_enable <= 1'b1;
-                                end
-                            end else begin
-                                temp_result <= arith_result;  // 2^x - 1
-                                has_secondary_result <= 1'b0;
-                                status_invalid <= arith_invalid;
-                                arith_enable <= 1'b0;
-                                state <= STATE_WRITEBACK;
-                            end
+                            // 2^x - 1: Use microcode program 16
+                            microseq_data_in_source <= temp_operand_a;  // x (ST(0))
+                            microseq_program_index <= 5'd16;  // Program 16: F2XM1 at 0x0720
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         INST_FYL2X: begin
-                            if (~arith_done) begin
-                                if (~arith_enable) begin
-                                    arith_operation <= 5'd21;  // OP_FYL2X
-                                    arith_operand_a <= temp_operand_b;  // x (ST(0))
-                                    arith_operand_b <= temp_operand_a;  // y (ST(1))
-                                    arith_enable <= 1'b1;
-                                end
-                            end else begin
-                                temp_result <= arith_result;  // y × log₂(x)
-                                has_secondary_result <= 1'b0;
-                                status_invalid <= arith_invalid;
-                                arith_enable <= 1'b0;
-                                state <= STATE_WRITEBACK;
-                            end
+                            // y × log₂(x): Use microcode program 17
+                            microseq_data_in_source <= temp_operand_b;  // x (ST(0))
+                            microseq_program_index <= 5'd17;  // Program 17: FYL2X at 0x0730
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         INST_FYL2XP1: begin
-                            if (~arith_done) begin
-                                if (~arith_enable) begin
-                                    arith_operation <= 5'd22;  // OP_FYL2XP1
-                                    arith_operand_a <= temp_operand_b;  // x (ST(0))
-                                    arith_operand_b <= temp_operand_a;  // y (ST(1))
-                                    arith_enable <= 1'b1;
-                                end
-                            end else begin
-                                temp_result <= arith_result;  // y × log₂(x+1)
-                                has_secondary_result <= 1'b0;
-                                status_invalid <= arith_invalid;
-                                arith_enable <= 1'b0;
-                                state <= STATE_WRITEBACK;
-                            end
+                            // y × log₂(x+1): Use microcode program 18
+                            microseq_data_in_source <= temp_operand_b;  // x (ST(0))
+                            microseq_program_index <= 5'd18;  // Program 18: FYL2XP1 at 0x0740
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         // ===== Advanced FP Operations =====
 
                         INST_FRNDINT: begin
-                            // Round to integer according to rounding mode
-                            // FP80 format: [79]=sign, [78:64]=exp, [63]=integer bit, [62:0]=mantissa
-
-                            // Check for special cases (NaN, Infinity, Zero)
-                            if (temp_operand_a[78:64] == 15'h7FFF || temp_operand_a[78:64] == 15'h0000) begin
-                                // NaN, Infinity, or Zero - return as-is
-                                temp_result <= temp_operand_a;
-                            end else if (temp_operand_a[78:64] < 15'h3FFF) begin
-                                // |value| < 1.0 - round to 0 or ±1 depending on rounding mode
-                                case (rounding_mode)
-                                    2'b00: temp_result <= 80'h00000000000000000000;  // Round to nearest (0)
-                                    2'b01: temp_result <= temp_operand_a[79] ? 80'hBFFF8000000000000000 : 80'h00000000000000000000;  // Round down
-                                    2'b10: temp_result <= temp_operand_a[79] ? 80'h00000000000000000000 : 80'h3FFF8000000000000000;  // Round up
-                                    2'b11: temp_result <= 80'h00000000000000000000;  // Round toward zero
-                                endcase
-                            end else if (temp_operand_a[78:64] >= 15'h403E) begin
-                                // exp >= 63: Already an integer (no fractional bits)
-                                temp_result <= temp_operand_a;
-                            end else begin
-                                // Normal case: round the fractional bits
-                                // For now, simple truncation (round toward zero)
-                                // TODO: Implement proper rounding modes
-                                temp_result <= temp_operand_a;
-                            end
-
-                            state <= STATE_WRITEBACK;
+                            // Round to integer: Use microcode program 21
+                            microseq_data_in_source <= temp_operand_a;  // Value (ST(0))
+                            microseq_program_index <= 5'd21;  // Program 21: FRNDINT at 0x0770
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         INST_FSCALE: begin
-                            // Scale ST(0) by 2^floor(ST(1))
-                            // FP80 format: [79]=sign, [78:64]=exp, [63:0]=mantissa
-                            // Simplified implementation: adds ST(1)'s unbiased exponent to ST(0)'s exponent
-
-                            // Check for special cases
-                            if (temp_operand_a[78:64] == 15'h7FFF || temp_operand_a[78:64] == 15'h0000 ||
-                                temp_operand_b[78:64] == 15'h7FFF || temp_operand_b[78:64] == 15'h0000) begin
-                                // NaN, Infinity, or Zero in either operand - return ST(0) unchanged
-                                temp_result <= temp_operand_a;
-                                status_invalid <= 1'b1;
-                            end else begin
-                                // Simplified scaling: add unbiased exponents
-                                // Scale factor approximation: ST(1)'s exponent - bias
-                                // New exponent: ST(0)'s exponent + scale factor
-                                // For simplicity, just add (ST(1)_exp - 0x3FFF) to ST(0)_exp
-                                // Proper check: exponent + (exp_b - 0x3FFF) within range
-
-                                // Just add the biased difference for now (simplified)
-                                temp_result <= {temp_operand_a[79],
-                                               temp_operand_a[78:64] + temp_operand_b[78:64] - 15'h3FFF,
-                                               temp_operand_a[63:0]};
-                            end
-
-                            state <= STATE_WRITEBACK;
+                            // Scale by power of 2: Use microcode program 11
+                            microseq_data_in_source <= temp_operand_a;  // Value (ST(0))
+                            microseq_program_index <= 5'd11;  // Program 11: FSCALE at 0x0500
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         INST_FXTRACT: begin
-                            // Extract exponent and mantissa
-                            // Pushes two values: mantissa [1.0, 2.0) in ST(0), exponent as FP in ST(1)
-
-                            // Check for special cases (NaN, Infinity, Zero)
-                            if (temp_operand_a[78:64] == 15'h7FFF || temp_operand_a[78:64] == 15'h0000) begin
-                                // NaN, Infinity, or Zero - return as-is for both values
-                                temp_result <= temp_operand_a;
-                                temp_result_secondary <= temp_operand_a;
-                                has_secondary_result <= 1'b1;
-                            end else begin
-                                // Normal case: Split into mantissa and exponent
-                                // Mantissa: Replace exponent with 0x3FFF to get value in [1.0, 2.0)
-                                temp_result <= {temp_operand_a[79], 15'h3FFF, temp_operand_a[63:0]};
-
-                                // Exponent: Convert (exp - 0x3FFF) to FP80
-                                // Simplified: For small integers, construct FP80 directly
-                                // If exp >= 0x3FFF: positive exponent
-                                // If exp < 0x3FFF: negative exponent
-                                if (temp_operand_a[78:64] >= 15'h3FFF) begin
-                                    // Positive or zero exponent
-                                    // exp_value = exp - 0x3FFF, convert to FP80
-                                    // For simplicity, just shift the unbiased exponent
-                                    temp_result_secondary <= {1'b0, temp_operand_a[78:64], 64'h8000000000000000};
-                                end else begin
-                                    // Negative exponent
-                                    temp_result_secondary <= {1'b1, 15'h3FFF - temp_operand_a[78:64], 64'h8000000000000000};
-                                end
-
-                                has_secondary_result <= 1'b1;
-                            end
-
-                            state <= STATE_WRITEBACK;
+                            // Extract exponent and significand: Use microcode program 10
+                            microseq_data_in_source <= temp_operand_a;  // Value (ST(0))
+                            microseq_program_index <= 5'd10;  // Program 10: FXTRACT at 0x0400
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         INST_FPREM: begin
@@ -1179,11 +1067,12 @@ module FPU_Core(
                         end
 
                         INST_FPREM1: begin
-                            // IEEE partial remainder: ST(0) = IEEE remainder(ST(0), ST(1))
-                            // This is a complex operation similar to FPREM
-                            // For now, return error (unsupported operation)
-                            status_invalid <= 1'b1;
-                            state <= STATE_DONE;
+                            // IEEE partial remainder: Use microcode program 20
+                            microseq_data_in_source <= temp_operand_a;  // Dividend (ST(0))
+                            microseq_program_index <= 5'd20;  // Program 20: FPREM1 at 0x0760
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         // BCD conversion instructions
@@ -1191,7 +1080,7 @@ module FPU_Core(
                             // BCD Load: Use microcode program 12 (BCD → Binary → FP80)
                             // This replaces ~33 lines of FSM orchestration logic with a single microcode call
                             microseq_data_in_source <= data_in;  // BCD input from memory/CPU
-                            microseq_program_index <= 4'd12;  // Program 12: FBLD at 0x0600
+                            microseq_program_index <= 5'd12;  // Program 12: FBLD at 0x0600
                             microseq_start <= 1'b1;
                             microseq_active <= 1'b1;
                             state <= STATE_WAIT_MICROSEQ;
@@ -1201,7 +1090,7 @@ module FPU_Core(
                             // BCD Store and Pop: Use microcode program 13 (FP80 → Binary → BCD)
                             // This replaces ~37 lines of FSM orchestration logic with a single microcode call
                             microseq_data_in_source <= temp_operand_a;  // FP80 value from ST(0)
-                            microseq_program_index <= 4'd13;  // Program 13: FBSTP at 0x0610
+                            microseq_program_index <= 5'd13;  // Program 13: FBSTP at 0x0610
                             microseq_start <= 1'b1;
                             microseq_active <= 1'b1;
                             state <= STATE_WAIT_MICROSEQ;
