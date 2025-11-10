@@ -496,6 +496,155 @@ module FPU_Core(
     );
 
     //=================================================================
+    // Exception Handling and NaN Detection Functions
+    //=================================================================
+
+    // Check if FP80 value is NaN (exponent = 0x7FFF, mantissa != 0)
+    function automatic is_nan;
+        input [79:0] fp_value;
+        begin
+            is_nan = (fp_value[78:64] == 15'h7FFF) && (fp_value[63:0] != 64'd0);
+        end
+    endfunction
+
+    // Check if FP80 value is Quiet NaN (bit 63 = 1)
+    function automatic is_qnan;
+        input [79:0] fp_value;
+        begin
+            is_qnan = (fp_value[78:64] == 15'h7FFF) && fp_value[63];
+        end
+    endfunction
+
+    // Check if FP80 value is Signaling NaN (bit 63 = 0, mantissa != 0)
+    function automatic is_snan;
+        input [79:0] fp_value;
+        begin
+            is_snan = (fp_value[78:64] == 15'h7FFF) && !fp_value[63] && (fp_value[62:0] != 63'd0);
+        end
+    endfunction
+
+    // Check if FP80 value is Infinity (exponent = 0x7FFF, mantissa = 0x8000_0000_0000_0000)
+    function automatic is_infinity;
+        input [79:0] fp_value;
+        begin
+            is_infinity = (fp_value[78:64] == 15'h7FFF) && (fp_value[63:0] == 64'h8000_0000_0000_0000);
+        end
+    endfunction
+
+    // Check if FP80 value is Zero (exponent = 0, mantissa = 0)
+    function automatic is_zero;
+        input [79:0] fp_value;
+        begin
+            is_zero = (fp_value[78:64] == 15'd0) && (fp_value[63:0] == 64'd0);
+        end
+    endfunction
+
+    // Get sign of FP80 value
+    function automatic get_sign;
+        input [79:0] fp_value;
+        begin
+            get_sign = fp_value[79];
+        end
+    endfunction
+
+    // Create QNaN with optional sign
+    function automatic [79:0] make_qnan;
+        input sign_bit;
+        begin
+            make_qnan = {sign_bit, 15'h7FFF, 64'hC000_0000_0000_0000};  // QNaN
+        end
+    endfunction
+
+    // Create Infinity with sign
+    function automatic [79:0] make_infinity;
+        input sign_bit;
+        begin
+            make_infinity = {sign_bit, 15'h7FFF, 64'h8000_0000_0000_0000};  // Infinity
+        end
+    endfunction
+
+    // Create Zero with sign
+    function automatic [79:0] make_zero;
+        input sign_bit;
+        begin
+            make_zero = {sign_bit, 15'd0, 64'd0};  // Zero
+        end
+    endfunction
+
+    // NaN Propagation: Return NaN if any operand is NaN
+    // Priority: SNaN > QNaN (first operand) > QNaN (second operand)
+    function automatic [79:0] propagate_nan;
+        input [79:0] operand_a;
+        input [79:0] operand_b;
+        input has_operand_b;  // Some operations are unary
+        reg found_nan;
+        begin
+            found_nan = 1'b0;
+            propagate_nan = 80'd0;
+
+            // Check for SNaN in operand_a (triggers invalid)
+            if (is_snan(operand_a)) begin
+                propagate_nan = {operand_a[79], 15'h7FFF, 64'hC000_0000_0000_0000 | operand_a[62:0]};  // Convert to QNaN
+                found_nan = 1'b1;
+            end
+            // Check for SNaN in operand_b (triggers invalid)
+            else if (has_operand_b && is_snan(operand_b)) begin
+                propagate_nan = {operand_b[79], 15'h7FFF, 64'hC000_0000_0000_0000 | operand_b[62:0]};  // Convert to QNaN
+                found_nan = 1'b1;
+            end
+            // Check for QNaN in operand_a
+            else if (is_qnan(operand_a)) begin
+                propagate_nan = operand_a;  // Preserve payload
+                found_nan = 1'b1;
+            end
+            // Check for QNaN in operand_b
+            else if (has_operand_b && is_qnan(operand_b)) begin
+                propagate_nan = operand_b;  // Preserve payload
+                found_nan = 1'b1;
+            end
+
+            // If no NaN found, return zero (caller should check)
+            if (!found_nan)
+                propagate_nan = 80'd0;
+        end
+    endfunction
+
+    // Handle exception response based on masks
+    // Returns modified result if exception is masked
+    function automatic [79:0] handle_exception_response;
+        input is_invalid;
+        input is_overflow;
+        input is_underflow;
+        input is_zero_div;
+        input mask_invalid_in;
+        input mask_overflow_in;
+        input mask_underflow_in;
+        input mask_zero_div_in;
+        input [79:0] result_in;
+        input result_sign;
+        begin
+            handle_exception_response = result_in;  // Default: return original result
+
+            // Invalid operation: Return QNaN if masked
+            if (is_invalid && mask_invalid_in) begin
+                handle_exception_response = make_qnan(result_sign);
+            end
+            // Overflow: Return ±Infinity if masked
+            else if (is_overflow && mask_overflow_in) begin
+                handle_exception_response = make_infinity(result_sign);
+            end
+            // Underflow: Return ±Zero if masked (gradual underflow not fully implemented)
+            else if (is_underflow && mask_underflow_in) begin
+                handle_exception_response = make_zero(result_sign);
+            end
+            // Zero divide: Return ±Infinity if masked
+            else if (is_zero_div && mask_zero_div_in) begin
+                handle_exception_response = make_infinity(result_sign);
+            end
+        end
+    endfunction
+
+    //=================================================================
     // Execution State Machine
     //=================================================================
 
@@ -717,7 +866,20 @@ module FPU_Core(
                                     arith_enable <= 1'b1;
                                 end
                             end else begin
-                                temp_result <= arith_result;
+                                // Apply exception response handling
+                                temp_result <= handle_exception_response(
+                                    arith_invalid,
+                                    arith_overflow,
+                                    arith_underflow,
+                                    arith_zero_div,
+                                    mask_invalid,
+                                    mask_overflow,
+                                    mask_underflow,
+                                    mask_zero_div,
+                                    arith_result,
+                                    arith_result[79]  // Result sign
+                                );
+
                                 // Capture exceptions
                                 status_invalid <= arith_invalid;
                                 status_denormal <= arith_denormal;
@@ -725,8 +887,17 @@ module FPU_Core(
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
+
+                                // Set error signal for unmasked exceptions
+                                error <= (arith_invalid && !mask_invalid) ||
+                                         (arith_overflow && !mask_overflow) ||
+                                         (arith_underflow && !mask_underflow) ||
+                                         (arith_zero_div && !mask_zero_div) ||
+                                         (arith_denormal && !mask_denormal);
+
                                 status_cc_write <= 1'b1;
                                 status_c0 <= arith_cc_equal;
+                                status_c1 <= arith_inexact;  // C1 = 1 if rounded (inexact)
                                 status_c2 <= arith_cc_less;
                                 status_c3 <= arith_cc_unordered;
                                 arith_enable <= 1'b0;
@@ -743,11 +914,18 @@ module FPU_Core(
                                     arith_enable <= 1'b1;
                                 end
                             end else begin
-                                temp_result <= arith_result;
+                                // Apply exception response handling
+                                temp_result <= handle_exception_response(
+                                    arith_invalid, arith_overflow, arith_underflow, arith_zero_div,
+                                    mask_invalid, mask_overflow, mask_underflow, mask_zero_div,
+                                    arith_result, arith_result[79]
+                                );
                                 status_invalid <= arith_invalid;
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
+                                error <= (arith_invalid && !mask_invalid) || (arith_overflow && !mask_overflow) ||
+                                         (arith_underflow && !mask_underflow) || (arith_zero_div && !mask_zero_div);
                                 arith_enable <= 1'b0;
                                 state <= STATE_WRITEBACK;
                             end
@@ -762,11 +940,18 @@ module FPU_Core(
                                     arith_enable <= 1'b1;
                                 end
                             end else begin
-                                temp_result <= arith_result;
+                                // Apply exception response handling
+                                temp_result <= handle_exception_response(
+                                    arith_invalid, arith_overflow, arith_underflow, arith_zero_div,
+                                    mask_invalid, mask_overflow, mask_underflow, mask_zero_div,
+                                    arith_result, arith_result[79]
+                                );
                                 status_invalid <= arith_invalid;
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
+                                error <= (arith_invalid && !mask_invalid) || (arith_overflow && !mask_overflow) ||
+                                         (arith_underflow && !mask_underflow) || (arith_zero_div && !mask_zero_div);
                                 arith_enable <= 1'b0;
                                 state <= STATE_WRITEBACK;
                             end
@@ -781,12 +966,19 @@ module FPU_Core(
                                     arith_enable <= 1'b1;
                                 end
                             end else begin
-                                temp_result <= arith_result;
+                                // Apply exception response handling (especially for zero divide)
+                                temp_result <= handle_exception_response(
+                                    arith_invalid, arith_overflow, arith_underflow, arith_zero_div,
+                                    mask_invalid, mask_overflow, mask_underflow, mask_zero_div,
+                                    arith_result, arith_result[79]
+                                );
                                 status_invalid <= arith_invalid;
                                 status_zero_div <= arith_zero_div;
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
+                                error <= (arith_invalid && !mask_invalid) || (arith_overflow && !mask_overflow) ||
+                                         (arith_underflow && !mask_underflow) || (arith_zero_div && !mask_zero_div);
                                 arith_enable <= 1'b0;
                                 state <= STATE_WRITEBACK;
                             end
