@@ -55,6 +55,7 @@ Quartus/rtl/FPU8087/tb_fpu8087_trivial_fixed
 Quartus/rtl/FPU8087/tb_advanced_ops
 Quartus/rtl/FPU8087/tb_exception_functions
 Quartus/rtl/FPU8087/tb_extended_prechecks
+Quartus/rtl/FPU8087/tb_fxtract_fscale
 verilog_compile.log
 integration_compile.log
 cpu_fpu_compile.log

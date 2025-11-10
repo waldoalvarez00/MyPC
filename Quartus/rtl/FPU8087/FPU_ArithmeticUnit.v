@@ -260,8 +260,84 @@ module FPU_ArithmeticUnit(
     // Bit Manipulation Operations (FXTRACT, FSCALE)
     //=================================================================
 
+    // Helper functions for detection
+    function automatic is_zero_helper;
+        input [79:0] fp_value;
+        begin
+            is_zero_helper = (fp_value[78:0] == 79'd0);
+        end
+    endfunction
+
+    function automatic is_infinity_helper;
+        input [79:0] fp_value;
+        begin
+            is_infinity_helper = (fp_value[78:64] == 15'h7FFF) &&
+                                (fp_value[63:0] == 64'h8000_0000_0000_0000);
+        end
+    endfunction
+
+    function automatic is_nan_helper;
+        input [79:0] fp_value;
+        begin
+            is_nan_helper = (fp_value[78:64] == 15'h7FFF) &&
+                           (fp_value[63:0] != 64'h8000_0000_0000_0000);
+        end
+    endfunction
+
+    function automatic [79:0] make_infinity_helper;
+        input sign;
+        begin
+            make_infinity_helper = {sign, 15'h7FFF, 64'h8000_0000_0000_0000};
+        end
+    endfunction
+
+    function automatic [79:0] make_zero_helper;
+        input sign;
+        begin
+            make_zero_helper = {sign, 79'd0};
+        end
+    endfunction
+
+    // Helper: Convert signed 16-bit integer to FP80
+    function automatic [79:0] int16_to_fp80;
+        input signed [15:0] int_val;
+        reg sign_bit;
+        reg [15:0] abs_val;
+        reg [14:0] biased_exp;
+        reg [63:0] mantissa;
+        integer i;
+        integer msb_pos;
+        begin
+            if (int_val == 0) begin
+                int16_to_fp80 = 80'h0000_0000_0000_0000_0000;
+            end else begin
+                // Get sign and absolute value
+                sign_bit = int_val[15];
+                abs_val = sign_bit ? -int_val : int_val;
+
+                // Find MSB position (leading one)
+                msb_pos = 0;
+                for (i = 15; i >= 0; i = i - 1) begin
+                    if (abs_val[i]) begin
+                        msb_pos = i;
+                        i = -1;  // Break loop
+                    end
+                end
+
+                // Biased exponent = 16383 + msb_pos
+                biased_exp = 15'd16383 + msb_pos;
+
+                // Mantissa: shift abs_val left to put MSB at bit 63 (integer bit)
+                // First zero-extend abs_val to 64 bits, then shift
+                mantissa = {48'd0, abs_val} << (63 - msb_pos);
+
+                int16_to_fp80 = {sign_bit, biased_exp, mantissa};
+            end
+        end
+    endfunction
+
     // FXTRACT: Extract exponent and significand
-    // Simplified implementation - just use OP_FXTRACT which does the work
+    // Full implementation
     reg [79:0] fxtract_significand;
     reg [79:0] fxtract_exponent;
     reg        fxtract_done;
@@ -269,21 +345,94 @@ module FPU_ArithmeticUnit(
     always @(*) begin
         fxtract_done = enable && (operation == OP_FXTRACT);
 
-        // Simple extraction: operand_a already contains the value
-        // The actual extraction is done combinatorially in the operation case below
-        // This handles the completion flag only
-        fxtract_significand = operand_a;  // Will be overridden by actual logic
-        fxtract_exponent = 80'd0;  // Will be set by actual extraction logic
+        // Extract significand (mantissa normalized to [1.0, 2.0))
+        if (is_zero_helper(operand_a) || is_infinity_helper(operand_a) || is_nan_helper(operand_a)) begin
+            // Special values remain unchanged
+            fxtract_significand = operand_a;
+        end else begin
+            // Normal case: set exponent to 3FFF (bias for exponent 0)
+            // This gives a value in range [1.0, 2.0)
+            fxtract_significand = {operand_a[79], 15'h3FFF, operand_a[63:0]};
+        end
+
+        // Extract exponent as FP80 value
+        if (is_zero_helper(operand_a)) begin
+            // Zero → exponent is -Infinity
+            fxtract_exponent = make_infinity_helper(1'b1);
+        end else if (is_infinity_helper(operand_a)) begin
+            // Infinity → exponent is +Infinity
+            fxtract_exponent = make_infinity_helper(1'b0);
+        end else if (is_nan_helper(operand_a)) begin
+            // NaN → propagate NaN
+            fxtract_exponent = operand_a;
+        end else begin
+            // Normal case: convert (biased_exp - 16383) to FP80
+            // True exponent = biased_exp - 16383
+            // First extend to 16 bits, then subtract
+            fxtract_exponent = int16_to_fp80($signed({1'b0, operand_a[78:64]}) - 16'sd16383);
+        end
     end
 
     // FSCALE: Scale by power of 2
-    // Simplified implementation
+    // Full implementation: ST(0) × 2^(round_to_int(ST(1)))
     reg [79:0] fscale_result;
     reg        fscale_done;
+    reg signed [31:0] scale_int;
+    reg signed [31:0] new_exp;
 
     always @(*) begin
         fscale_done = enable && (operation == OP_FSCALE);
-        fscale_result = operand_a;  // Simple pass-through for now
+
+        // Extract integer scale value from operand_b (ST(1))
+        if (operand_b[78:64] < 15'd16383) begin
+            // Scale < 1, round to 0
+            scale_int = 0;
+        end else if (operand_b[78:64] <= 15'd16398) begin
+            // Exponent 0-15: extract integer part
+            // For FP80, value = mantissa × 2^(exponent - 16383)
+            // Integer part = mantissa >> (63 - (exponent - 16383))
+            scale_int = operand_b[63:0] >> (7'd63 - (operand_b[78:64] - 15'd16383));
+            if (operand_b[79]) scale_int = -scale_int;
+        end else begin
+            // Very large - saturate
+            scale_int = operand_b[79] ? -32'sd16384 : 32'sd16384;
+        end
+
+        // Special cases for operand_a (value to scale)
+        if (is_nan_helper(operand_a) || is_nan_helper(operand_b)) begin
+            // NaN propagation - return first NaN
+            fscale_result = is_nan_helper(operand_a) ? operand_a : operand_b;
+        end else if (is_zero_helper(operand_a)) begin
+            // 0 × 2^n = 0
+            fscale_result = operand_a;
+        end else if (is_infinity_helper(operand_a)) begin
+            // Inf × 2^n = Inf
+            fscale_result = operand_a;
+        end else if (is_infinity_helper(operand_b)) begin
+            // value × 2^(±Inf)
+            if (operand_b[79]) begin
+                // 2^(-Inf) = 0
+                fscale_result = make_zero_helper(operand_a[79]);
+            end else begin
+                // 2^(+Inf) = Inf
+                fscale_result = make_infinity_helper(operand_a[79]);
+            end
+        end else begin
+            // Normal case: add scale to exponent
+            new_exp = $signed({17'd0, operand_a[78:64]}) + scale_int;
+
+            // Check for overflow/underflow
+            if (new_exp > 32'sd32766) begin
+                // Overflow → Infinity
+                fscale_result = make_infinity_helper(operand_a[79]);
+            end else if (new_exp < -32'sd16382) begin
+                // Underflow → Zero
+                fscale_result = make_zero_helper(operand_a[79]);
+            end else begin
+                // Normal result
+                fscale_result = {operand_a[79], new_exp[14:0], operand_a[63:0]};
+            end
+        end
     end
 
     //=================================================================
