@@ -149,12 +149,15 @@ module FPU_Core(
     localparam INST_FPREM1      = 8'h96;  // IEEE partial remainder
 
     // Control instructions
-    localparam INST_FINIT       = 8'hF0;  // Initialize FPU
+    localparam INST_FINIT       = 8'hF0;  // Initialize FPU (wait)
     localparam INST_FLDCW       = 8'hF1;  // Load control word
-    localparam INST_FSTCW       = 8'hF2;  // Store control word
-    localparam INST_FSTSW       = 8'hF3;  // Store status word
+    localparam INST_FSTCW       = 8'hF2;  // Store control word (wait)
+    localparam INST_FSTSW       = 8'hF3;  // Store status word (wait)
     localparam INST_FCLEX       = 8'hF4;  // Clear exceptions
     localparam INST_FWAIT       = 8'hF5;  // Wait for FPU ready
+    localparam INST_FNINIT      = 8'hF6;  // Initialize FPU (no-wait)
+    localparam INST_FNSTCW      = 8'hF7;  // Store control word (no-wait)
+    localparam INST_FNSTSW      = 8'hF8;  // Store status word (no-wait)
 
     //=================================================================
     // Component Wiring
@@ -1665,8 +1668,9 @@ module FPU_Core(
                             state <= STATE_DONE;
                         end
 
-                        INST_FINIT: begin
+                        INST_FINIT, INST_FNINIT: begin
                             // Initialize FPU: Reset stack, control word, status word
+                            // (FINIT and FNINIT are functionally identical in this synchronous implementation)
                             // 1. Initialize stack (clear all tags, reset pointer)
                             stack_init_stack <= 1'b1;
                             // 2. Clear all status exceptions
@@ -1684,14 +1688,15 @@ module FPU_Core(
                             state <= STATE_DONE;
                         end
 
-                        INST_FSTCW: begin
+                        INST_FSTCW, INST_FNSTCW: begin
                             // Store control word to memory
+                            // (FSTCW and FNSTCW are functionally identical in this synchronous implementation)
                             data_out <= {64'd0, control_out};  // Zero-extend to 80 bits
                             int_data_out <= {16'd0, control_out};  // For 16-bit output
                             state <= STATE_DONE;
                         end
 
-                        INST_FSTSW: begin
+                        INST_FSTSW, INST_FNSTSW: begin
                             // Store status word to memory or AX
                             data_out <= {64'd0, status_out};  // Zero-extend to 80 bits
                             int_data_out <= {16'd0, status_out};  // For 16-bit output or AX

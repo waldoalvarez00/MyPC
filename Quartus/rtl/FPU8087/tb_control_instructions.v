@@ -213,6 +213,82 @@ module tb_control_instructions;
         end
     endtask
 
+    // Test FNINIT instruction (no-wait version)
+    task test_finit_nowait;
+        input [255:0] test_name;
+        begin
+            test_count = test_count + 1;
+            $display("[Test %0d] %s", test_count, test_name);
+
+            // Execute FNINIT (opcode 0xF6)
+            execute_instruction(8'hF6, 80'd0);
+
+            // Check results (same as FINIT)
+            if (tag_word_out == 16'hFFFF &&  // All tags empty (0b11 per register)
+                control_out == 16'h037F &&  // Default control word
+                status_out[5:0] == 6'd0) begin  // Exception flags cleared
+                $display("  PASS: tag_word=0x%h, control_word=0x%h, status=0x%h",
+                         tag_word_out, control_out, status_out);
+                pass_count = pass_count + 1;
+            end else begin
+                $display("  FAIL: tag_word=0x%h (expected 0xFFFF)",
+                         tag_word_out);
+                $display("        control_word=0x%h (expected 0x037F), status_word=0x%h",
+                         control_out, status_out);
+                fail_count = fail_count + 1;
+            end
+        end
+    endtask
+
+    // Test FNSTCW instruction (no-wait version)
+    task test_fstcw_nowait;
+        input [255:0] test_name;
+        input [15:0] expected_control;
+        begin
+            test_count = test_count + 1;
+            $display("[Test %0d] %s", test_count, test_name);
+
+            // Execute FNSTCW (opcode 0xF7)
+            execute_instruction(8'hF7, 80'd0);
+
+            // Check that control word was stored to outputs
+            if (int_data_out[15:0] == expected_control &&
+                data_out[15:0] == expected_control) begin
+                $display("  PASS: int_data_out=0x%h, data_out[15:0]=0x%h",
+                         int_data_out[15:0], data_out[15:0]);
+                pass_count = pass_count + 1;
+            end else begin
+                $display("  FAIL: int_data_out=0x%h, data_out[15:0]=0x%h (expected 0x%h)",
+                         int_data_out[15:0], data_out[15:0], expected_control);
+                fail_count = fail_count + 1;
+            end
+        end
+    endtask
+
+    // Test FNSTSW instruction (no-wait version)
+    task test_fstsw_nowait;
+        input [255:0] test_name;
+        begin
+            test_count = test_count + 1;
+            $display("[Test %0d] %s", test_count, test_name);
+
+            // Execute FNSTSW (opcode 0xF8)
+            execute_instruction(8'hF8, 80'd0);
+
+            // Check that status word was stored to outputs
+            if (int_data_out[15:0] == status_out &&
+                data_out[15:0] == status_out) begin
+                $display("  PASS: int_data_out=0x%h, data_out[15:0]=0x%h, status=0x%h",
+                         int_data_out[15:0], data_out[15:0], status_out);
+                pass_count = pass_count + 1;
+            end else begin
+                $display("  FAIL: int_data_out=0x%h, data_out[15:0]=0x%h, status=0x%h",
+                         int_data_out[15:0], data_out[15:0], status_out);
+                fail_count = fail_count + 1;
+            end
+        end
+    endtask
+
     //=================================================================
     // Main Test Sequence
     //=================================================================
@@ -307,12 +383,31 @@ module tb_control_instructions;
         $display("");
 
         // ===========================
+        // No-Wait Instruction Tests
+        // ===========================
+        $display("Testing No-Wait Versions (FNINIT, FNSTCW, FNSTSW)");
+        $display("--------------------------------------------------");
+
+        // Test 11: FNINIT (no-wait version of FINIT)
+        test_finit_nowait("FNINIT - Initialize FPU (no-wait)");
+
+        // Test 12: FNSTCW (no-wait version of FSTCW)
+        execute_instruction(8'hF1, {64'd0, 16'h0BCD});  // FLDCW first
+        @(posedge clk);
+        test_fstcw_nowait("FNSTCW - Store control word (no-wait)", 16'h0BCD);
+
+        // Test 13: FNSTSW (no-wait version of FSTSW)
+        test_fstsw_nowait("FNSTSW - Store status word (no-wait)");
+
+        $display("");
+
+        // ===========================
         // Integration Tests
         // ===========================
         $display("Testing Integration Scenarios");
         $display("--------------------------------------------------");
 
-        // Test 10: FINIT + FLDCW + FSTCW sequence
+        // Test 14: FINIT + FLDCW + FSTCW sequence
         test_count = test_count + 1;
         $display("[Test %0d] FINIT + FLDCW + FSTCW sequence", test_count);
 
@@ -329,7 +424,7 @@ module tb_control_instructions;
             fail_count = fail_count + 1;
         end
 
-        // Test 11: Verify FINIT resets control word
+        // Test 15: Verify FINIT resets control word
         test_count = test_count + 1;
         $display("[Test %0d] FINIT resets control word to 0x037F", test_count);
 
