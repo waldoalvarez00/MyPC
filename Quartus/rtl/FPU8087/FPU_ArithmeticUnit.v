@@ -126,43 +126,34 @@ module FPU_ArithmeticUnit(
         .flag_inexact(addsub_inexact)
     );
 
-    // Multiply
-    wire [79:0] mul_result;
-    wire mul_done, mul_invalid, mul_overflow, mul_underflow, mul_inexact;
+    //=================================================================
+    // Unified Multiply/Divide Unit (AREA OPTIMIZED - Phase 2)
+    // Replaces separate multiply and divide modules (~757 lines → ~550 lines)
+    // Area reduction: ~25% for MulDiv logic (8-10% total FPU)
+    //=================================================================
 
-    FPU_IEEE754_Multiply mul_unit (
+    wire muldiv_enable = enable && (operation == OP_MUL || operation == OP_DIV);
+    wire muldiv_operation = (operation == OP_DIV);  // 0=mul, 1=div
+
+    wire [79:0] muldiv_result;
+    wire muldiv_done, muldiv_invalid, muldiv_div_by_zero;
+    wire muldiv_overflow, muldiv_underflow, muldiv_inexact;
+
+    FPU_IEEE754_MulDiv_Unified muldiv_unit (
         .clk(clk),
         .reset(reset),
-        .enable(enable && operation == OP_MUL),
+        .enable(muldiv_enable),
+        .operation(muldiv_operation),
         .operand_a(operand_a),
         .operand_b(operand_b),
         .rounding_mode(rounding_mode),
-        .result(mul_result),
-        .done(mul_done),
-        .flag_invalid(mul_invalid),
-        .flag_overflow(mul_overflow),
-        .flag_underflow(mul_underflow),
-        .flag_inexact(mul_inexact)
-    );
-
-    // Divide
-    wire [79:0] div_result;
-    wire div_done, div_invalid, div_div_by_zero, div_overflow, div_underflow, div_inexact;
-
-    FPU_IEEE754_Divide div_unit (
-        .clk(clk),
-        .reset(reset),
-        .enable(enable && operation == OP_DIV),
-        .operand_a(operand_a),
-        .operand_b(operand_b),
-        .rounding_mode(rounding_mode),
-        .result(div_result),
-        .done(div_done),
-        .flag_invalid(div_invalid),
-        .flag_div_by_zero(div_div_by_zero),
-        .flag_overflow(div_overflow),
-        .flag_underflow(div_underflow),
-        .flag_inexact(div_inexact)
+        .result(muldiv_result),
+        .done(muldiv_done),
+        .flag_invalid(muldiv_invalid),
+        .flag_div_by_zero(muldiv_div_by_zero),
+        .flag_overflow(muldiv_overflow),
+        .flag_underflow(muldiv_underflow),
+        .flag_inexact(muldiv_inexact)
     );
 
     //=================================================================
@@ -306,23 +297,15 @@ module FPU_ArithmeticUnit(
                 flag_inexact = addsub_inexact;
             end
 
-            OP_MUL: begin
-                result = mul_result;
-                done = mul_done;
-                flag_invalid = mul_invalid;
-                flag_overflow = mul_overflow;
-                flag_underflow = mul_underflow;
-                flag_inexact = mul_inexact;
-            end
-
-            OP_DIV: begin
-                result = div_result;
-                done = div_done;
-                flag_invalid = div_invalid;
-                flag_zero_divide = div_div_by_zero;
-                flag_overflow = div_overflow;
-                flag_underflow = div_underflow;
-                flag_inexact = div_inexact;
+            // Both multiply and divide now use unified MulDiv module
+            OP_MUL, OP_DIV: begin
+                result = muldiv_result;
+                done = muldiv_done;
+                flag_invalid = muldiv_invalid;
+                flag_zero_divide = muldiv_div_by_zero;
+                flag_overflow = muldiv_overflow;
+                flag_underflow = muldiv_underflow;
+                flag_inexact = muldiv_inexact;
             end
 
             // All format conversion operations now use unified converter
