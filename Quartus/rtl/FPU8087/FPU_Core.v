@@ -697,6 +697,16 @@ module FPU_Core(
         end
     endfunction
 
+    // Check for invalid square root: sqrt(negative)
+    function automatic is_invalid_sqrt;
+        input [79:0] operand;
+        begin
+            // Invalid if operand is negative (sign bit = 1) and not zero and not NaN
+            // Note: sqrt(-0) = -0 is valid, sqrt(-NaN) propagates NaN
+            is_invalid_sqrt = operand[79] && !is_zero(operand) && !is_nan(operand);
+        end
+    endfunction
+
     // Pre-operation check: Returns 1 if operation should be short-circuited with NaN result
     // Also sets should_return_nan and nan_result
     function automatic should_shortcircuit_for_nan;
@@ -1059,12 +1069,29 @@ module FPU_Core(
                         end
 
                         INST_FMUL, INST_FMULP: begin
+                            // Check for NaN propagation or invalid operation (0 × Inf)
                             if (~arith_done) begin
                                 if (~arith_enable) begin
-                                    arith_operation <= 4'd2;  // OP_MUL
-                                    arith_operand_a <= temp_operand_a;
-                                    arith_operand_b <= temp_operand_b;
-                                    arith_enable <= 1'b1;
+                                    // Pre-operation checks
+                                    preop_nan_detected <= is_nan(temp_operand_a) || is_nan(temp_operand_b);
+                                    preop_invalid <= is_invalid_mul(temp_operand_a, temp_operand_b);
+
+                                    if (preop_nan_detected || preop_invalid) begin
+                                        // Short-circuit: return NaN immediately
+                                        temp_result <= propagate_nan(temp_operand_a, temp_operand_b, 1'b1);
+                                        if (preop_nan_detected && (is_snan(temp_operand_a) || is_snan(temp_operand_b)))
+                                            status_invalid <= 1'b1;  // SNaN triggers invalid
+                                        else if (preop_invalid)
+                                            status_invalid <= 1'b1;  // 0 × Inf triggers invalid
+                                        error <= !mask_invalid;  // Error if unmasked
+                                        state <= STATE_WRITEBACK;
+                                    end else begin
+                                        // Normal operation
+                                        arith_operation <= 4'd2;  // OP_MUL
+                                        arith_operand_a <= temp_operand_a;
+                                        arith_operand_b <= temp_operand_b;
+                                        arith_enable <= 1'b1;
+                                    end
                                 end
                             end else begin
                                 // Apply exception response handling
@@ -1263,11 +1290,36 @@ module FPU_Core(
 
                         // Transcendental instructions
                         INST_FSQRT: begin
+                            // Check for NaN propagation or invalid operation (sqrt of negative)
                             if (~arith_done) begin
                                 if (~arith_enable) begin
-                                    arith_operation <= 4'd12;  // OP_SQRT
-                                    arith_operand_a <= temp_operand_a;
-                                    arith_enable <= 1'b1;
+                                    // Pre-operation checks
+                                    preop_nan_detected <= is_nan(temp_operand_a);
+                                    preop_invalid <= is_invalid_sqrt(temp_operand_a);
+
+                                    if (preop_nan_detected || preop_invalid) begin
+                                        // Short-circuit: return NaN immediately
+                                        if (is_snan(temp_operand_a)) begin
+                                            // Propagate SNaN as QNaN
+                                            temp_result <= propagate_nan(temp_operand_a, 80'd0, 1'b0);
+                                            status_invalid <= 1'b1;  // SNaN triggers invalid
+                                        end else if (is_qnan(temp_operand_a)) begin
+                                            // Propagate QNaN unchanged
+                                            temp_result <= temp_operand_a;
+                                        end else begin
+                                            // sqrt(negative) → QNaN
+                                            temp_result <= make_qnan(1'b1);  // Negative QNaN for sqrt(negative)
+                                            status_invalid <= 1'b1;
+                                        end
+                                        error <= !mask_invalid;  // Error if unmasked
+                                        has_secondary_result <= 1'b0;
+                                        state <= STATE_WRITEBACK;
+                                    end else begin
+                                        // Normal operation
+                                        arith_operation <= 4'd12;  // OP_SQRT
+                                        arith_operand_a <= temp_operand_a;
+                                        arith_enable <= 1'b1;
+                                    end
                                 end
                             end else begin
                                 temp_result <= arith_result;
