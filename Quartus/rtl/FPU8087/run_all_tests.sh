@@ -86,6 +86,10 @@ run_test "tb_exception_handler" "tb_exception_handler.v FPU_Exception_Handler.v"
 echo -e "${BLUE}=== Phase 3: Exception Integration ===${NC}"
 run_test "tb_fpu_exception_integration" "tb_fpu_exception_integration.v FPU_Exception_Handler.v"
 
+# Phase 4: Asynchronous Operation Tests
+echo -e "${BLUE}=== Phase 4: Asynchronous Operation ===${NC}"
+run_test "tb_fpu_async_operation" "tb_fpu_async_operation.v FPU_Instruction_Queue.v"
+
 # Summary
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}  Test Summary${NC}"
@@ -120,6 +124,12 @@ if [ -f /tmp/tb_fpu_exception_integration_run.log ]; then
     INT_TESTS=$(grep "Total Tests:" /tmp/tb_fpu_exception_integration_run.log | awk '{print $3}')
     INT_PASSED=$(grep "Passed:" /tmp/tb_fpu_exception_integration_run.log | awk '{print $2}')
     echo -e "  Integration Tests: ${INT_PASSED}/${INT_TESTS} tests passed"
+fi
+
+if [ -f /tmp/tb_fpu_async_operation_run.log ]; then
+    ASYNC_TESTS=$(grep "Total Tests:" /tmp/tb_fpu_async_operation_run.log | awk '{print $3}')
+    ASYNC_PASSED=$(grep "Passed:" /tmp/tb_fpu_async_operation_run.log | awk '{print $2}')
+    echo -e "  Async Operation Tests: ${ASYNC_PASSED}/${ASYNC_TESTS} tests passed"
 fi
 
 echo ""
