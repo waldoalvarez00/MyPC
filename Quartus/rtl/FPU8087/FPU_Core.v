@@ -738,6 +738,12 @@ module FPU_Core(
                             end
                         end
 
+                        INST_FST, INST_FSTP: begin
+                            // Store FP80 (no conversion needed)
+                            data_out <= temp_operand_a;  // ST(0) → data_out
+                            state <= STATE_STACK_OP;
+                        end
+
                         INST_FST32, INST_FSTP32: begin
                             if (~arith_done) begin
                                 if (~arith_enable) begin
