@@ -1,0 +1,40 @@
+# Yosys synthesis script for FPU area analysis
+# This script analyzes individual FPU modules to estimate their area usage
+
+# Read Verilog source files
+read_verilog Quartus/rtl/FPU8087/FPU_IEEE754_AddSub.v
+read_verilog Quartus/rtl/FPU8087/FPU_IEEE754_Multiply.v
+read_verilog Quartus/rtl/FPU8087/FPU_IEEE754_Divide.v
+read_verilog Quartus/rtl/FPU8087/FPU_IEEE754_MulDiv_Unified.v
+
+# Synthesize each module individually and report statistics
+
+# AddSub Unit
+hierarchy -check -top FPU_IEEE754_AddSub
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat -width
+
+# Reset and analyze Multiply Unit
+design -reset
+read_verilog Quartus/rtl/FPU8087/FPU_IEEE754_Multiply.v
+hierarchy -check -top FPU_IEEE754_Multiply
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat -width
+
+# Reset and analyze Divide Unit
+design -reset
+read_verilog Quartus/rtl/FPU8087/FPU_IEEE754_Divide.v
+hierarchy -check -top FPU_IEEE754_Divide
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat -width
+
+# Reset and analyze Unified MulDiv Unit
+design -reset
+read_verilog Quartus/rtl/FPU8087/FPU_IEEE754_MulDiv_Unified.v
+hierarchy -check -top FPU_IEEE754_MulDiv_Unified
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat -width
