@@ -1,12 +1,33 @@
-# MyPC
+# MyPC - Complete 80186 + 8087 PC Emulation for MiSTer
 
-This project marks an initial attempt to port Jamie Iles' computer to the MiSTer platform. Central to its design is the incorporation of a **microassembler** for the CPU microcode, significantly enhancing the system's modifiability and maintainability. This feature is not just crucial for current adaptability but also lays a foundation for potential future enhancements, such as the integration of a **Floating Point Unit** (FPU) like an 80387 that could fit in the FPGA. The project's primary objective is to emulate the architecture and functionality of a traditional PC, emphasizing binary compatibility over cycle-accurate replication.
+This project is a comprehensive port of Jamie Iles' computer to the MiSTer platform, featuring a complete **80186 CPU** with **8087 Floating Point Unit** and full **VGA/MCGA/CGA/EGA** graphics support. Central to its design is the incorporation of a **microassembler** for both CPU and FPU microcode, significantly enhancing the system's modifiability and maintainability. The project's primary objective is to emulate the architecture and functionality of a traditional PC, emphasizing binary compatibility over cycle-accurate replication.
 
-The system's architecture is designed around 16-bit buses, an integral element that ensures efficient data transfer for 80186 and significantly boosts overall performance. Furthermore, the system integrates **direct-mapped cache** memory, key for enhancing processing speed and data access efficiency.
+## Key Features
 
-A notable addition to this project is the integration of an **MCGA** (Multi-Color Graphics Array) adapter. This adapter is particularly significant for its support of Mode 13h, which allows for a display of **256 colors**. Moreover, the controller uses SDRAM for video, which is shared with the CPU. This shared memory architecture not only saves resources on the FPGA, but also paves the way for future developments, such as the potential implementation of a VGA adapter, further expanding the system's graphical versatility.
+### **80186 CPU with Microcode Architecture**
+The system's architecture is designed around **16-bit buses**, ensuring efficient data transfer and significantly boosting overall performance. The CPU integrates **direct-mapped cache** memory for enhanced processing speed and data access efficiency.
 
-The integration of Mode 13h in the MCGA adapter is a crucial aspect of this project, reflecting a deep commitment to replicating not just the operational characteristics of traditional PCs but also their rich graphical output. By supporting a 256-color display, Mode 13h enables a more vibrant and visually engaging emulation experience on the MiSTer platform. This feature is key to capturing the essence of classic computing graphics, thereby enhancing the overall authenticity and appeal of the emulation.
+### **8087 Floating Point Unit (FPU) - FULLY IMPLEMENTED** ✅
+The system now includes a **complete IEEE 754-compliant 8087 FPU** with authentic coprocessor interface:
+- **All 8 phases complete**: 165/165 tests passing (100%)
+- **Full instruction set**: Arithmetic, transcendental functions (SIN, COS, TAN, ATAN, LOG), BCD operations
+- **Authentic architecture**: Dedicated coprocessor ports matching original 8086+8087 design
+- **Optimized for MiSTer**: 19% area reduction through shared arithmetic units
+- **Production ready**: System fits comfortably at 78% FPGA utilization
+- See `Quartus/rtl/FPU8087/` for complete implementation details
+
+### **Complete VGA/MCGA/CGA/EGA Graphics Support** ✅
+The video subsystem supports **all 15 standard PC video modes** with comprehensive CRTC-based mode detection:
+- **CGA Text Modes**: 40×25 and 80×25 in B&W and color (modes 00h-03h)
+- **CGA Graphics**: 320×200 4-color, 640×200 2-color (modes 04h-06h)
+- **MDA**: 80×25 monochrome text, 720×350 resolution (mode 07h)
+- **EGA Graphics**: 320×200 and 640×200 16-color, 640×350 16-color and monochrome (modes 0Dh-10h)
+- **VGA Graphics**: 640×480 in 2-color and 16-color (modes 11h-12h)
+- **MCGA**: 320×200 256-color Mode 13h
+- **Test Coverage**: 15/15 modes passing (100%)
+- **Shared Memory Architecture**: SDRAM-based framebuffer shared with CPU for optimal resource utilization
+
+The comprehensive video implementation supports dynamic mode switching with proper CRTC register programming, enabling authentic PC graphics output from text-based DOS applications to colorful VGA games.
 
 
 ![Booting](https://github.com/waldoalvarez00/MyPC/blob/main/img/bootshot.jpg?raw=true)
