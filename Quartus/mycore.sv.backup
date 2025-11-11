@@ -547,7 +547,7 @@ wire [15:0] mem_data;
 
 // Data bus
 wire [19:1] data_m_addr;
-wire [15:0] data_m_data_in = d_io ? io_data : dcache_c_data_in;  // Harvard: D-cache data
+wire [15:0] data_m_data_in = d_io ? io_data : mem_data;
 wire [15:0] data_m_data_out;
 wire data_m_access;
 wire data_m_ack = data_mem_ack | io_ack;
@@ -566,8 +566,6 @@ wire [15:0] q_m_data_out;
 
 
 
-// Harvard: q_m_data_in comes from memory/peripherals, not caches
-// Caches have their own data paths via cache_unified_m_data_in
 wire [15:0] q_m_data_in = sdram_data |
             vga_data                 |
 	         cga_data                 |
@@ -575,13 +573,13 @@ wire [15:0] q_m_data_in = sdram_data |
 	 
 	 
 
-
-// Harvard: q_m_ack doesn't include cache_ack (caches ack directly to CPU)
-wire q_m_ack = vga_ack     |
+	 
+wire q_m_ack = cache_ack   |
+               vga_ack     |
 	            cga_mem_ack |
                bios_ack;
-
-
+	 
+	 
 wire q_m_access;
 wire q_m_wr_en;
 wire [1:0] q_m_bytesel;
@@ -589,6 +587,7 @@ wire [1:0] q_m_bytesel;
 wire d_io;
 
 wire sdram_access;
+wire cache_ack;
 wire [15:0] sdram_data;
 
 wire leds_access;
@@ -860,18 +859,20 @@ wire data_mem_ack;
 
 
 
-// ============================================================================
-// HARVARD ARCHITECTURE - IDArbiter BYPASSED
-// ============================================================================
-// In Harvard architecture, instruction and data buses are separate
-// They go directly to their respective caches (ICache2Way and DCache2Way)
-// The CacheArbiter handles I/D multiplexing at the cache backend level
-//
-// IDArbiter is no longer used - kept commented for reference
+// Instruction / Data Arbiter (CPU-only)
+// Outputs to cpu_id_m_* which then goes to DMA arbiter
 
-/* DISABLED - Harvard architecture bypasses this
+wire [19:1] cpu_id_m_addr;
+wire [15:0] cpu_id_m_data_in;
+wire [15:0] cpu_id_m_data_out;
+wire cpu_id_m_access;
+wire cpu_id_m_ack;
+wire cpu_id_m_wr_en;
+wire [1:0] cpu_id_m_bytesel;
+
 IDArbiter IDArbiter(.clk(sys_clk),
                      .reset(post_sdram_reset),
+
                      .instr_m_addr(instr_m_addr),
                      .instr_m_data_in(instr_m_data_in),
                      .instr_m_data_out(16'b0),
@@ -879,6 +880,7 @@ IDArbiter IDArbiter(.clk(sys_clk),
                      .instr_m_ack(instr_m_ack),
                      .instr_m_wr_en(1'b0),
                      .instr_m_bytesel(2'b11),
+
                      .data_m_addr(data_m_addr),
                      .data_m_data_in(mem_data),
                      .data_m_data_out(data_m_data_out),
@@ -886,27 +888,16 @@ IDArbiter IDArbiter(.clk(sys_clk),
                      .data_m_ack(data_mem_ack),
                      .data_m_wr_en(data_m_wr_en),
                      .data_m_bytesel(data_m_bytesel),
-                     .q_m_addr(cpu_id_m_addr),
-                     .q_m_data_in(cpu_id_m_data_in),
-                     .q_m_data_out(cpu_id_m_data_out),
-                     .q_m_access(cpu_id_m_access),
-                     .q_m_ack(cpu_id_m_ack),
-                     .q_m_wr_en(cpu_id_m_wr_en),
-                     .q_m_bytesel(cpu_id_m_bytesel),
-                     .q_b());
-*/
 
-// Harvard Architecture: Connect CPU buses directly to caches
-// Instruction bus -> ICache2Way (already connected above)
-// Data bus -> DCache2Way (already connected above)
-// Cache outputs -> CacheArbiter -> cache_unified_m_* (replaces cpu_id_m_*)
-
-// Connect instruction acknowledgment from I-cache
-assign instr_m_data_in = icache_c_data_in;
-assign instr_m_ack = icache_c_ack;
-
-// Connect data acknowledgment from D-cache and I/O
-assign data_mem_ack = dcache_c_ack | io_ack;
+                     // Output to DMA arbiter
+                    .q_m_addr(cpu_id_m_addr),
+                    .q_m_data_in(cpu_id_m_data_in),
+                    .q_m_data_out(cpu_id_m_data_out),
+                    .q_m_access(cpu_id_m_access),
+                    .q_m_ack(cpu_id_m_ack),
+                    .q_m_wr_en(cpu_id_m_wr_en),
+                    .q_m_bytesel(cpu_id_m_bytesel),
+                    .q_b());
 
 // DMA Arbiter - Muxes CPU (instr+data) and DMA controller access to memory
 // Priority: DMA has higher priority when active
@@ -930,14 +921,14 @@ PipelinedDMAArbiter CPUDMAArbiter(
     .a_m_bytesel(dma_m_bytesel),
     .ioa(1'b0),  // DMA doesn't use I/O flag here
 
-    // Harvard: Unified cache output (I-cache + D-cache via CacheArbiter) (B-bus - higher priority)
-    .b_m_addr(cache_unified_m_addr),
-    .b_m_data_in(cache_unified_m_data_in),
-    .b_m_data_out(cache_unified_m_data_out),
-    .b_m_access(cache_unified_m_access),
-    .b_m_ack(cache_unified_m_ack),
-    .b_m_wr_en(cache_unified_m_wr_en),
-    .b_m_bytesel(cache_unified_m_bytesel),
+    // CPU (instruction + data) bus (B-bus - higher priority)
+    .b_m_addr(cpu_id_m_addr),
+    .b_m_data_in(cpu_id_m_data_in),
+    .b_m_data_out(cpu_id_m_data_out),
+    .b_m_access(cpu_id_m_access),
+    .b_m_ack(cpu_id_m_ack),
+    .b_m_wr_en(cpu_id_m_wr_en),
+    .b_m_bytesel(cpu_id_m_bytesel),
     .iob(1'b0),
 
     // Output to memory system (connects to CacheVGAArbiter)
@@ -976,154 +967,27 @@ wire [1:0] sdram_m_bytesel;
 
 
 // MemArbiter instantiation
-// ============================================================================
-// HARVARD ARCHITECTURE - Separate Instruction and Data Caches
-// ============================================================================
-// Full Harvard architecture with separate I-cache and D-cache
-// Expected performance: +10-12% IPC vs unified cache
+// Comment and uncomment next block to connetc the 
+// Direct Maped Cache (Combined Data / Instructions)
 
-// ===== INSTRUCTION CACHE (ICache2Way) =====
-wire [19:1] icache_c_addr;
-wire [15:0] icache_c_data_in;
-wire icache_c_access;
-wire icache_c_ack;
 
-wire [19:1] icache_m_addr;
-wire [15:0] icache_m_data_in;
-wire icache_m_access;
-wire icache_m_ack;
 
-// 2-Way Set-Associative Instruction Cache with LRU
-// Optimized for sequential instruction fetch patterns
-ICache2Way #(.sets(256)) InstructionCache (
-    .clk(sys_clk),
-    .reset(post_sdram_reset),
-    .enabled(1'b1),
-
-    // Frontend - CPU instruction fetch
-    .c_addr(icache_c_addr),
-    .c_data_in(icache_c_data_in),
-    .c_access(icache_c_access),
-    .c_ack(icache_c_ack),
-
-    // Backend - Memory interface
-    .m_addr(icache_m_addr),
-    .m_data_in(icache_m_data_in),
-    .m_access(icache_m_access),
-    .m_ack(icache_m_ack)
-);
-
-// Connect CPU instruction bus to I-cache
-assign icache_c_addr = instr_m_addr;
-assign icache_c_access = instr_m_access;
-
-// ===== DATA CACHE (DCache2Way) =====
-wire [19:1] dcache_c_addr;
-wire [15:0] dcache_c_data_in;
-wire [15:0] dcache_c_data_out;
-wire dcache_c_access;
-wire dcache_c_ack;
-wire dcache_c_wr_en;
-wire [1:0] dcache_c_bytesel;
-
-wire [19:1] dcache_m_addr;
-wire [15:0] dcache_m_data_in;
-wire [15:0] dcache_m_data_out;
-wire dcache_m_access;
-wire dcache_m_ack;
-wire dcache_m_wr_en;
-wire [1:0] dcache_m_bytesel;
-
-// 2-Way Set-Associative Data Cache with LRU
-// Optimized for random data access patterns
-DCache2Way #(.sets(256)) DataCache (
-    .clk(sys_clk),
-    .reset(post_sdram_reset),
-    .enabled(1'b1),
-
-    // Frontend - CPU data access
-    .c_addr(dcache_c_addr),
-    .c_data_in(dcache_c_data_in),
-    .c_data_out(dcache_c_data_out),
-    .c_access(dcache_c_access),
-    .c_ack(dcache_c_ack),
-    .c_wr_en(dcache_c_wr_en),
-    .c_bytesel(dcache_c_bytesel),
-
-    // Backend - Memory interface
-    .m_addr(dcache_m_addr),
-    .m_data_in(dcache_m_data_in),
-    .m_data_out(dcache_m_data_out),
-    .m_access(dcache_m_access),
-    .m_ack(dcache_m_ack),
-    .m_wr_en(dcache_m_wr_en),
-    .m_bytesel(dcache_m_bytesel)
-);
-
-// Connect CPU data bus to D-cache
-assign dcache_c_addr = data_m_addr;
-assign dcache_c_data_out = data_m_data_out;
-assign dcache_c_access = data_m_access & ~d_io;  // Only memory accesses, not I/O
-assign dcache_c_wr_en = data_m_wr_en;
-assign dcache_c_bytesel = data_m_bytesel;
-
-// ===== CACHE ARBITER =====
-// Multiplexes I-cache and D-cache requests to memory
-// Priority: D-cache > I-cache (data is more critical)
-
-wire [19:1] cache_unified_m_addr;
-wire [15:0] cache_unified_m_data_in;
-wire [15:0] cache_unified_m_data_out;
-wire cache_unified_m_access;
-wire cache_unified_m_ack;
-wire cache_unified_m_wr_en;
-wire [1:0] cache_unified_m_bytesel;
-
-CacheArbiter CacheArbiter (
-    .clk(sys_clk),
-    .reset(post_sdram_reset),
-
-    // I-Cache backend
-    .icache_m_addr(icache_m_addr),
-    .icache_m_data_in(icache_m_data_in),
-    .icache_m_access(icache_m_access),
-    .icache_m_ack(icache_m_ack),
-
-    // D-Cache backend
-    .dcache_m_addr(dcache_m_addr),
-    .dcache_m_data_in(dcache_m_data_in),
-    .dcache_m_data_out(dcache_m_data_out),
-    .dcache_m_access(dcache_m_access),
-    .dcache_m_ack(dcache_m_ack),
-    .dcache_m_wr_en(dcache_m_wr_en),
-    .dcache_m_bytesel(dcache_m_bytesel),
-
-    // Unified memory interface (to DMA arbiter)
-    .mem_m_addr(cache_unified_m_addr),
-    .mem_m_data_in(cache_unified_m_data_in),
-    .mem_m_data_out(cache_unified_m_data_out),
-    .mem_m_access(cache_unified_m_access),
-    .mem_m_ack(cache_unified_m_ack),
-    .mem_m_wr_en(cache_unified_m_wr_en),
-    .mem_m_bytesel(cache_unified_m_bytesel)
-);
-
+//MemArbiter CacheVGAArbiter(
 // VGA priority hint for pipelined arbiter
 wire vga_active_display_hint;
 assign vga_active_display_hint = 1'b0;  // round-robin fairness
 
-// Memory arbiter - arbitrates between CPU+DMA (from q_m_*) and VGA for SDRAM access
-// Harvard: q_m_* now carries cache+DMA unified requests
 PipelinedMemArbiterExtend CacheVGAArbiter(
     .clk(sys_clk),
     .reset(post_sdram_reset),
+	 
 
-    // Connect DMA arbiter output (CPU caches + DMA) to memory arbiter
+    // Connect CPU interface directly to the arbiter
     .cpu_m_addr(q_m_addr),
-    .cpu_m_data_in(q_m_data_in),
+    .cpu_m_data_in(sdram_data),
     .cpu_m_data_out(q_m_data_out),
     .cpu_m_access(q_m_access & sdram_access),
-    .cpu_m_ack(q_m_ack),
+    .cpu_m_ack(cache_ack),
     .cpu_m_wr_en(q_m_wr_en),
     .cpu_m_bytesel(q_m_bytesel),
 

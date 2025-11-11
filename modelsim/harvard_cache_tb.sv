@@ -1,0 +1,515 @@
+// Copyright 2025, Waldo Alvarez, https://pipflow.com
+//
+// Harvard Cache System Testbench
+// Comprehensive verification of I-cache, D-cache, and Harvard arbiter
+//
+//============================================================================
+
+`timescale 1ns/1ps
+`default_nettype none
+
+module harvard_cache_tb;
+
+// Clock and reset
+reg clk;
+reg reset;
+reg cache_enabled;
+
+// Instruction bus (CPU side)
+reg  [19:1] instr_m_addr;
+wire [15:0] instr_m_data_in;
+reg         instr_m_access;
+wire        instr_m_ack;
+
+// Data bus (CPU side)
+reg  [19:1] data_m_addr;
+wire [15:0] data_m_data_in;
+reg  [15:0] data_m_data_out;
+reg         data_m_access;
+wire        data_m_ack;
+reg         data_m_wr_en;
+reg  [1:0]  data_m_bytesel;
+
+// Memory bus (backend)
+wire [19:1] mem_m_addr;
+reg  [15:0] mem_m_data_in;
+wire [15:0] mem_m_data_out;
+wire        mem_m_access;
+reg         mem_m_ack;
+wire        mem_m_wr_en;
+wire [1:0]  mem_m_bytesel;
+
+// Test tracking
+integer test_count;
+integer pass_count;
+integer fail_count;
+string test_name;
+
+// Memory model
+reg [15:0] memory [0:524287];  // 1MB memory space
+integer mem_latency;
+integer mem_delay_counter;
+
+// DUT instantiation
+HarvardCacheSystem #(
+    .ICACHE_LINES(512),
+    .DCACHE_LINES(512)
+) dut (
+    .clk                (clk),
+    .reset              (reset),
+    .cache_enabled      (cache_enabled),
+    // Instruction bus
+    .instr_m_addr       (instr_m_addr),
+    .instr_m_data_in    (instr_m_data_in),
+    .instr_m_access     (instr_m_access),
+    .instr_m_ack        (instr_m_ack),
+    // Data bus
+    .data_m_addr        (data_m_addr),
+    .data_m_data_in     (data_m_data_in),
+    .data_m_data_out    (data_m_data_out),
+    .data_m_access      (data_m_access),
+    .data_m_ack         (data_m_ack),
+    .data_m_wr_en       (data_m_wr_en),
+    .data_m_bytesel     (data_m_bytesel),
+    // Memory interface
+    .mem_m_addr         (mem_m_addr),
+    .mem_m_data_in      (mem_m_data_in),
+    .mem_m_data_out     (mem_m_data_out),
+    .mem_m_access       (mem_m_access),
+    .mem_m_ack          (mem_m_ack),
+    .mem_m_wr_en        (mem_m_wr_en),
+    .mem_m_bytesel      (mem_m_bytesel)
+);
+
+// Clock generation: 50 MHz
+initial begin
+    clk = 0;
+    forever #10 clk = ~clk;  // 20ns period = 50 MHz
+end
+
+// Memory model with configurable latency
+always @(posedge clk) begin
+    if (reset) begin
+        mem_ack <= 1'b0;
+        mem_delay_counter <= 0;
+    end else if (mem_m_access && !mem_m_ack) begin
+        if (mem_delay_counter < mem_latency) begin
+            mem_delay_counter <= mem_delay_counter + 1;
+            mem_ack <= 1'b0;
+        end else begin
+            mem_ack <= 1'b1;
+            if (mem_m_wr_en) begin
+                // Write to memory
+                if (mem_m_bytesel[0])
+                    memory[mem_m_addr][7:0] <= mem_m_data_out[7:0];
+                if (mem_m_bytesel[1])
+                    memory[mem_m_addr][15:8] <= mem_m_data_out[15:8];
+            end else begin
+                // Read from memory
+                mem_data_in <= memory[mem_m_addr];
+            end
+        end
+    end else begin
+        mem_ack <= 1'b0;
+        mem_delay_counter <= 0;
+    end
+end
+
+//=======================================================================
+// Helper Tasks
+//=======================================================================
+
+// Instruction fetch
+task instr_fetch(input [19:1] addr, output [15:0] data, output success);
+    integer timeout;
+begin
+    timeout = 0;
+    instr_m_addr = addr;
+    instr_m_access = 1'b1;
+    @(posedge clk);
+
+    while (!instr_m_ack && timeout < 200) begin
+        @(posedge clk);
+        timeout = timeout + 1;
+    end
+
+    if (instr_m_ack) begin
+        data = instr_m_data_in;
+        success = 1'b1;
+    end else begin
+        data = 16'hXXXX;
+        success = 1'b0;
+        $display("ERROR: Instruction fetch timeout at address %h", addr);
+    end
+
+    instr_m_access = 1'b0;
+    @(posedge clk);
+end
+endtask
+
+// Data read
+task data_read(input [19:1] addr, output [15:0] data, output success);
+    integer timeout;
+begin
+    timeout = 0;
+    data_m_addr = addr;
+    data_m_wr_en = 1'b0;
+    data_m_bytesel = 2'b11;
+    data_m_access = 1'b1;
+    @(posedge clk);
+
+    while (!data_m_ack && timeout < 200) begin
+        @(posedge clk);
+        timeout = timeout + 1;
+    end
+
+    if (data_m_ack) begin
+        data = data_m_data_in;
+        success = 1'b1;
+    end else begin
+        data = 16'hXXXX;
+        success = 1'b0;
+        $display("ERROR: Data read timeout at address %h", addr);
+    end
+
+    data_m_access = 1'b0;
+    @(posedge clk);
+end
+endtask
+
+// Data write
+task data_write(input [19:1] addr, input [15:0] data, input [1:0] bytesel, output success);
+    integer timeout;
+begin
+    timeout = 0;
+    data_m_addr = addr;
+    data_m_data_out = data;
+    data_m_wr_en = 1'b1;
+    data_m_bytesel = bytesel;
+    data_m_access = 1'b1;
+    @(posedge clk);
+
+    while (!data_m_ack && timeout < 200) begin
+        @(posedge clk);
+        timeout = timeout + 1;
+    end
+
+    success = data_m_ack;
+    if (!success)
+        $display("ERROR: Data write timeout at address %h", addr);
+
+    data_m_access = 1'b0;
+    data_m_wr_en = 1'b0;
+    @(posedge clk);
+end
+endtask
+
+// Initialize memory with test pattern
+task init_memory();
+    integer i;
+begin
+    for (i = 0; i < 524288; i = i + 1) begin
+        memory[i] = i[15:0] ^ 16'hA5A5;  // Test pattern
+    end
+    $display("Memory initialized with test pattern");
+end
+endtask
+
+// Check test result
+task check_result(input condition, input string description);
+begin
+    test_count = test_count + 1;
+    if (condition) begin
+        pass_count = pass_count + 1;
+        $display("[PASS] Test %0d: %s", test_count, description);
+    end else begin
+        fail_count = fail_count + 1;
+        $display("[FAIL] Test %0d: %s", test_count, description);
+    end
+end
+endtask
+
+//=======================================================================
+// Test Cases
+//=======================================================================
+
+initial begin
+    // Initialize
+    test_count = 0;
+    pass_count = 0;
+    fail_count = 0;
+    reset = 1;
+    cache_enabled = 1;
+    instr_m_access = 0;
+    data_m_access = 0;
+    data_m_wr_en = 0;
+    mem_latency = 2;  // 2 cycle memory latency
+
+    $display("========================================");
+    $display("Harvard Cache System Testbench");
+    $display("========================================");
+
+    // Initialize memory
+    init_memory();
+
+    // Release reset
+    #100;
+    reset = 0;
+    #40;
+
+    //==================================================================
+    // Test 1: Basic I-cache Operation
+    //==================================================================
+    test_name = "Basic I-cache fetch";
+    $display("\n--- Test 1: %s ---", test_name);
+    begin
+        reg [15:0] data;
+        reg success;
+
+        instr_fetch(19'h00100, data, success);
+        check_result(success && data == (16'h0100 ^ 16'hA5A5),
+                    "I-cache first fetch (miss->fill)");
+
+        // Second fetch from same cache line (should hit)
+        instr_fetch(19'h00101, data, success);
+        check_result(success && data == (16'h0101 ^ 16'hA5A5),
+                    "I-cache second fetch (hit)");
+    end
+
+    //==================================================================
+    // Test 2: Basic D-cache Operation
+    //==================================================================
+    test_name = "Basic D-cache read/write";
+    $display("\n--- Test 2: %s ---", test_name);
+    begin
+        reg [15:0] data;
+        reg success;
+
+        // Read from D-cache (miss)
+        data_read(19'h00200, data, success);
+        check_result(success && data == (16'h0200 ^ 16'hA5A5),
+                    "D-cache read (miss->fill)");
+
+        // Write to D-cache
+        data_write(19'h00200, 16'h1234, 2'b11, success);
+        check_result(success, "D-cache write");
+
+        // Read back written data
+        data_read(19'h00200, data, success);
+        check_result(success && data == 16'h1234,
+                    "D-cache read after write (verify)");
+    end
+
+    //==================================================================
+    // Test 3: Parallel I-cache and D-cache Access
+    //==================================================================
+    test_name = "Parallel I-fetch and D-read";
+    $display("\n--- Test 3: %s ---", test_name);
+    begin
+        reg [15:0] idata, ddata;
+        reg isuccess, dsuccess;
+        integer i;
+
+        // Sequential access baseline
+        for (i = 0; i < 8; i = i + 1) begin
+            instr_fetch(19'h01000 + i, idata, isuccess);
+            data_read(19'h02000 + i, ddata, dsuccess);
+        end
+        check_result(isuccess && dsuccess,
+                    "Sequential I-fetch and D-read pattern");
+    end
+
+    //==================================================================
+    // Test 4: Cache Line Fill Behavior
+    //==================================================================
+    test_name = "Cache line fill (8 words)";
+    $display("\n--- Test 4: %s ---", test_name);
+    begin
+        reg [15:0] data;
+        reg success;
+        integer i;
+
+        // Access 8 sequential addresses (one cache line)
+        for (i = 0; i < 8; i = i + 1) begin
+            instr_fetch(19'h03000 + i, data, success);
+            check_result(success, $sformatf("I-cache line fill word %0d", i));
+        end
+    end
+
+    //==================================================================
+    // Test 5: D-cache Write-Through and Dirty Tracking
+    //==================================================================
+    test_name = "D-cache dirty line replacement";
+    $display("\n--- Test 5: %s ---", test_name);
+    begin
+        reg [15:0] data;
+        reg success;
+
+        // Write to create dirty line
+        data_write(19'h04000, 16'hBEEF, 2'b11, success);
+        check_result(success, "Create dirty line in D-cache");
+
+        // Read from different cache set to trigger replacement
+        // This assumes direct-mapped cache with 512 lines
+        data_read(19'h04000 + (512 * 8 * 2), data, success);
+        check_result(success, "Trigger D-cache line replacement");
+
+        // Verify original write was flushed to memory
+        check_result(memory[19'h04000] == 16'hBEEF,
+                    "Dirty line flushed to memory");
+    end
+
+    //==================================================================
+    // Test 6: Byte-Level Writes
+    //==================================================================
+    test_name = "D-cache byte-level writes";
+    $display("\n--- Test 6: %s ---", test_name);
+    begin
+        reg [15:0] data;
+        reg success;
+
+        // Initialize location
+        data_write(19'h05000, 16'h0000, 2'b11, success);
+
+        // Write low byte only
+        data_write(19'h05000, 16'h00AB, 2'b01, success);
+        data_read(19'h05000, data, success);
+        check_result(success && data[7:0] == 8'hAB,
+                    "Byte write (low byte)");
+
+        // Write high byte only
+        data_write(19'h05000, 16'hCD00, 2'b10, success);
+        data_read(19'h05000, data, success);
+        check_result(success && data == 16'hCDAB,
+                    "Byte write (high byte)");
+    end
+
+    //==================================================================
+    // Test 7: Cache Disabled Operation
+    //==================================================================
+    test_name = "Cache disabled bypass mode";
+    $display("\n--- Test 7: %s ---", test_name);
+    begin
+        reg [15:0] data;
+        reg success;
+
+        cache_enabled = 0;
+        #20;
+
+        // Access should bypass cache
+        instr_fetch(19'h06000, data, success);
+        check_result(success, "I-fetch with cache disabled");
+
+        data_read(19'h06100, data, success);
+        check_result(success, "D-read with cache disabled");
+
+        cache_enabled = 1;
+        #20;
+    end
+
+    //==================================================================
+    // Test 8: Stress Test - Mixed Access Pattern
+    //==================================================================
+    test_name = "Stress test - mixed I/D access";
+    $display("\n--- Test 8: %s ---", test_name);
+    begin
+        reg [15:0] idata, ddata;
+        reg isuccess, dsuccess;
+        integer i;
+        integer errors;
+
+        errors = 0;
+        for (i = 0; i < 100; i = i + 1) begin
+            instr_fetch(19'h10000 + (i * 3), idata, isuccess);
+            data_read(19'h20000 + (i * 5), ddata, dsuccess);
+            if (!isuccess || !dsuccess) errors = errors + 1;
+
+            if (i[1:0] == 0) begin
+                data_write(19'h20000 + (i * 5), i[15:0], 2'b11, dsuccess);
+                if (!dsuccess) errors = errors + 1;
+            end
+        end
+        check_result(errors == 0,
+                    $sformatf("Stress test completed (%0d errors)", errors));
+    end
+
+    //==================================================================
+    // Test 9: Sequential Access Performance
+    //==================================================================
+    test_name = "Sequential access performance";
+    $display("\n--- Test 9: %s ---", test_name);
+    begin
+        reg [15:0] data;
+        reg success;
+        integer i;
+        integer start_time, end_time;
+
+        start_time = $time;
+        for (i = 0; i < 64; i = i + 1) begin
+            instr_fetch(19'h30000 + i, data, success);
+        end
+        end_time = $time;
+
+        $display("Sequential I-fetch: 64 words in %0d ns", end_time - start_time);
+        check_result(success, "Sequential access completed");
+    end
+
+    //==================================================================
+    // Test 10: Cache Coherency
+    //==================================================================
+    test_name = "Cache coherency test";
+    $display("\n--- Test 10: %s ---", test_name);
+    begin
+        reg [15:0] data;
+        reg success;
+
+        // Write through D-cache
+        data_write(19'h40000, 16'hCAFE, 2'b11, success);
+
+        // Force D-cache miss and refill
+        data_read(19'h40000 + (512 * 8 * 2), data, success);
+
+        // Read original address - should get correct value
+        data_read(19'h40000, data, success);
+        check_result(success && data == 16'hCAFE,
+                    "D-cache coherency after replacement");
+    end
+
+    //==================================================================
+    // Final Results
+    //==================================================================
+    #1000;
+
+    $display("\n========================================");
+    $display("Test Results:");
+    $display("  Total: %0d", test_count);
+    $display("  Pass:  %0d", pass_count);
+    $display("  Fail:  %0d", fail_count);
+    $display("========================================");
+
+    if (fail_count == 0) begin
+        $display("*** ALL TESTS PASSED ***");
+        $finish(0);
+    end else begin
+        $display("*** SOME TESTS FAILED ***");
+        $finish(1);
+    end
+end
+
+// Timeout watchdog
+initial begin
+    #1000000;  // 1ms timeout
+    $display("\n========================================");
+    $display("ERROR: Simulation timeout!");
+    $display("========================================");
+    $finish(2);
+end
+
+// Waveform dump for debugging
+initial begin
+    $dumpfile("harvard_cache_tb.vcd");
+    $dumpvars(0, harvard_cache_tb);
+end
+
+endmodule
+`default_nettype wire
