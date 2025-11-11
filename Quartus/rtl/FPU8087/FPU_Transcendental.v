@@ -61,7 +61,31 @@ module FPU_Transcendental(
     input wire        ext_muldiv_div_by_zero,
     input wire        ext_muldiv_overflow,
     input wire        ext_muldiv_underflow,
-    input wire        ext_muldiv_inexact
+    input wire        ext_muldiv_inexact,
+
+    //=================================================================
+    // STRATEGY 2D: Shared Arithmetic Unit Interface for Polynomial Evaluator
+    // These signals are passed through to the internal polynomial evaluator
+    //=================================================================
+    output wire        ext_poly_addsub_req,      // Polynomial AddSub request
+    output wire [79:0] ext_poly_addsub_a,        // Polynomial AddSub operand A
+    output wire [79:0] ext_poly_addsub_b,        // Polynomial AddSub operand B
+    input wire [79:0] ext_poly_addsub_result,   // Polynomial AddSub result
+    input wire        ext_poly_addsub_done,     // Polynomial AddSub done
+    input wire        ext_poly_addsub_invalid,  // Polynomial AddSub exception flags
+    input wire        ext_poly_addsub_overflow,
+    input wire        ext_poly_addsub_underflow,
+    input wire        ext_poly_addsub_inexact,
+
+    output wire        ext_poly_muldiv_req,      // Polynomial MulDiv request
+    output wire [79:0] ext_poly_muldiv_a,        // Polynomial MulDiv operand A
+    output wire [79:0] ext_poly_muldiv_b,        // Polynomial MulDiv operand B
+    input wire [79:0] ext_poly_muldiv_result,   // Polynomial MulDiv result
+    input wire        ext_poly_muldiv_done,     // Polynomial MulDiv done
+    input wire        ext_poly_muldiv_invalid,  // Polynomial MulDiv exception flags
+    input wire        ext_poly_muldiv_overflow,
+    input wire        ext_poly_muldiv_underflow,
+    input wire        ext_poly_muldiv_inexact
 );
 
     //=================================================================
@@ -127,7 +151,29 @@ module FPU_Transcendental(
         .x_in(poly_input),
         .result_out(poly_result),
         .done(poly_done),
-        .error(poly_error)
+        .error(poly_error),
+
+        // Strategy 2D: Shared AddSub unit interface
+        .ext_addsub_req(ext_poly_addsub_req),
+        .ext_addsub_a(ext_poly_addsub_a),
+        .ext_addsub_b(ext_poly_addsub_b),
+        .ext_addsub_result(ext_poly_addsub_result),
+        .ext_addsub_done(ext_poly_addsub_done),
+        .ext_addsub_invalid(ext_poly_addsub_invalid),
+        .ext_addsub_overflow(ext_poly_addsub_overflow),
+        .ext_addsub_underflow(ext_poly_addsub_underflow),
+        .ext_addsub_inexact(ext_poly_addsub_inexact),
+
+        // Strategy 2D: Shared MulDiv unit interface
+        .ext_muldiv_req(ext_poly_muldiv_req),
+        .ext_muldiv_a(ext_poly_muldiv_a),
+        .ext_muldiv_b(ext_poly_muldiv_b),
+        .ext_muldiv_result(ext_poly_muldiv_result),
+        .ext_muldiv_done(ext_poly_muldiv_done),
+        .ext_muldiv_invalid(ext_poly_muldiv_invalid),
+        .ext_muldiv_overflow(ext_poly_muldiv_overflow),
+        .ext_muldiv_underflow(ext_poly_muldiv_underflow),
+        .ext_muldiv_inexact(ext_poly_muldiv_inexact)
     );
 
     // Newton-Raphson Square Root - REMOVED (Now implemented in microcode)
