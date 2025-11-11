@@ -566,8 +566,7 @@ wire [15:0] q_m_data_out;
 
 
 
-wire [15:0] q_m_data_in = cache_c_data_in |  // Data from 2-way cache
-            sdram_data |
+wire [15:0] q_m_data_in = sdram_data |
             vga_data                 |
 	         cga_data                 |
             bios_data;
@@ -588,7 +587,7 @@ wire [1:0] q_m_bytesel;
 wire d_io;
 
 wire sdram_access;
-wire cache_ack = cache_c_ack;  // Connect to 2-way cache ack
+wire cache_ack;
 wire [15:0] sdram_data;
 
 wire leds_access;
@@ -968,79 +967,29 @@ wire [1:0] sdram_m_bytesel;
 
 
 // MemArbiter instantiation
-// ============================================================================
-// CACHE LAYER - 2-Way Set-Associative Data Cache (DCache2Way)
-// ============================================================================
-// Integrated as unified cache for both instructions and data (hybrid approach)
-// Full Harvard architecture with separate I-cache is future enhancement
+// Comment and uncomment next block to connetc the 
+// Direct Maped Cache (Combined Data / Instructions)
 
-// Cache interface signals
-wire [19:1] cache_c_addr;
-wire [15:0] cache_c_data_in;
-wire [15:0] cache_c_data_out;
-wire cache_c_access;
-wire cache_c_ack;
-wire cache_c_wr_en;
-wire [1:0] cache_c_bytesel;
 
-wire [19:1] cache_m_addr;
-wire [15:0] cache_m_data_in;
-wire [15:0] cache_m_data_out;
-wire cache_m_access;
-wire cache_m_ack;
-wire cache_m_wr_en;
-wire [1:0] cache_m_bytesel;
 
-// 2-Way Set-Associative Data Cache with LRU
-// Provides ~92-95% hit rate vs ~85-90% for direct-mapped
-DCache2Way #(.sets(256)) DataCache (
-    .clk(sys_clk),
-    .reset(post_sdram_reset),
-    .enabled(1'b1),
-
-    // Frontend - CPU interface
-    .c_addr(cache_c_addr),
-    .c_data_in(cache_c_data_in),
-    .c_data_out(cache_c_data_out),
-    .c_access(cache_c_access),
-    .c_ack(cache_c_ack),
-    .c_wr_en(cache_c_wr_en),
-    .c_bytesel(cache_c_bytesel),
-
-    // Backend - Memory interface
-    .m_addr(cache_m_addr),
-    .m_data_in(cache_m_data_in),
-    .m_data_out(cache_m_data_out),
-    .m_access(cache_m_access),
-    .m_ack(cache_m_ack),
-    .m_wr_en(cache_m_wr_en),
-    .m_bytesel(cache_m_bytesel)
-);
-
-// Connect CPU bus to cache frontend
-assign cache_c_addr = q_m_addr;
-assign cache_c_data_out = q_m_data_out;
-assign cache_c_access = q_m_access & sdram_access;
-assign cache_c_wr_en = q_m_wr_en;
-assign cache_c_bytesel = q_m_bytesel;
-
+//MemArbiter CacheVGAArbiter(
 // VGA priority hint for pipelined arbiter
 wire vga_active_display_hint;
 assign vga_active_display_hint = 1'b0;  // round-robin fairness
 
-// Memory arbiter - arbitrates between cache and VGA for SDRAM access
 PipelinedMemArbiterExtend CacheVGAArbiter(
     .clk(sys_clk),
     .reset(post_sdram_reset),
+	 
 
-    // Connect cache backend to arbiter
-    .cpu_m_addr(cache_m_addr),
-    .cpu_m_data_in(cache_m_data_in),
-    .cpu_m_data_out(cache_m_data_out),
-    .cpu_m_access(cache_m_access),
-    .cpu_m_ack(cache_m_ack),
-    .cpu_m_wr_en(cache_m_wr_en),
-    .cpu_m_bytesel(cache_m_bytesel),
+    // Connect CPU interface directly to the arbiter
+    .cpu_m_addr(q_m_addr),
+    .cpu_m_data_in(sdram_data),
+    .cpu_m_data_out(q_m_data_out),
+    .cpu_m_access(q_m_access & sdram_access),
+    .cpu_m_ack(cache_ack),
+    .cpu_m_wr_en(q_m_wr_en),
+    .cpu_m_bytesel(q_m_bytesel),
 
     // VGA port
     .mcga_m_addr(fb_sdram_m_addr),

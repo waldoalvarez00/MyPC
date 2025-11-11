@@ -569,6 +569,11 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/IDArbiter.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/MemArbiterExtend.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/leds/LEDSRegister.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/PipelinedMemArbiterExtend.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/common/DCache2Way.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/common/ICache2Way.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/common/CacheArbiter.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/common/DPRam.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/common/BlockRam.sv
 set_global_assignment -name QIP_FILE rtl/uart/uart.qip
 set_global_assignment -name QIP_FILE rtl/ps2/ps2.qip
 set_global_assignment -name QIP_FILE rtl/CPU/CPU.qip
