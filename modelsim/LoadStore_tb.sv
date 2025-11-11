@@ -144,7 +144,11 @@ module LoadStore_tb();
 
             // Wait for FSM to transition and initiate access (Phase 2: signals set in IDLE, visible next cycle)
             @(posedge clk);
+            $display("[TB DEBUG] After 1 clk: mem_read=%b busy=%b", mem_read, busy);
             @(posedge clk);
+            $display("[TB DEBUG] After 2 clk: Checking read signals:");
+            $display("[TB DEBUG]   m_access=%b (expect 1), m_wr_en=%b (expect 0)", m_access, m_wr_en);
+            $display("[TB DEBUG]   m_bytesel=%b (expect 11)", m_bytesel);
             if (m_access && !m_wr_en && m_bytesel == 2'b11) begin
                 $display("  ✓ Read access initiated correctly");
             end else begin
@@ -159,6 +163,7 @@ module LoadStore_tb();
             m_ack = 1;
             @(posedge clk);
             m_ack = 0;
+            mem_read = 0;  // Clear request signal same cycle as m_ack=0
 
             // Wait for completion
             wait(!busy);
@@ -166,7 +171,6 @@ module LoadStore_tb();
             latency = end_cycle - start_cycle;
 
             @(posedge clk);
-            mem_read = 0;
 
             // Check results
             if (mdr_out == 16'hABCD) begin
@@ -207,7 +211,12 @@ module LoadStore_tb();
 
             // Wait for FSM to transition and initiate access (Phase 2: signals set in IDLE, visible next cycle)
             @(posedge clk);
+            $display("[TB DEBUG] After 1 clk: mem_write=%b busy=%b", mem_write, busy);
             @(posedge clk);
+            $display("[TB DEBUG] After 2 clk: Checking write signals:");
+            $display("[TB DEBUG]   m_access=%b (expect 1), m_wr_en=%b (expect 1)", m_access, m_wr_en);
+            $display("[TB DEBUG]   m_bytesel=%b (expect 11), m_data_out=%04x (expect 5678)", m_bytesel, m_data_out);
+            $display("[TB DEBUG]   mdr_out=%04x, busy=%b", mdr_out, busy);
             if (m_access && m_wr_en && m_bytesel == 2'b11 && m_data_out == 16'h5678) begin
                 $display("  ✓ Write access initiated correctly");
                 pass_count++;
@@ -223,6 +232,8 @@ module LoadStore_tb();
             m_ack = 1;
             @(posedge clk);
             m_ack = 0;
+            mem_write = 0;  // Clear request signal same cycle as m_ack=0
+            wr_en = 0;
 
             // Wait for completion
             wait(!busy);
@@ -230,8 +241,6 @@ module LoadStore_tb();
             latency = end_cycle - start_cycle;
 
             @(posedge clk);
-            mem_write = 0;
-            wr_en = 0;
 
             $display("  Latency: %0d cycles (Phase 2 target: 3 cycles for cache hit)", latency);
             if (latency <= 3) begin
@@ -290,6 +299,7 @@ module LoadStore_tb();
             m_ack = 1;
             @(posedge clk);
             m_ack = 0;
+            mem_read = 0;  // Clear request signal same cycle as m_ack=0
 
             // Wait for completion
             wait(!busy);
@@ -297,7 +307,6 @@ module LoadStore_tb();
             latency = end_cycle - start_cycle;
 
             @(posedge clk);
-            mem_read = 0;
 
             // Check result (should be 0x3412)
             if (mdr_out == 16'h3412) begin
@@ -344,10 +353,10 @@ module LoadStore_tb();
             m_ack = 1;
             @(posedge clk);
             m_ack = 0;
+            mem_read = 0;  // Clear request signal same cycle as m_ack=0
 
             wait(!busy);
             @(posedge clk);
-            mem_read = 0;
 
             if (mdr_out == 16'h00AB) begin
                 $display("  ✓ 8-bit data read correctly: 0x%04X", mdr_out);
@@ -387,10 +396,10 @@ module LoadStore_tb();
             m_ack = 1;
             @(posedge clk);
             m_ack = 0;
+            mem_read = 0;  // Clear request signal same cycle as m_ack=0
 
             wait(!busy);
             @(posedge clk);
-            mem_read = 0;
 
             if (mdr_out[7:0] == 8'hCD) begin
                 $display("  ✓ 8-bit unaligned data correct: 0x%02X", mdr_out[7:0]);
@@ -428,11 +437,11 @@ module LoadStore_tb();
             m_ack = 1;
             @(posedge clk);
             m_ack = 0;
+            mem_read = 0;  // Clear request signal same cycle as m_ack=0
+            io = 0;
 
             wait(!busy);
             @(posedge clk);
-            mem_read = 0;
-            io = 0;
 
             if (mdr_out == 16'hFEDC) begin
                 $display("  ✓ IO data read correctly: 0x%04X", mdr_out);
@@ -478,9 +487,9 @@ module LoadStore_tb();
             @(posedge clk);
             m_ack = 0;
             m_data_in = 16'h0000;
+            mem_read = 0;  // Clear request signal same cycle as m_ack=0
             wait(!busy);
             @(posedge clk);
-            mem_read = 0;
         end
     endtask
 
@@ -511,10 +520,10 @@ module LoadStore_tb();
             @(posedge clk);
             m_ack = 0;
             m_data_in = 16'h0000;
+            mem_read = 0;  // Clear request signal same cycle as m_ack=0
             wait(!busy);
             cycle1 = $time;
             @(posedge clk);
-            mem_read = 0;
 
             // Second operation - should start immediately
             @(posedge clk);
@@ -549,12 +558,12 @@ module LoadStore_tb();
             @(posedge clk);
             m_ack = 0;
             m_data_in = 16'h0000;
+            mem_read = 0;  // Clear request signal same cycle as m_ack=0
 
             $display("  Waiting for busy to clear... (busy=%b)", busy);
             wait(!busy);
             $display("  Second operation complete");
             @(posedge clk);
-            mem_read = 0;
         end
     endtask
 

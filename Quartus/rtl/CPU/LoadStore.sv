@@ -136,7 +136,14 @@ logic [19:1] physical_addr;
             case (current_state)
 				
                 IDLE: begin
-					 
+
+					         // Phase 2 Debug: Log IDLE state entry
+					         if (mem_read || mem_write) begin
+					             $display("[LoadStore DEBUG] IDLE: mem_read=%b mem_write=%b io=%b unaligned=%b is_8bit=%b",
+					                      mem_read, mem_write, io, unaligned, is_8bit);
+					             $display("[LoadStore DEBUG]       mdr=0x%04x physical_addr=0x%05x", mdr, physical_addr);
+					         end
+
 							if(io) begin
 							
 							  // IO is simple, no need to pack bytes into words
@@ -205,6 +212,8 @@ logic [19:1] physical_addr;
 						     // aligned - Phase 2: Set control signals directly in IDLE
 
 						     if (mem_read) begin
+						         $display("[LoadStore DEBUG] IDLE->WAIT_ACK_READ: Setting m_access=1, m_wr_en=0, bytesel=%b",
+						                  is_8bit ? 2'b01 : 2'b11);
 							    complete <= 1'b0;
 							    m_addr <= physical_addr;  // Phase 1: Use pre-calculated address
 							    // Phase 2: Set control signals immediately, skip READ_ALIGNED state
@@ -213,6 +222,7 @@ logic [19:1] physical_addr;
 							    m_bytesel <= is_8bit ? 2'b01 : 2'b11;
 							    current_state <= WAIT_ACK_READ_ALIGNED;
 							  end else if (mem_write) begin
+						         $display("[LoadStore DEBUG] IDLE->WAIT_ACK_WRITE: Setting m_access=1, m_wr_en=1, mdr=0x%04x", mdr);
 							    complete <= 1'b0;
 							    m_addr <= physical_addr;  // Phase 1: Use pre-calculated address
 							    // Phase 2: Set control signals immediately, skip WRITE_ALIGNED state
@@ -407,8 +417,10 @@ logic [19:1] physical_addr;
 					 
 					 
 					 WAIT_ACK_WRITE_ALIGNED16: begin
+					   $display("[LoadStore DEBUG] WAIT_ACK_WRITE: m_ack=%b m_access=%b m_wr_en=%b", m_ack, m_access, m_wr_en);
 
 					   if (m_ack) begin
+					       $display("[LoadStore DEBUG] WAIT_ACK_WRITE: ACK received, transitioning to IDLE, complete=1");
 						    // Phase 2: Go directly to IDLE, eliminating READ_WRITE_COMPLETE
 						    current_state <= IDLE;
 							 complete <= 1'b1;
@@ -486,8 +498,10 @@ logic [19:1] physical_addr;
 					
 					 
 					 WAIT_ACK_READ_ALIGNED: begin
+					   $display("[LoadStore DEBUG] WAIT_ACK_READ: m_ack=%b m_data_in=0x%04x", m_ack, m_data_in);
 
 					   if (m_ack) begin
+					       $display("[LoadStore DEBUG] WAIT_ACK_READ: ACK received, transitioning to IDLE, complete=1");
 						    mdr <= is_8bit ? {8'b0, m_data_in[7:0]} : m_data_in;
 						    // Phase 2: Go directly to IDLE, eliminating READ_WRITE_COMPLETE
 						    current_state <= IDLE;
