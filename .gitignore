@@ -16,6 +16,7 @@ modelsim/master_test_results_*/
 # Compiled test binaries
 modelsim/*_tb
 modelsim/*_test
+modelsim/*_sim
 modelsim/simple_uart_test
 # Icarus Verilog simulation files
 *.vvp
