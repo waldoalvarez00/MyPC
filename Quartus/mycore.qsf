@@ -553,6 +553,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/Floppy/simplefifo.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/Floppy/floppy.sv
 set_global_assignment -name SYSTEMVERILOG_FILE "rtl/KF8237-DMA/DMAUnit.sv"
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/DMAArbiter.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/PipelinedDMAArbiter.sv
 set_global_assignment -name QIP_FILE "rtl/KF8237-DMA/KF8237-DMA.qip"
 set_global_assignment -name QIP_FILE rtl/Keyboard/keyboard.qip
 set_global_assignment -name VERILOG_FILE rtl/MSMouse/MSMouseWrapper.v
@@ -567,6 +568,7 @@ set_global_assignment -name VERILOG_FILE build_id.v
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/IDArbiter.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/MemArbiterExtend.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/leds/LEDSRegister.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/PipelinedMemArbiterExtend.sv
 set_global_assignment -name QIP_FILE rtl/uart/uart.qip
 set_global_assignment -name QIP_FILE rtl/ps2/ps2.qip
 set_global_assignment -name QIP_FILE rtl/CPU/CPU.qip
