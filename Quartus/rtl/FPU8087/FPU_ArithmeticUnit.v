@@ -105,10 +105,45 @@ module FPU_ArithmeticUnit(
     localparam OP_FSCALE   = 5'd24;  // Scale by power of 2
 
     //=================================================================
-    // Arithmetic Units
+    // Arithmetic Units with Sharing Support (Strategy 1)
+    // Internal sharing between normal operations and transcendental unit
     //=================================================================
 
-    // Add/Subtract
+    //=================================================================
+    // Transcendental Unit Request Signals (defined early for muxing)
+    //=================================================================
+    wire trans_addsub_req;
+    wire [79:0] trans_addsub_a, trans_addsub_b;
+    wire trans_addsub_sub;
+
+    wire trans_muldiv_req;
+    wire trans_muldiv_op;
+    wire [79:0] trans_muldiv_a, trans_muldiv_b;
+
+    //=================================================================
+    // Strategy 2D: Polynomial Evaluator Request Signals
+    //=================================================================
+    wire poly_addsub_req;
+    wire [79:0] poly_addsub_a, poly_addsub_b;
+
+    wire poly_muldiv_req;
+    wire [79:0] poly_muldiv_a, poly_muldiv_b;
+
+    //=================================================================
+    // SHARED AddSub Unit (Strategy 1 + Strategy 2D)
+    // 3-way arbitration: internal > transcendental > polynomial
+    //=================================================================
+    wire addsub_int_req = enable && (operation == OP_ADD || operation == OP_SUB);
+    wire addsub_use_trans = trans_addsub_req && !addsub_int_req; // Transcendental has priority over polynomial
+    wire addsub_use_poly = poly_addsub_req && !addsub_int_req && !trans_addsub_req; // Lowest priority
+
+    wire [79:0] addsub_op_a = addsub_use_trans ? trans_addsub_a :
+                              addsub_use_poly ? poly_addsub_a : operand_a;
+    wire [79:0] addsub_op_b = addsub_use_trans ? trans_addsub_b :
+                              addsub_use_poly ? poly_addsub_b : operand_b;
+    wire addsub_sub_flag = addsub_use_trans ? trans_addsub_sub : (operation == OP_SUB);
+    wire addsub_enable = addsub_int_req || trans_addsub_req || poly_addsub_req;
+
     wire [79:0] addsub_result;
     wire addsub_done, addsub_cmp_equal, addsub_cmp_less, addsub_cmp_greater;
     wire addsub_invalid, addsub_overflow, addsub_underflow, addsub_inexact;
@@ -116,10 +151,10 @@ module FPU_ArithmeticUnit(
     FPU_IEEE754_AddSub addsub_unit (
         .clk(clk),
         .reset(reset),
-        .enable(enable && (operation == OP_ADD || operation == OP_SUB)),
-        .operand_a(operand_a),
-        .operand_b(operand_b),
-        .subtract(operation == OP_SUB),
+        .enable(addsub_enable),
+        .operand_a(addsub_op_a),
+        .operand_b(addsub_op_b),
+        .subtract(addsub_sub_flag),
         .rounding_mode(rounding_mode),
         .result(addsub_result),
         .done(addsub_done),
@@ -132,14 +167,40 @@ module FPU_ArithmeticUnit(
         .flag_inexact(addsub_inexact)
     );
 
+    // Shared AddSub outputs for transcendental unit
+    wire trans_addsub_done = addsub_done && addsub_use_trans;
+    wire [79:0] trans_addsub_result = addsub_result;
+    wire trans_addsub_invalid = addsub_invalid;
+    wire trans_addsub_overflow = addsub_overflow;
+    wire trans_addsub_underflow = addsub_underflow;
+    wire trans_addsub_inexact = addsub_inexact;
+
+    // Strategy 2D: Shared AddSub outputs for polynomial evaluator
+    wire poly_addsub_done = addsub_done && addsub_use_poly;
+    wire [79:0] poly_addsub_result = addsub_result;
+    wire poly_addsub_invalid = addsub_invalid;
+    wire poly_addsub_overflow = addsub_overflow;
+    wire poly_addsub_underflow = addsub_underflow;
+    wire poly_addsub_inexact = addsub_inexact;
+
     //=================================================================
-    // Unified Multiply/Divide Unit (AREA OPTIMIZED - Phase 2)
+    // SHARED Unified Multiply/Divide Unit (Strategy 1 + Strategy 2D)
     // Replaces separate multiply and divide modules (~757 lines → ~550 lines)
     // Area reduction: ~25% for MulDiv logic (8-10% total FPU)
+    // Shared with transcendental unit (Strategy 1) and polynomial evaluator (Strategy 2D)
+    // 3-way arbitration: internal > transcendental > polynomial
     //=================================================================
 
-    wire muldiv_enable = enable && (operation == OP_MUL || operation == OP_DIV);
-    wire muldiv_operation = (operation == OP_DIV);  // 0=mul, 1=div
+    wire muldiv_int_req = enable && (operation == OP_MUL || operation == OP_DIV);
+    wire muldiv_use_trans = trans_muldiv_req && !muldiv_int_req; // Transcendental has priority over polynomial
+    wire muldiv_use_poly = poly_muldiv_req && !muldiv_int_req && !trans_muldiv_req; // Lowest priority
+
+    wire [79:0] muldiv_op_a = muldiv_use_trans ? trans_muldiv_a :
+                              muldiv_use_poly ? poly_muldiv_a : operand_a;
+    wire [79:0] muldiv_op_b = muldiv_use_trans ? trans_muldiv_b :
+                              muldiv_use_poly ? poly_muldiv_b : operand_b;
+    wire muldiv_op_sel = muldiv_use_trans ? trans_muldiv_op : (operation == OP_DIV);
+    wire muldiv_enable = muldiv_int_req || trans_muldiv_req || poly_muldiv_req;
 
     wire [79:0] muldiv_result;
     wire muldiv_done, muldiv_invalid, muldiv_div_by_zero;
@@ -149,9 +210,9 @@ module FPU_ArithmeticUnit(
         .clk(clk),
         .reset(reset),
         .enable(muldiv_enable),
-        .operation(muldiv_operation),
-        .operand_a(operand_a),
-        .operand_b(operand_b),
+        .operation(muldiv_op_sel),  // 0=mul, 1=div
+        .operand_a(muldiv_op_a),
+        .operand_b(muldiv_op_b),
         .rounding_mode(rounding_mode),
         .result(muldiv_result),
         .done(muldiv_done),
@@ -161,6 +222,23 @@ module FPU_ArithmeticUnit(
         .flag_underflow(muldiv_underflow),
         .flag_inexact(muldiv_inexact)
     );
+
+    // Shared MulDiv outputs for transcendental unit
+    wire trans_muldiv_done = muldiv_done && muldiv_use_trans;
+    wire [79:0] trans_muldiv_result = muldiv_result;
+    wire trans_muldiv_invalid = muldiv_invalid;
+    wire trans_muldiv_div_by_zero = muldiv_div_by_zero;
+    wire trans_muldiv_overflow = muldiv_overflow;
+    wire trans_muldiv_underflow = muldiv_underflow;
+    wire trans_muldiv_inexact = muldiv_inexact;
+
+    // Strategy 2D: Shared MulDiv outputs for polynomial evaluator
+    wire poly_muldiv_done = muldiv_done && muldiv_use_poly;
+    wire [79:0] poly_muldiv_result = muldiv_result;
+    wire poly_muldiv_invalid = muldiv_invalid;
+    wire poly_muldiv_overflow = muldiv_overflow;
+    wire poly_muldiv_underflow = muldiv_underflow;
+    wire poly_muldiv_inexact = muldiv_inexact;
 
     //=================================================================
     // Unified Format Converter (AREA OPTIMIZED)
@@ -255,7 +333,55 @@ module FPU_ArithmeticUnit(
         .result_secondary(trans_result_secondary),
         .has_secondary(trans_has_secondary),
         .done(trans_done),
-        .error(trans_error)
+        .error(trans_error),
+
+        // Strategy 1: Shared AddSub unit interface
+        .ext_addsub_req(trans_addsub_req),
+        .ext_addsub_a(trans_addsub_a),
+        .ext_addsub_b(trans_addsub_b),
+        .ext_addsub_sub(trans_addsub_sub),
+        .ext_addsub_result(trans_addsub_result),
+        .ext_addsub_done(trans_addsub_done),
+        .ext_addsub_invalid(trans_addsub_invalid),
+        .ext_addsub_overflow(trans_addsub_overflow),
+        .ext_addsub_underflow(trans_addsub_underflow),
+        .ext_addsub_inexact(trans_addsub_inexact),
+
+        // Strategy 1: Shared MulDiv unit interface
+        .ext_muldiv_req(trans_muldiv_req),
+        .ext_muldiv_op(trans_muldiv_op),
+        .ext_muldiv_a(trans_muldiv_a),
+        .ext_muldiv_b(trans_muldiv_b),
+        .ext_muldiv_result(trans_muldiv_result),
+        .ext_muldiv_done(trans_muldiv_done),
+        .ext_muldiv_invalid(trans_muldiv_invalid),
+        .ext_muldiv_div_by_zero(trans_muldiv_div_by_zero),
+        .ext_muldiv_overflow(trans_muldiv_overflow),
+        .ext_muldiv_underflow(trans_muldiv_underflow),
+        .ext_muldiv_inexact(trans_muldiv_inexact),
+
+        // Strategy 2D: Shared AddSub unit interface for polynomial evaluator
+        // (passed through transcendental unit to internal polynomial evaluator)
+        .ext_poly_addsub_req(poly_addsub_req),
+        .ext_poly_addsub_a(poly_addsub_a),
+        .ext_poly_addsub_b(poly_addsub_b),
+        .ext_poly_addsub_result(poly_addsub_result),
+        .ext_poly_addsub_done(poly_addsub_done),
+        .ext_poly_addsub_invalid(poly_addsub_invalid),
+        .ext_poly_addsub_overflow(poly_addsub_overflow),
+        .ext_poly_addsub_underflow(poly_addsub_underflow),
+        .ext_poly_addsub_inexact(poly_addsub_inexact),
+
+        // Strategy 2D: Shared MulDiv unit interface for polynomial evaluator
+        .ext_poly_muldiv_req(poly_muldiv_req),
+        .ext_poly_muldiv_a(poly_muldiv_a),
+        .ext_poly_muldiv_b(poly_muldiv_b),
+        .ext_poly_muldiv_result(poly_muldiv_result),
+        .ext_poly_muldiv_done(poly_muldiv_done),
+        .ext_poly_muldiv_invalid(poly_muldiv_invalid),
+        .ext_poly_muldiv_overflow(poly_muldiv_overflow),
+        .ext_poly_muldiv_underflow(poly_muldiv_underflow),
+        .ext_poly_muldiv_inexact(poly_muldiv_inexact)
     );
 
     //=================================================================

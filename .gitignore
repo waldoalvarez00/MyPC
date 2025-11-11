@@ -68,3 +68,4 @@ bcd_microcode_test_results.txt
 
 # Icarus Verilog compiled executables
 sim_*
+Quartus/rtl/FPU8087/test_poly

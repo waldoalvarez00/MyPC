@@ -1,0 +1,38 @@
+
+ /----------------------------------------------------------------------------\
+ |                                                                            |
+ |  yosys -- Yosys Open SYnthesis Suite                                       |
+ |                                                                            |
+ |  Copyright (C) 2012 - 2020  Claire Xenia Wolf <claire@yosyshq.com>         |
+ |                                                                            |
+ |  Permission to use, copy, modify, and/or distribute this software for any  |
+ |  purpose with or without fee is hereby granted, provided that the above    |
+ |  copyright notice and this permission notice appear in all copies.         |
+ |                                                                            |
+ |  THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES  |
+ |  WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF          |
+ |  MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR   |
+ |  ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES    |
+ |  WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN     |
+ |  ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF   |
+ |  OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.            |
+ |                                                                            |
+ \----------------------------------------------------------------------------/
+
+ Yosys 0.33 (git sha1 2584903a060)
+
+
+-- Executing script file `fpu_area_analysis.ys' --
+
+1. Executing Verilog-2005 frontend: Quartus/rtl/FPU8087/FPU_IEEE754_AddSub.v
+Parsing Verilog input from `Quartus/rtl/FPU8087/FPU_IEEE754_AddSub.v' to AST representation.
+Generating RTLIL representation for module `\FPU_IEEE754_AddSub'.
+Successfully finished Verilog frontend.
+
+2. Executing Verilog-2005 frontend: Quartus/rtl/FPU8087/FPU_IEEE754_Multiply.v
+Parsing Verilog input from `Quartus/rtl/FPU8087/FPU_IEEE754_Multiply.v' to AST representation.
+Generating RTLIL representation for module `\FPU_IEEE754_Multiply'.
+Warning: wire '\shift_amount' is assigned in a block at Quartus/rtl/FPU8087/FPU_IEEE754_Multiply.v:215.25-215.44.
+Warning: wire '\i' is assigned in a block at Quartus/rtl/FPU8087/FPU_IEEE754_Multiply.v:217.30-217.37.
+Warning: wire '\i' is assigned in a block at Quartus/rtl/FPU8087/FPU_IEEE754_Multiply.v:217.47-217.56.
+Quartus/rtl/FPU8087/FPU_IEEE754_Multiply.v:217: ERROR: Left hand side of 1st expression of procedural for-loop is not a register!
