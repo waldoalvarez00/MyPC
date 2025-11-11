@@ -87,13 +87,13 @@ localparam [5:0]
   UNALIGNED_FIRST_BYTE_WRITE_ALIGNED  = 5'd10,
   WAIT_UNALIGNED_WRITE_ACK_START =  5'd11,
   UNALIGNED_SECOND_BYTE_WRITE_ALIGNED =  5'd12,
-  FINALIZE_OPERATION =  5'd13,
+  // FINALIZE_OPERATION removed - Phase 1 optimization
   WAIT_ACK_WRITE_ALIGNED = 5'd14,
   UNALIGNED_FIRST_BYTE_WRITE_ALIGNED_8bit  = 5'd15,
-  
+
   IO_READ_ALIGNED = 5'd16,
   IO_WRITE_ALIGNED = 5'd17,
-   
+
   WAIT_UNALIGNED_8BIT_READ_ACK = 5'd18,
   WAIT_ACK_WRITE_ALIGNED16 = 5'd19,
   IO_WAIT_ACK_READ_ALIGNED = 5'd20;
@@ -109,16 +109,26 @@ wire unaligned = mar[0];
 
 assign busy = (mem_read | mem_write) & ~complete;
 
-//reg addedAddr;
-//assign addedAddr = {segment, 3'b0} + {3'b0, mar[15:1]};
+// Phase 1 Optimization: Pre-calculated physical address
+// Computed when MAR is written to avoid critical path in memory access
+logic [19:1] physical_addr;
 
-// TODO Optimize this FSM
+// Optimized FSM - Phase 1 improvements:
+// - Removed FINALIZE_OPERATION state (1 cycle saved on all operations)
+// - Pre-calculated segment+offset address (timing improvement)
+//
+// Phase 2 improvements:
+// - Eliminated READ_ALIGNED/WRITE_ALIGNED states (control signals set in IDLE)
+// - Eliminated READ_WRITE_COMPLETE transition (WAIT_ACK states go directly to IDLE)
+// - Result: Aligned operations reduced from 4 cycles to 2 cycles (50% improvement)
+// - Result: All operations benefit from 2-cycle reduction in completion path
 
   always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             current_state <= IDLE;
             complete <= 1'b0;
-				
+            mdr <= 16'h0000;
+
         end else begin
 		  
 		      if (write_mdr) mdr <= mdr_in;
@@ -126,7 +136,14 @@ assign busy = (mem_read | mem_write) & ~complete;
             case (current_state)
 				
                 IDLE: begin
-					 
+
+					         // Phase 2 Debug: Log IDLE state entry
+					         if (mem_read || mem_write) begin
+					             $display("[LoadStore DEBUG] IDLE: mem_read=%b mem_write=%b io=%b unaligned=%b is_8bit=%b",
+					                      mem_read, mem_write, io, unaligned, is_8bit);
+					             $display("[LoadStore DEBUG]       mdr=0x%04x physical_addr=0x%05x", mdr, physical_addr);
+					         end
+
 							if(io) begin
 							
 							  // IO is simple, no need to pack bytes into words
@@ -159,30 +176,30 @@ assign busy = (mem_read | mem_write) & ~complete;
 						          if (mem_read) begin
 								       current_state <= READ_ALIGNED_UNALIGNED_8BIT_START;
 									    complete <= 1'b0;
-									    m_addr <= {segment, 3'b0} + {3'b0, mar[15:1]};
-									 
+									    m_addr <= physical_addr;  // Phase 1: Use pre-calculated address
+
 							       end
-								
+
 					    	       if (mem_write) begin
 								        complete <= 1'b0;
 								        current_state <= UNALIGNED_FIRST_BYTE_WRITE_ALIGNED_8bit;
-									     m_addr <= {segment, 3'b0} + {3'b0, mar[15:1]};
+									     m_addr <= physical_addr;  // Phase 1: Use pre-calculated address
 								    end
 							
 							
 							     end else begin
 							
 							      // 16 bits unaligned
-								
+
 							      if(mem_write) begin
 								     complete <= 1'b0;
-								     m_addr <= {segment, 3'b0} + {3'b0, mar[15:1]};
+								     m_addr <= physical_addr;  // Phase 1: Use pre-calculated address
 						           current_state <= UNALIGNED_FIRST_BYTE_WRITE_ALIGNED;
 								   end
-								 
+
 						         if (mem_read) begin
 							        complete <= 1'b0;
-								     m_addr <= {segment, 3'b0} + {3'b0, mar[15:1]};
+								     m_addr <= physical_addr;  // Phase 1: Use pre-calculated address
 						           current_state <= UNALIGNED_FIRST_BYTE;
 								   end
 							
@@ -191,21 +208,31 @@ assign busy = (mem_read | mem_write) & ~complete;
 						    
 							  
 						  end else begin
-						  
-						     // aligned
-							  
+
+						     // aligned - Phase 2: Set control signals directly in IDLE
+
 						     if (mem_read) begin
+						         $display("[LoadStore DEBUG] IDLE->WAIT_ACK_READ: Setting m_access=1, m_wr_en=0, bytesel=%b",
+						                  is_8bit ? 2'b01 : 2'b11);
 							    complete <= 1'b0;
-							    current_state <= READ_ALIGNED;
-							    m_addr <= {segment, 3'b0} + {3'b0, mar[15:1]};
-							  end 
-							  
-							  if (mem_write) begin
+							    m_addr <= physical_addr;  // Phase 1: Use pre-calculated address
+							    // Phase 2: Set control signals immediately, skip READ_ALIGNED state
+							    m_access <= 1'b1;
+							    m_wr_en <= 1'b0;
+							    m_bytesel <= is_8bit ? 2'b01 : 2'b11;
+							    current_state <= WAIT_ACK_READ_ALIGNED;
+							  end else if (mem_write) begin
+						         $display("[LoadStore DEBUG] IDLE->WAIT_ACK_WRITE: Setting m_access=1, m_wr_en=1, mdr=0x%04x", mdr);
 							    complete <= 1'b0;
-							    current_state <= WRITE_ALIGNED;
-							    m_addr <= {segment, 3'b0} + {3'b0, mar[15:1]};
+							    m_addr <= physical_addr;  // Phase 1: Use pre-calculated address
+							    // Phase 2: Set control signals immediately, skip WRITE_ALIGNED state
+							    m_access <= 1'b1;
+							    m_wr_en <= 1'b1;
+							    m_bytesel <= is_8bit ? 2'b01 : 2'b11;
+							    m_data_out <= mdr;
+							    current_state <= WAIT_ACK_WRITE_ALIGNED16;
 							  end
-							  
+
 						  end
 								
 							
@@ -228,31 +255,35 @@ assign busy = (mem_read | mem_write) & ~complete;
 					 end
 					 
 					 IO_WAIT_ACK_READ_ALIGNED: begin
-					 
+
 					   if (m_ack) begin
 						    mdr <= is_8bit ? {8'b0, m_data_in[7:0]} : m_data_in;
-						    current_state <= READ_WRITE_COMPLETE;
+						    // Phase 2: Go directly to IDLE
+						    current_state <= IDLE;
 							 complete <= 1'b1;
-							 
+
 							 m_access <= 1'b0;
 							 m_wr_en  <= 1'b0;
-							 
+
 							 // Stops noise on the BUS
-							 m_addr <= 19'd0; 
-						  
+							 m_addr <= 19'd0;
+						  end else begin
+						    // Phase 2: Clear complete when waiting
+						    complete <= 1'b0;
 					   end
-					 
+
 				    end
 					 
 					 
 					 
                 READ_ALIGNED: begin
-					 
+					 // Phase 2: This state is no longer used for aligned reads
+					 // Control signals are now set directly in IDLE state
                     m_access <= 1'b1;
                     m_wr_en <= 1'b0;
                     m_bytesel <= is_8bit ? 2'b01 : 2'b11;
 						  current_state <= WAIT_ACK_READ_ALIGNED;
-						  
+
                 end
 					 
 					 
@@ -268,17 +299,21 @@ assign busy = (mem_read | mem_write) & ~complete;
 					 
 					 
 					 WAIT_UNALIGNED_8BIT_READ_ACK: begin
-					 
+
 					   if (m_ack) begin
-						    current_state <= READ_WRITE_COMPLETE;
+						    // Phase 2: Go directly to IDLE
+						    current_state <= IDLE;
 							 complete <= 1'b1;
 							 m_access <= 1'b0;
 							 m_wr_en  <= 1'b0;
-							 
+
 							 mdr[7:0] <= m_data_in[15:8];
 							 // Stops noise on the BUS
-							 m_addr <= 19'd0; 
+							 m_addr <= 19'd0;
 						    m_data_out <= 16'd0;
+						  end else begin
+						    // Phase 2: Clear complete when waiting
+						    complete <= 1'b0;
 						  end
 					 end
 					 
@@ -344,14 +379,18 @@ assign busy = (mem_read | mem_write) & ~complete;
 					 
 					 
 					 WAIT_ACK_WRITE_ALIGNED: begin
-					 
+
 					   if (m_ack) begin
-						    current_state <= READ_WRITE_COMPLETE;
+						    // Phase 2: Go directly to IDLE
+						    current_state <= IDLE;
 							 complete <= 1'b1;
 							 m_access <= 1'b0;
 							 m_wr_en <= 1'b0;
 							 m_addr <= 19'd0; // Stops noise on the BUS
 						    m_data_out <= 16'd0;
+						  end else begin
+						    // Phase 2: Clear complete when waiting
+						    complete <= 1'b0;
 						  end
 					 end
 					 
@@ -367,6 +406,8 @@ assign busy = (mem_read | mem_write) & ~complete;
 
 					 
                 WRITE_ALIGNED: begin
+					 // Phase 2: This state is no longer used for aligned writes
+					 // Control signals are now set directly in IDLE state
                     m_access <= 1'b1;
                     m_wr_en <= 1'b1;
                     m_bytesel <= is_8bit ? 2'b01 : 2'b11;
@@ -376,16 +417,22 @@ assign busy = (mem_read | mem_write) & ~complete;
 					 
 					 
 					 WAIT_ACK_WRITE_ALIGNED16: begin
-					 
+					   $display("[LoadStore DEBUG] WAIT_ACK_WRITE: m_ack=%b m_access=%b m_wr_en=%b", m_ack, m_access, m_wr_en);
+
 					   if (m_ack) begin
-						    current_state <= READ_WRITE_COMPLETE;
+					       $display("[LoadStore DEBUG] WAIT_ACK_WRITE: ACK received, transitioning to IDLE, complete=1");
+						    // Phase 2: Go directly to IDLE, eliminating READ_WRITE_COMPLETE
+						    current_state <= IDLE;
 							 complete <= 1'b1;
 							 m_access <= 1'b0;
 							 m_wr_en  <= 1'b0;
-							 
+
 							 // Stops noise on the BUS
 							 m_addr <= 19'd0;
 						    m_data_out <= 16'd0;
+						  end else begin
+						    // Phase 2: Clear complete when waiting
+						    complete <= 1'b0;
 						  end
 					 end
 
@@ -429,17 +476,21 @@ assign busy = (mem_read | mem_write) & ~complete;
 					 
 					 
 					 WAIT_UNALIGNED_READ_ACK_END: begin
-					 
+
 					   if (m_ack) begin
-						    current_state <= READ_WRITE_COMPLETE;
+						    // Phase 2: Go directly to IDLE
+						    current_state <= IDLE;
 							 complete <= 1'b1;
 							 m_access <= 1'b0;
 							 m_wr_en  <= 1'b0;
-							 
+
 							 mdr[15:8] <= m_data_in[7:0];
 							 // Stops noise on the BUS
 							 m_addr <= 19'd0;
 						    m_data_out <= 16'd0;
+						  end else begin
+						    // Phase 2: Clear complete when waiting
+						    complete <= 1'b0;
 						  end
 					 end
 					 
@@ -447,38 +498,39 @@ assign busy = (mem_read | mem_write) & ~complete;
 					
 					 
 					 WAIT_ACK_READ_ALIGNED: begin
-					 
+					   $display("[LoadStore DEBUG] WAIT_ACK_READ: m_ack=%b m_data_in=0x%04x", m_ack, m_data_in);
+
 					   if (m_ack) begin
+					       $display("[LoadStore DEBUG] WAIT_ACK_READ: ACK received, transitioning to IDLE, complete=1");
 						    mdr <= is_8bit ? {8'b0, m_data_in[7:0]} : m_data_in;
-						    current_state <= READ_WRITE_COMPLETE;
+						    // Phase 2: Go directly to IDLE, eliminating READ_WRITE_COMPLETE
+						    current_state <= IDLE;
 							 complete <= 1'b1;
-							 
+
 							 m_access <= 1'b0;
 							 m_wr_en  <= 1'b0;
-							 
+
 							 // Stops noise on the BUS
-							 m_addr <= 19'd0; 
-						  
+							 m_addr <= 19'd0;
+						  end else begin
+						    // Phase 2: Clear complete when waiting
+						    complete <= 1'b0;
 					   end
-					 
+
 				    end
 					 
 					 
                 READ_WRITE_COMPLETE: begin
-                    //complete <= 1'b0; // triggers busy for 1 clk (small glitch)
-						  m_access <= 1'b0;
-						  m_wr_en  <= 1'b0;
-                    current_state <= FINALIZE_OPERATION;
-						  
-						  m_addr <= 19'd0;
-						  m_data_out <= 16'd0;
-                end
-					 
-					 
-					 FINALIZE_OPERATION: begin
-					     // To remove this wait state we need to change microcode unit
+                    // Phase 1 Optimization: Merged FINALIZE_OPERATION into this state
+                    // Phase 2: This state is largely deprecated - most operations now go directly to IDLE
+                    // Kept for backward compatibility and legacy state transitions
                     complete <= 1'b0;
+                    m_access <= 1'b0;
+                    m_wr_en  <= 1'b0;
                     current_state <= IDLE;
+
+                    m_addr <= 19'd0;
+                    m_data_out <= 16'd0;
                 end
 					 
 					 
@@ -494,15 +546,23 @@ assign busy = (mem_read | mem_write) & ~complete;
 	 
 	 
 
-	 
-	 always_ff @(posedge clk or posedge reset)
-    if (reset)
-        mar <= 16'b0;
-    else if(write_mar)
-        mar <= mar_in;
-	 
 
-    
+	 // Phase 1 Optimization: Pre-calculate physical address when MAR is written
+	 // This removes the 19-bit addition from the critical path during memory access
+	 always_ff @(posedge clk or posedge reset) begin
+        if (reset) begin
+            mar <= 16'b0;
+            physical_addr <= 19'b0;
+        end else if(write_mar) begin
+            mar <= mar_in;
+            // Pre-calculate: physical_addr = (segment << 4) + (mar >> 1)
+            // Segment shift by 4 bits (multiply by 16) + word-aligned MAR
+            physical_addr <= {segment, 3'b0} + {3'b0, mar_in[15:1]};
+        end
+    end
+
+
+
     assign mar_out = mar;
     assign mdr_out = mdr;
 	 

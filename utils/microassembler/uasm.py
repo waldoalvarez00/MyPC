@@ -20,11 +20,13 @@
 import argparse
 import math
 import os
-import subprocess
+import io
+import re
 import pystache
 
 from functools import partial, lru_cache
 from textx.metamodel import metamodel_from_file
+from pcpp import Preprocessor
 
 from microasm.types import (
     GPR,
@@ -101,15 +103,32 @@ class MicroAssembler(object):
 
         def preprocess(filename):
             print(f"Preprocessing file: {filename}")  # Debug print
-            includes = []
-            for i in self._include:
-                includes.append('-I')
-                includes.append(i)
 
-            # Debug print for the command being executed
-            cpp_command = [os.path.join(os.getcwd(), 'mingw64', 'bin', 'cpp'), '-nostdinc', filename, '-o', '-'] + includes
-            print(f"Running CPP command: {' '.join(cpp_command)}")
-            return subprocess.check_output(cpp_command).decode('utf-8')
+            # Create preprocessor instance
+            pp = Preprocessor()
+            pp.line_directive = '#'  # Use # instead of #line for compatibility
+            pp.compress = 0  # Don't compress whitespace
+
+            # Add include paths
+            for inc_dir in self._include:
+                pp.add_path(inc_dir)
+
+            # Read and parse the file
+            with open(filename, 'r') as f:
+                content = f.read()
+
+            pp.parse(content, filename)
+
+            # Write output to string
+            output = io.StringIO()
+            pp.write(output)
+            result = output.getvalue()
+
+            # Post-process to add newlines after semicolons if they're missing
+            # This is needed because macro expansions can collapse multiple lines
+            result = re.sub(r';(\s*)(?=[^\s])', r';\n', result)
+
+            return result
 
         for f in files:
             print(f"Processing file: {f}")  # Debug print
