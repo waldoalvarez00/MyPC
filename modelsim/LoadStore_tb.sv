@@ -142,12 +142,14 @@ module LoadStore_tb();
             is_8bit = 0;
             start_cycle = cycle_count;
 
-            // Wait for access
+            // Wait for FSM to transition and initiate access (needs 2 cycles: IDLE->READ_ALIGNED, then access)
+            @(posedge clk);
             @(posedge clk);
             if (m_access && !m_wr_en && m_bytesel == 2'b11) begin
                 $display("  ✓ Read access initiated correctly");
             end else begin
                 $display("  ✗ ERROR: Read access signals incorrect");
+                $display("    m_access=%b, m_wr_en=%b, m_bytesel=%b", m_access, m_wr_en, m_bytesel);
                 fail_count++;
             end
 
@@ -202,13 +204,16 @@ module LoadStore_tb();
             is_8bit = 0;
             start_cycle = cycle_count;
 
-            // Wait for access
+            // Wait for FSM to transition and initiate access
+            @(posedge clk);
             @(posedge clk);
             if (m_access && m_wr_en && m_bytesel == 2'b11 && m_data_out == 16'h5678) begin
                 $display("  ✓ Write access initiated correctly");
                 pass_count++;
             end else begin
                 $display("  ✗ ERROR: Write access signals incorrect");
+                $display("    m_access=%b, m_wr_en=%b, m_bytesel=%b, m_data_out=%04X",
+                         m_access, m_wr_en, m_bytesel, m_data_out);
                 fail_count++;
             end
 
@@ -247,20 +252,23 @@ module LoadStore_tb();
             is_8bit = 0;
             start_cycle = cycle_count;
 
-            // First byte access
+            // First byte access (wait for FSM transition)
+            @(posedge clk);
             @(posedge clk);
             if (m_access && !m_wr_en && m_bytesel == 2'b10) begin
                 $display("  ✓ First byte access correct");
             end else begin
                 $display("  ✗ ERROR: First byte access incorrect");
+                $display("    m_access=%b, m_wr_en=%b, m_bytesel=%b", m_access, m_wr_en, m_bytesel);
                 fail_count++;
             end
 
             @(posedge clk);
-            m_data_in = 16'hXX12;  // High byte contains our data
+            m_data_in = 16'h12AB;  // High byte [15:8]=0x12 goes to mdr[7:0]
             m_ack = 1;
             @(posedge clk);
             m_ack = 0;
+            m_data_in = 16'h0000;
 
             // Second byte access
             @(posedge clk);
@@ -273,7 +281,7 @@ module LoadStore_tb();
             end
 
             @(posedge clk);
-            m_data_in = 16'h34XX;  // Low byte contains our data
+            m_data_in = 16'hCD34;  // Low byte [7:0]=0x34 goes to mdr[15:8]
             m_ack = 1;
             @(posedge clk);
             m_ack = 0;
@@ -311,16 +319,19 @@ module LoadStore_tb();
             mem_read = 1;
             is_8bit = 1;
 
+            // Wait for FSM transition
+            @(posedge clk);
             @(posedge clk);
             if (m_access && m_bytesel == 2'b01) begin
                 $display("  ✓ 8-bit aligned access correct");
             end else begin
                 $display("  ✗ ERROR: 8-bit aligned access incorrect");
+                $display("    m_access=%b, m_bytesel=%b", m_access, m_bytesel);
                 fail_count++;
             end
 
             @(posedge clk);
-            m_data_in = 16'hXXAB;
+            m_data_in = 16'h00AB;  // Low byte contains our data
             m_ack = 1;
             @(posedge clk);
             m_ack = 0;
@@ -351,16 +362,19 @@ module LoadStore_tb();
             mem_read = 1;
             is_8bit = 1;
 
+            // Wait for FSM transition
+            @(posedge clk);
             @(posedge clk);
             if (m_access && m_bytesel == 2'b10) begin
                 $display("  ✓ 8-bit unaligned access correct (high byte)");
             end else begin
                 $display("  ✗ ERROR: 8-bit unaligned access incorrect");
+                $display("    m_access=%b, m_bytesel=%b", m_access, m_bytesel);
                 fail_count++;
             end
 
             @(posedge clk);
-            m_data_in = 16'hCDXX;  // High byte
+            m_data_in = 16'hCD00;  // High byte contains our data
             m_ack = 1;
             @(posedge clk);
             m_ack = 0;
@@ -423,6 +437,7 @@ module LoadStore_tb();
 
     // Test: Physical address pre-calculation
     task test_physical_address_calculation();
+        reg [19:1] expected_addr;
         begin
             test_count++;
             $display("\n[TEST %0d] Physical Address Pre-calculation", test_count);
@@ -430,13 +445,16 @@ module LoadStore_tb();
             segment = 16'h1234;
             write_mar_task(16'h5678);
 
-            // Expected: (0x1234 << 4) + (0x5678 >> 1) = 0x12340 + 0x2B3C = 0x14E7C
-            logic [19:1] expected_addr = 19'h14E7C;
+            // Expected: word_addr = ((segment << 4) + mar) >> 1
+            // = ((0x1234 << 4) + 0x5678) >> 1 = (0x12340 + 0x5678) >> 1 = 0x179B8 >> 1 = 0x0BCDC
+            expected_addr = 19'h0BCDC;
 
             @(posedge clk);
             mem_read = 1;
 
             @(posedge clk);
+            @(posedge clk);  // Wait for m_access to be asserted
+
             if (m_addr == expected_addr) begin
                 $display("  ✓ Physical address calculated correctly: 0x%05X", m_addr);
                 pass_count++;
@@ -446,9 +464,11 @@ module LoadStore_tb();
                 fail_count++;
             end
 
+            m_data_in = 16'hDEAD;  // Provide dummy data for the read
             m_ack = 1;
             @(posedge clk);
             m_ack = 0;
+            m_data_in = 16'h0000;
             wait(!busy);
             @(posedge clk);
             mem_read = 0;
@@ -466,11 +486,22 @@ module LoadStore_tb();
             write_mar_task(16'h0400);
             @(posedge clk);
             mem_read = 1;
+            $display("  First read started: mem_read=%b, busy=%b, io=%b", mem_read, busy, io);
             @(posedge clk);
+            $display("  After 1 clk: busy=%b, m_access=%b", busy, m_access);
             @(posedge clk);
+            $display("  After 2 clk: busy=%b, m_access=%b", busy, m_access);
+
+            // Wait for LoadStore to assert m_access
+            $display("  Waiting for m_access...");
+            wait(m_access);
+            $display("  m_access asserted!");
+
+            m_data_in = 16'h1111;  // Dummy data
             m_ack = 1;
             @(posedge clk);
             m_ack = 0;
+            m_data_in = 16'h0000;
             wait(!busy);
             cycle1 = $time;
             @(posedge clk);
@@ -494,10 +525,22 @@ module LoadStore_tb();
             end
 
             @(posedge clk);
+            @(posedge clk);
+
+            // Wait for LoadStore to assert m_access for second read
+            $display("  Waiting for m_access... (busy=%b, m_access=%b)", busy, m_access);
+            wait(m_access);
+            $display("  m_access detected, providing data");
+
+            m_data_in = 16'h2222;  // Dummy data
             m_ack = 1;
             @(posedge clk);
             m_ack = 0;
+            m_data_in = 16'h0000;
+
+            $display("  Waiting for busy to clear... (busy=%b)", busy);
             wait(!busy);
+            $display("  Second operation complete");
             @(posedge clk);
             mem_read = 0;
         end
@@ -505,6 +548,10 @@ module LoadStore_tb();
 
     // Main test sequence
     initial begin
+        // Dump waveforms for debugging
+        $dumpfile("LoadStore_tb.vcd");
+        $dumpvars(0, LoadStore_tb);
+
         $display("\n========================================");
         $display("  LoadStore Unit - Phase 1 Test Suite");
         $display("  Testing optimizations:");
