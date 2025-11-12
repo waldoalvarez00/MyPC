@@ -58,7 +58,8 @@ module Core(input wire  clk,
             output logic [7:0] fpu_modrm,
             output logic fpu_instr_valid,
             input  logic fpu_busy,
-            input  logic fpu_int);
+            input  logic fpu_int,
+            input  logic [15:0] fpu_status_word);
 
 // verilator lint_off UNUSED
 Instruction wr_instruction, cur_instruction, next_instruction_value;
@@ -68,7 +69,8 @@ Instruction wr_instruction, cur_instruction, next_instruction_value;
 wire [15:0] a_bus =
     a_sel == ADriver_RA ? reg_rd_val[0] :
     a_sel == ADriver_IP ? ip_current :
-    a_sel == ADriver_MAR ? mar : mdr;
+    a_sel == ADriver_MAR ? mar :
+    a_sel == ADriver_FPU_STATUS ? fpu_status_word : mdr;
 	
 wire [15:0] b_bus =
     b_sel == BDriver_RB ? reg_rd_val[1] :

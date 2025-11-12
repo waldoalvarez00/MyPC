@@ -32,9 +32,27 @@
 .at 0xde;
     jmp do_esc;
 .at 0xdf;
-    jmp do_esc;
+    jmp_dispatch_reg dispatch_df;
 
 .auto_address;
+dispatch_df:
+    jmp do_esc;          // reg == 0
+    jmp do_esc;          // reg == 1
+    jmp do_esc;          // reg == 2
+    jmp do_esc;          // reg == 3
+    jmp_rm_reg_mem do_fstsw_ax_reg;  // reg == 4: FSTSW AX (E0) or FSTSW [mem] (other)
+    jmp do_esc;          // reg == 5
+    jmp do_esc;          // reg == 6
+    jmp do_esc;          // reg == 7
+
+do_fstsw_ax_reg:
+    // FSTSW AX - DF E0
+    // Store FPU status word in AX register
+    // Read FPU status word from A-bus, write to AX
+    a_sel FPU_STATUS, alu_op SELA,
+        rd_sel_source MICROCODE_RD_SEL, rd_sel AX,
+        next_instruction;
+
 do_esc:
 #if (S80X86_TRAP_ESCAPE == 1)
     b_sel IMMEDIATE, immediate 0x1c, alu_op SELB, tmp_wr_en, jmp do_int;
