@@ -51,7 +51,14 @@ module Core(input wire  clk,
             input  logic debug_run,
             output logic [15:0] debug_val,
             input  logic [15:0] debug_wr_val,
-            input  logic debug_wr_en);
+            input  logic debug_wr_en,
+
+            // FPU Interface
+            output logic [7:0] fpu_opcode,
+            output logic [7:0] fpu_modrm,
+            output logic fpu_instr_valid,
+            input  logic fpu_busy,
+            input  logic fpu_int);
 
 // verilator lint_off UNUSED
 Instruction wr_instruction, cur_instruction, next_instruction_value;
@@ -99,6 +106,11 @@ wire [15:0] seg_wr_val = alu_out[15:0];
 wire [15:0] cs;
 wire [1:0] segment;
 wire segment_wr_en;
+
+// FPU signals - currently inactive (ESC instructions trap to INT 0x1C)
+assign fpu_opcode = 8'h00;
+assign fpu_modrm = 8'h00;
+assign fpu_instr_valid = 1'b0;
 
 wire decode_immed_start;
 wire decode_immed_is_8bit;
