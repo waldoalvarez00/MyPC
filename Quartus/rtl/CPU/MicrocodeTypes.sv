@@ -18,13 +18,15 @@
 `ifndef MICROCODE_TYPES
 `define MICROCODE_TYPES
 
-typedef enum bit [1:0] {
-    ADriver_RA = 2'd0,
-    ADriver_IP = 2'd1,
-    ADriver_MAR = 2'd2,
-    ADriver_MDR = 2'd3
+typedef enum bit [2:0] {
+    ADriver_RA = 3'd0,
+    ADriver_IP = 3'd1,
+    ADriver_MAR = 3'd2,
+    ADriver_MDR = 3'd3,
+    ADriver_FPU_STATUS = 3'd4,
+    ADriver_FPU_CONTROL = 3'd5
 } MC_ADriver_t;
-`define MC_ADriver_t_BITS 2
+`define MC_ADriver_t_BITS 3
 
 typedef enum bit [2:0] {
     BDriver_RB = 3'd0,

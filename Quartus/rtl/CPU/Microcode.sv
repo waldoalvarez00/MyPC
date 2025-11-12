@@ -45,6 +45,7 @@ module Microcode(input logic clk,
                  output logic [7:0] opcode,
                  input logic jump_taken,
                  input logic rb_zero,
+                 input logic fpu_busy,            // FPU busy signal for FWAIT
                  output logic lock,
                  output logic multibit_shift,
                  output logic is_hlt,
@@ -52,7 +53,7 @@ module Microcode(input logic clk,
 				 
 				 
                  // Microinstruction fields.
-                 output logic [1:0] a_sel,
+                 output logic [2:0] a_sel,  // Expanded from [1:0] for FPU_STATUS
                  output logic [5:0] alu_op,
                  output logic [2:0] b_sel,
                  output logic ext_int_yield,
@@ -75,6 +76,7 @@ module Microcode(input logic clk,
                  output logic segment_wr_en,
                  output logic tmp_wr_en,
                  output logic tmp_wr_sel,
+                 output logic fpu_ctrl_wr,  // FPU control word write enable
                  output logic width,
                  output logic reg_wr_en,
 				 
@@ -136,6 +138,7 @@ typedef struct packed {
     logic segment_wr_en;
     logic tmp_wr_en;
     logic tmp_wr_sel;
+    logic fpu_ctrl_wr;
     logic [3:0] update_flags;
     logic [1:0] width;
 } microcode_instruction;
@@ -215,6 +218,7 @@ assign segment_force = current.segment_force;
 assign segment_wr_en = current.segment_wr_en;
 assign tmp_wr_en = current.tmp_wr_en;
 assign tmp_wr_sel = current.tmp_wr_sel;
+assign fpu_ctrl_wr = current.fpu_ctrl_wr;
 
 assign fifo_rd_en = starting_instruction;
 assign starting_instruction = !stall && (next_addr == {{addr_bits-8{1'b0}}, next_instruction_value.opcode});
@@ -329,6 +333,7 @@ always_comb begin
     JumpType_RB_ZERO: jump_target = rb_zero ? current.next : addr + 1'b1;
     JumpType_LOOP_DONE: jump_target = loop_done ? current.next : addr + 1'b1;
     JumpType_JUMP_TAKEN: jump_target = jump_taken ? current.next : addr + 1'b1;
+    JumpType_FPU_BUSY: jump_target = fpu_busy ? current.next : addr + 1'b1;
     default: jump_target = current.next;
     endcase
 end

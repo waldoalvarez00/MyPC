@@ -21,7 +21,9 @@ enum MC_ADriver_t {
     ADriver_RA = 0,
     ADriver_IP = 1,
     ADriver_MAR = 2,
-    ADriver_MDR = 3
+    ADriver_MDR = 3,
+    ADriver_FPU_STATUS = 4,
+    ADriver_FPU_CONTROL = 5
 };
 
 enum MC_BDriver_t {

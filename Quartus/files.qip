@@ -66,6 +66,8 @@ set_global_assignment -name VERILOG_FILE rtl/FPU8087/tagRegister.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/test_polynomial_shared.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/three_bit_4x1_mux.v
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/FPU8087/absunit.sv
+# FPU_IO_Port.sv moved to reference - not used (microcode-based approach instead)
+# set_global_assignment -name SYSTEMVERILOG_FILE rtl/FPU8087/FPU_IO_Port.sv
 
 # FPU I/O Registers
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/FPUControlRegister.sv

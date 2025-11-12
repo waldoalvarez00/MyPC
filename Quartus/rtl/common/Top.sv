@@ -244,6 +244,31 @@ wire cpu_fpu_instr_valid;
 wire fpu_busy;
 wire fpu_int;
 
+// FPU Memory Interface
+wire [19:0] fpu_mem_addr;
+wire [15:0] fpu_mem_data_in;
+wire [15:0] fpu_mem_data_out;
+wire fpu_mem_access;
+wire fpu_mem_ack;
+wire fpu_mem_wr_en;
+wire [1:0] fpu_mem_bytesel;
+
+// FPU Status/Control Word Interface (direct access for microcode)
+wire [15:0] fpu_status_word;
+wire [15:0] fpu_control_word_out;
+
+// FPU Control Word Register (programmable via FLDCW)
+reg [15:0] fpu_control_word_reg;
+wire fpu_control_word_write;  // From microcode
+
+// Initialize FPU control word to 8087 default on reset
+always @(posedge sys_clk) begin
+    if (reset)
+        fpu_control_word_reg <= 16'h037F;  // Default: All exceptions masked except invalid op
+    else if (fpu_control_word_write)
+        fpu_control_word_reg <= q;  // Write from ALU Q output (via MDR)
+end
+
 wire default_io_access;
 wire default_io_ack;
 
@@ -388,7 +413,17 @@ VirtualJTAG VirtualJTAG(.ir_out(),
 JTAGBridge      JTAGBridge(.cpu_clk(sys_clk),
                            .*);
 
+// First arbiter: CPU instruction + data buses -> cpu_combined
+wire [19:1] cpu_combined_m_addr;
+wire [15:0] cpu_combined_m_data_in;
+wire [15:0] cpu_combined_m_data_out;
+wire cpu_combined_m_access;
+wire cpu_combined_m_ack;
+wire cpu_combined_m_wr_en;
+wire [1:0] cpu_combined_m_bytesel;
+
 MemArbiter IDArbiter(.clk(sys_clk),
+                     .reset(reset),
                      .a_m_addr(instr_m_addr),
                      .a_m_data_in(instr_m_data_in),
                      .a_m_data_out(16'b0),
@@ -403,8 +438,40 @@ MemArbiter IDArbiter(.clk(sys_clk),
                      .b_m_ack(data_mem_ack),
                      .b_m_wr_en(data_m_wr_en),
                      .b_m_bytesel(data_m_bytesel),
-                     .q_b(),
-                     .*);
+                     .q_m_addr(cpu_combined_m_addr),
+                     .q_m_data_in(cpu_combined_m_data_in),
+                     .q_m_data_out(cpu_combined_m_data_out),
+                     .q_m_access(cpu_combined_m_access),
+                     .q_m_ack(cpu_combined_m_ack),
+                     .q_m_wr_en(cpu_combined_m_wr_en),
+                     .q_m_bytesel(cpu_combined_m_bytesel),
+                     .q_b());
+
+// Second arbiter: CPU combined + FPU -> q_m (final memory bus)
+MemArbiter CPUFPUArbiter(.clk(sys_clk),
+                         .reset(reset),
+                         .a_m_addr(cpu_combined_m_addr),
+                         .a_m_data_in(cpu_combined_m_data_in),
+                         .a_m_data_out(cpu_combined_m_data_out),
+                         .a_m_access(cpu_combined_m_access),
+                         .a_m_ack(cpu_combined_m_ack),
+                         .a_m_wr_en(cpu_combined_m_wr_en),
+                         .a_m_bytesel(cpu_combined_m_bytesel),
+                         .b_m_addr(fpu_mem_addr[19:1]),
+                         .b_m_data_in(fpu_mem_data_in),
+                         .b_m_data_out(fpu_mem_data_out),
+                         .b_m_access(fpu_mem_access),
+                         .b_m_ack(fpu_mem_ack),
+                         .b_m_wr_en(fpu_mem_wr_en),
+                         .b_m_bytesel(fpu_mem_bytesel),
+                         .q_m_addr(q_m_addr),
+                         .q_m_data_in(mem_data),
+                         .q_m_data_out(q_m_data_out),
+                         .q_m_access(q_m_access),
+                         .q_m_ack(q_m_ack),
+                         .q_m_wr_en(q_m_wr_en),
+                         .q_m_bytesel(q_m_bytesel),
+                         .q_b());
 
 // SDRAM<->Cache signals
 wire [19:1] cache_sdram_m_addr;
@@ -565,7 +632,10 @@ Core Core(
     .fpu_modrm(cpu_fpu_modrm),
     .fpu_instr_valid(cpu_fpu_instr_valid),
     .fpu_busy(fpu_busy),
-    .fpu_int(fpu_int)
+    .fpu_int(fpu_int),
+    .fpu_status_word(fpu_status_word),
+    .fpu_control_word(fpu_control_word_reg),
+    .fpu_control_word_write(fpu_control_word_write)
 );
 
 		  
@@ -598,46 +668,44 @@ Timer Timer(.clk(sys_clk),
             .*);
 
 // FPU 8087 Coprocessor
-FPU_System_Integration FPU(
+FPU8087 FPU(
     .clk(sys_clk),
     .reset(reset),
 
     // CPU Instruction Interface
-    .cpu_opcode(cpu_fpu_opcode),
-    .cpu_modrm(cpu_fpu_modrm),
-    .cpu_instruction_valid(cpu_fpu_instr_valid),
+    .cpu_fpu_instr_valid(cpu_fpu_instr_valid),
+    .cpu_fpu_opcode(cpu_fpu_opcode),
+    .cpu_fpu_modrm(cpu_fpu_modrm),
+    .cpu_fpu_instr_ack(),  // Not used yet
 
-    // CPU Data Interface (unused for now)
-    .cpu_data_in(80'h0),
-    .cpu_data_out(),
-    .cpu_data_write(1'b0),
-    .cpu_data_ready(),
+    // CPU Data Transfer Interface (not used - FPU handles via memory interface)
+    .cpu_fpu_data_write(1'b0),
+    .cpu_fpu_data_read(1'b0),
+    .cpu_fpu_data_size(3'b0),
+    .cpu_fpu_data_in(80'h0),
+    .cpu_fpu_data_out(),  // Not used
+    .cpu_fpu_data_ready(),  // Not used
 
-    // Memory Interface (unused for now - FPU doesn't access memory directly yet)
-    .mem_addr(),
-    .mem_data_in(16'h0),
-    .mem_data_out(),
-    .mem_access(),
-    .mem_ack(1'b1),
-    .mem_wr_en(),
-    .mem_bytesel(),
+    // Memory Interface - Connected to arbiter
+    .mem_addr(fpu_mem_addr),
+    .mem_data_in(fpu_mem_data_in),
+    .mem_data_out(fpu_mem_data_out),
+    .mem_access(fpu_mem_access),
+    .mem_ack(fpu_mem_ack),
+    .mem_wr_en(fpu_mem_wr_en),
+    .mem_bytesel(fpu_mem_bytesel),
 
-    // CPU Control Signals
-    .fpu_busy(fpu_busy),
-    .fpu_int(fpu_int),
-    .fpu_int_clear(1'b0),
+    // Status and Control - Wired to Core for microcode access
+    .cpu_fpu_busy(fpu_busy),
+    .cpu_fpu_status_word(fpu_status_word),
+    .cpu_fpu_control_word(fpu_control_word_reg),  // Programmable via FLDCW
+    .cpu_fpu_ctrl_write(fpu_control_word_write),  // Write enable from microcode
+    .cpu_fpu_exception(),
+    .cpu_fpu_irq(fpu_int),
 
-    // Status/Control (unused for now)
-    .control_word_in(16'h037F),  // Default 8087 control word
-    .control_write(1'b0),
-    .status_word_out(),
-    .control_word_out(),
-
-    // Debug outputs
-    .is_esc_instruction(),
-    .has_memory_operand(),
-    .fpu_operation(),
-    .queue_count()
+    // Synchronization (FWAIT)
+    .cpu_fpu_wait(1'b0),  // Not used
+    .cpu_fpu_ready()      // Not used
 );
 
 `ifdef CONFIG_VGA
