@@ -49,7 +49,7 @@ echo "Running simulation..."
 echo ""
 
 # Run simulation
-timeout 30 ./simple_uart_test 2>&1 | tee "$RESULTS_DIR/simulation.log"
+timeout 30 vvp simple_uart_test 2>&1 | tee "$RESULTS_DIR/simulation.log"
 
 SIM_STATUS=$?
 

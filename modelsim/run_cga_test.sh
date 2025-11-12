@@ -60,7 +60,7 @@ cp splash.hex "$RESULTS_DIR/" 2>/dev/null || echo "Warning: splash.hex not found
 
 # Run simulation
 cd "$RESULTS_DIR"
-./cga_registers_tb 2>&1 | tee simulation.log
+vvp cga_registers_tb 2>&1 | tee simulation.log
 SIM_RESULT=${PIPESTATUS[0]}
 cd ..
 

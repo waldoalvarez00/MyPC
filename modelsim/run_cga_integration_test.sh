@@ -60,7 +60,7 @@ echo ""
 
 # Run simulation
 cd "$RESULTS_DIR"
-./cga_controller_integration_tb 2>&1 | tee simulation.log
+vvp cga_controller_integration_tb 2>&1 | tee simulation.log
 SIM_RESULT=${PIPESTATUS[0]}
 cd ..
 
