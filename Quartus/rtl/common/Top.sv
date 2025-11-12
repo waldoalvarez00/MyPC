@@ -126,6 +126,7 @@ wire [15:0] io_data = sdram_config_data |
     timer_data |
     irq_control_data |
     pic_data |
+    fpu_io_data_in |
 `ifdef CONFIG_VGA
     vga_reg_data |
 `endif // CONFIG_VGA
@@ -253,6 +254,16 @@ wire fpu_mem_ack;
 wire fpu_mem_wr_en;
 wire [1:0] fpu_mem_bytesel;
 
+// FPU Data Transfer Interface (via I/O ports)
+wire fpu_data_write;
+wire fpu_data_read;
+wire [2:0] fpu_data_size;
+wire [79:0] fpu_data_to_fpu;
+wire [79:0] fpu_data_from_fpu;
+wire fpu_data_ready;
+wire [15:0] fpu_io_data_in;
+wire fpu_io_ack;
+
 wire default_io_access;
 wire default_io_ack;
 
@@ -264,6 +275,7 @@ wire io_ack = sdram_config_ack |
               irq_control_ack |
               pic_ack |
               timer_ack |
+              fpu_io_ack |
 `ifdef CONFIG_VGA
               vga_reg_ack |
 `endif // CONFIG_VGA
@@ -659,13 +671,13 @@ FPU8087 FPU(
     .cpu_fpu_modrm(cpu_fpu_modrm),
     .cpu_fpu_instr_ack(),  // Not used yet
 
-    // CPU Data Transfer Interface (for register operations - not implemented yet)
-    .cpu_fpu_data_write(1'b0),
-    .cpu_fpu_data_read(1'b0),
-    .cpu_fpu_data_size(3'b0),
-    .cpu_fpu_data_in(80'h0),
-    .cpu_fpu_data_out(),
-    .cpu_fpu_data_ready(),
+    // CPU Data Transfer Interface (for register operations - via I/O ports)
+    .cpu_fpu_data_write(fpu_data_write),
+    .cpu_fpu_data_read(fpu_data_read),
+    .cpu_fpu_data_size(fpu_data_size),
+    .cpu_fpu_data_in(fpu_data_to_fpu),
+    .cpu_fpu_data_out(fpu_data_from_fpu),
+    .cpu_fpu_data_ready(fpu_data_ready),
 
     // Memory Interface - Now connected to arbiter
     .mem_addr(fpu_mem_addr),
@@ -687,6 +699,28 @@ FPU8087 FPU(
     // Synchronization (FWAIT)
     .cpu_fpu_wait(1'b0),  // Not used yet
     .cpu_fpu_ready()      // Not used yet
+);
+
+// FPU I/O Port Interface (for CPU-FPU data transfer via I/O ports)
+FPU_IO_Port FPU_IO_Port(
+    .clk(sys_clk),
+    .reset(reset),
+
+    // CPU I/O Bus Interface
+    .io_addr({data_m_addr, 1'b0}),
+    .io_data_out(data_m_data_out),
+    .io_data_in(fpu_io_data_in),
+    .io_access(d_io && data_m_access),
+    .io_ack(fpu_io_ack),
+    .io_wr_en(data_m_wr_en),
+
+    // FPU Data Transfer Interface
+    .fpu_data_write(fpu_data_write),
+    .fpu_data_read(fpu_data_read),
+    .fpu_data_size(fpu_data_size),
+    .fpu_data_out(fpu_data_to_fpu),
+    .fpu_data_in(fpu_data_from_fpu),
+    .fpu_data_ready(fpu_data_ready)
 );
 
 `ifdef CONFIG_VGA
