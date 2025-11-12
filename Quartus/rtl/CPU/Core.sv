@@ -107,10 +107,17 @@ wire [15:0] cs;
 wire [1:0] segment;
 wire segment_wr_en;
 
-// FPU signals - currently inactive (ESC instructions trap to INT 0x1C)
-assign fpu_opcode = 8'h00;
-assign fpu_modrm = 8'h00;
-assign fpu_instr_valid = 1'b0;
+// FPU Interface Signals
+// Detect ESC instructions (opcodes 0xD8-0xDF) and signal FPU
+wire is_esc_instruction = (cur_instruction.opcode[7:3] == 5'b11011);
+
+// Output opcode and ModR/M to FPU when ESC instruction detected
+assign fpu_opcode = is_esc_instruction ? cur_instruction.opcode : 8'h00;
+assign fpu_modrm = is_esc_instruction ? cur_instruction.mod_rm : 8'h00;
+
+// Generate instruction valid pulse when starting a new ESC instruction
+// This tells the FPU that a new instruction is available
+assign fpu_instr_valid = is_esc_instruction & starting_instruction;
 
 wire decode_immed_start;
 wire decode_immed_is_8bit;
@@ -226,7 +233,7 @@ wire next_microinstruction;
 // Misc control signals
 wire debug_set_ip = debug_stopped && ip_wr_en;
 wire do_next_instruction = (next_instruction & ~do_stall) | debug_set_ip;
-wire do_stall = loadstore_busy | divide_busy | alu_busy;
+wire do_stall = loadstore_busy | divide_busy | alu_busy | fpu_busy;
 wire start_interrupt;
 
 // IP
