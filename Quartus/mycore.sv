@@ -561,7 +561,7 @@ wire [15:0] mem_data;
 
 // Data bus
 wire [19:1] data_m_addr;
-wire [15:0] data_m_data_in = d_io ? io_data : dcache_c_data_in;  // Harvard: D-cache data
+wire [15:0] data_m_data_in = d_io ? io_data : cpu_dcache_data_in;  // Harvard: D-cache via arbiter
 wire [15:0] data_m_data_out;
 wire data_m_access;
 wire data_m_ack = data_mem_ack | io_ack;
@@ -954,63 +954,41 @@ IDArbiter IDArbiter(.clk(sys_clk),
 assign instr_m_data_in = icache_c_data_in;
 assign instr_m_ack = icache_c_ack;
 
-// Connect data acknowledgment from D-cache and I/O
-assign data_mem_ack = dcache_c_ack | io_ack;
+// Connect data acknowledgment from D-cache arbiter and I/O
+assign data_mem_ack = cpu_dcache_ack | io_ack;
 
-// DMA Arbiter - Muxes CPU (instr+data) and DMA controller access to memory
-// Priority: DMA has higher priority when active
+// ============================================================================
+// CACHE COHERENCY ARCHITECTURE
+// ============================================================================
+// All data memory accesses (CPU, DMA, FPU) now go through D-cache via
+// DCacheFrontendArbiter. This ensures cache coherency and eliminates the
+// stale data issues that occurred when DMA/FPU bypassed the cache.
+//
+// Old architecture (BROKEN - coherency violations):
+//   ICache/DCache → CacheArbiter → PipelinedDMAFPUArbiter → SDRAM
+//   DMA → PipelinedDMAFPUArbiter (bypasses cache!)
+//   FPU → PipelinedDMAFPUArbiter (bypasses cache!)
+//
+// New architecture (CORRECT - coherent):
+//   ICache → CacheArbiter → VGA Arbiter → SDRAM
+//   CPU/DMA/FPU → DCacheFrontendArbiter → DCache → CacheArbiter → VGA Arbiter → SDRAM
+//
+// Benefits:
+//   ✓ Eliminates all coherency violations
+//   ✓ FPU benefits from caching (faster repeated access)
+//   ✓ Simpler architecture (removed PipelinedDMAFPUArbiter)
+//   ✓ Proven approach used in real CPUs
+// ============================================================================
 
-// dma_m_data_in is now driven by CPUDMAArbiter output (a_m_data_in)
-// Note: Floppy DMA data path may need to be redesigned for new arbiter architecture
-
-// Pipelined DMA/FPU/CPU Arbiter - 3-port with FPU support for memory operands
-// Priority: DMA (A) > FPU (C) > CPU Cache (B)
-PipelinedDMAFPUArbiter CPUDMAFPUArbiter(
-    .clk(sys_clk),
-    .reset(post_sdram_reset),
-
-    // DMA bus (A-bus) - Highest priority
-    .a_m_addr(dma_m_addr),
-    .a_m_data_in(dma_m_data_in),
-    .a_m_data_out(dma_m_data_out),
-    .a_m_access(dma_m_access & ~dma_d_io),  // Only memory access, not I/O
-    .a_m_ack(dma_m_ack),
-    .a_m_wr_en(dma_m_wr_en),
-    .a_m_bytesel(dma_m_bytesel),
-    .ioa(1'b0),  // DMA doesn't use I/O flag here
-
-    // CPU Cache bus (B-bus) - Lowest priority
-    // Harvard: Unified cache output (I-cache + D-cache via CacheArbiter)
-    .b_m_addr(cache_unified_m_addr),
-    .b_m_data_in(cache_unified_m_data_in),
-    .b_m_data_out(cache_unified_m_data_out),
-    .b_m_access(cache_unified_m_access),
-    .b_m_ack(cache_unified_m_ack),
-    .b_m_wr_en(cache_unified_m_wr_en),
-    .b_m_bytesel(cache_unified_m_bytesel),
-    .iob(1'b0),
-
-    // FPU bus (C-bus) - Medium priority
-    // Enables FPU memory operand instructions: FADD [BX], FILD [SI], etc.
-    .c_m_addr(fpu_mem_addr[19:1]),  // Convert 20-bit byte address to 19:1 word address
-    .c_m_data_in(fpu_mem_data_in),
-    .c_m_data_out(fpu_mem_data_out),
-    .c_m_access(fpu_mem_access),
-    .c_m_ack(fpu_mem_ack),
-    .c_m_wr_en(fpu_mem_wr_en),
-    .c_m_bytesel(fpu_mem_bytesel),
-
-    // Output to memory system (connects to CacheVGAArbiter)
-    .q_m_addr(q_m_addr),
-    .q_m_data_in(q_m_data_in),
-    .q_m_data_out(q_m_data_out),
-    .q_m_access(q_m_access),
-    .q_m_ack(q_m_ack),
-    .q_m_wr_en(q_m_wr_en),
-    .q_m_bytesel(q_m_bytesel),
-    .ioq(),
-    .q_grant()  // 00=none, 01=DMA, 10=CPU, 11=FPU
-);
+// Connect CacheArbiter output directly to VGA arbiter
+// (replaces old PipelinedDMAFPUArbiter routing)
+assign q_m_addr = cache_unified_m_addr;
+assign q_m_data_out = cache_unified_m_data_out;
+assign q_m_access = cache_unified_m_access;
+assign q_m_wr_en = cache_unified_m_wr_en;
+assign q_m_bytesel = cache_unified_m_bytesel;
+assign cache_unified_m_data_in = q_m_data_in;
+assign cache_unified_m_ack = q_m_ack;
 
 // SDRAM<->Cache signals
 wire [19:1] cache_sdram_m_addr;
@@ -1120,12 +1098,54 @@ DCache2Way #(.sets(256)) DataCache (
     .m_bytesel(dcache_m_bytesel)
 );
 
-// Connect CPU data bus to D-cache
-assign dcache_c_addr = data_m_addr;
-assign dcache_c_data_out = data_m_data_out;
-assign dcache_c_access = data_m_access & ~d_io;  // Only memory accesses, not I/O
-assign dcache_c_wr_en = data_m_wr_en;
-assign dcache_c_bytesel = data_m_bytesel;
+// ===== D-CACHE FRONTEND ARBITER =====
+// Multiplexes CPU, DMA, and FPU data requests to D-cache
+// Ensures cache coherency by routing ALL data memory through the cache
+// Priority: DMA > FPU > CPU
+
+wire [15:0] cpu_dcache_data_in;  // CPU ← DCache
+wire cpu_dcache_ack;             // CPU ← DCache ACK
+
+DCacheFrontendArbiter dcache_frontend_arbiter (
+    .clk(sys_clk),
+    .reset(post_sdram_reset),
+
+    // CPU Data Port (Lowest priority)
+    .cpu_addr(data_m_addr),
+    .cpu_data_in(cpu_dcache_data_in),
+    .cpu_data_out(data_m_data_out),
+    .cpu_access(data_m_access & ~d_io),  // Only memory, not I/O
+    .cpu_ack(cpu_dcache_ack),
+    .cpu_wr_en(data_m_wr_en),
+    .cpu_bytesel(data_m_bytesel),
+
+    // DMA Port (Highest priority)
+    .dma_addr(dma_m_addr),
+    .dma_data_in(dma_m_data_in),
+    .dma_data_out(dma_m_data_out),
+    .dma_access(dma_m_access & ~dma_d_io),  // Only memory, not I/O
+    .dma_ack(dma_m_ack),
+    .dma_wr_en(dma_m_wr_en),
+    .dma_bytesel(dma_m_bytesel),
+
+    // FPU Port (Medium priority)
+    .fpu_addr(fpu_mem_addr[19:1]),  // Convert byte → word address
+    .fpu_data_in(fpu_mem_data_in),
+    .fpu_data_out(fpu_mem_data_out),
+    .fpu_access(fpu_mem_access),
+    .fpu_ack(fpu_mem_ack),
+    .fpu_wr_en(fpu_mem_wr_en),
+    .fpu_bytesel(fpu_mem_bytesel),
+
+    // DCache Frontend (Single unified output)
+    .cache_addr(dcache_c_addr),
+    .cache_data_in(dcache_c_data_in),
+    .cache_data_out(dcache_c_data_out),
+    .cache_access(dcache_c_access),
+    .cache_ack(dcache_c_ack),
+    .cache_wr_en(dcache_c_wr_en),
+    .cache_bytesel(dcache_c_bytesel)
+);
 
 // ===== CACHE ARBITER =====
 // Multiplexes I-cache and D-cache requests to memory
