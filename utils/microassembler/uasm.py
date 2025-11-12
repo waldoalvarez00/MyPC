@@ -388,6 +388,7 @@ class MicroAssembler(object):
         'reg_wr_source': (num_bits(len(RegWrSource)), partial(_enumerated_field, enum_class=RegWrSource), True),
         'tmp_wr_en': (1, _boolean, True),
         'tmp_wr_sel': (num_bits(len(TEMPWrSel)), partial(_enumerated_field, enum_class=TEMPWrSel), True),
+        'fpu_ctrl_wr': (1, _boolean, True),  # FPU control word write enable
         'width': (num_bits(len(WidthType)), partial(_enumerated_field, enum_class=WidthType), False),
         'load_ip': (1, _boolean, True),
         'io': (1, _boolean, True),

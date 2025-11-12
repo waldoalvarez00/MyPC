@@ -47,6 +47,7 @@ class ADriver(Enum):
     MAR = 2
     MDR = 3
     FPU_STATUS = 4
+    FPU_CONTROL = 5
 
 class BDriver(Enum):
     RB = 0

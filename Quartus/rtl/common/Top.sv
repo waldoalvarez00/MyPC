@@ -257,6 +257,18 @@ wire [1:0] fpu_mem_bytesel;
 wire [15:0] fpu_status_word;
 wire [15:0] fpu_control_word_out;
 
+// FPU Control Word Register (programmable via FLDCW)
+reg [15:0] fpu_control_word_reg;
+wire fpu_control_word_write;  // From microcode
+
+// Initialize FPU control word to 8087 default on reset
+always @(posedge sys_clk) begin
+    if (reset)
+        fpu_control_word_reg <= 16'h037F;  // Default: All exceptions masked except invalid op
+    else if (fpu_control_word_write)
+        fpu_control_word_reg <= q;  // Write from ALU Q output (via MDR)
+end
+
 wire default_io_access;
 wire default_io_ack;
 
@@ -621,7 +633,9 @@ Core Core(
     .fpu_instr_valid(cpu_fpu_instr_valid),
     .fpu_busy(fpu_busy),
     .fpu_int(fpu_int),
-    .fpu_status_word(fpu_status_word)
+    .fpu_status_word(fpu_status_word),
+    .fpu_control_word(fpu_control_word_reg),
+    .fpu_control_word_write(fpu_control_word_write)
 );
 
 		  
@@ -684,8 +698,8 @@ FPU8087 FPU(
     // Status and Control - Wired to Core for microcode access
     .cpu_fpu_busy(fpu_busy),
     .cpu_fpu_status_word(fpu_status_word),
-    .cpu_fpu_control_word(16'h037F),  // Default 8087 control word (can be updated via microcode)
-    .cpu_fpu_ctrl_write(1'b0),  // TODO: Wire to microcode control signal
+    .cpu_fpu_control_word(fpu_control_word_reg),  // Programmable via FLDCW
+    .cpu_fpu_ctrl_write(fpu_control_word_write),  // Write enable from microcode
     .cpu_fpu_exception(),
     .cpu_fpu_irq(fpu_int),
 

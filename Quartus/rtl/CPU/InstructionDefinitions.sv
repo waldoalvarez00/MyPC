@@ -54,6 +54,7 @@ module Microcode(input logic clk,
                  output logic [5:0] alu_op,
                  output logic [2:0] b_sel,
                  output logic ext_int_yield,
+                 output logic fpu_ctrl_wr,
                  output logic io,
                  output logic load_ip,
                  output logic mar_wr_sel,
@@ -91,7 +92,7 @@ module Microcode(input logic clk,
                  input logic [7:0] debug_addr,
                  input logic debug_run);
 
-localparam num_instructions = 1207;
+localparam num_instructions = 1231;
 localparam addr_bits = 11;
 localparam reset_address = 11'h129;
 localparam nmi_address = 11'h12a;
@@ -111,6 +112,7 @@ typedef struct packed {
     logic [2:0] b_sel;
     logic ext_int_inhibit;
     logic ext_int_yield;
+    logic fpu_ctrl_wr;
     logic [3:0] immediate;
     logic io;
     logic [3:0] jump_type;
@@ -188,6 +190,7 @@ assign a_sel = current.a_sel;
 assign alu_op = current.alu_op;
 assign b_sel = current.b_sel;
 assign ext_int_yield = current.ext_int_yield;
+assign fpu_ctrl_wr = current.fpu_ctrl_wr;
 assign io = current.io;
 assign load_ip = current.load_ip;
 assign mar_wr_sel = current.mar_wr_sel;

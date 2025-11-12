@@ -76,6 +76,7 @@ module Microcode(input logic clk,
                  output logic segment_wr_en,
                  output logic tmp_wr_en,
                  output logic tmp_wr_sel,
+                 output logic fpu_ctrl_wr,  // FPU control word write enable
                  output logic width,
                  output logic reg_wr_en,
 				 
@@ -137,6 +138,7 @@ typedef struct packed {
     logic segment_wr_en;
     logic tmp_wr_en;
     logic tmp_wr_sel;
+    logic fpu_ctrl_wr;
     logic [3:0] update_flags;
     logic [1:0] width;
 } microcode_instruction;
@@ -216,6 +218,7 @@ assign segment_force = current.segment_force;
 assign segment_wr_en = current.segment_wr_en;
 assign tmp_wr_en = current.tmp_wr_en;
 assign tmp_wr_sel = current.tmp_wr_sel;
+assign fpu_ctrl_wr = current.fpu_ctrl_wr;
 
 assign fifo_rd_en = starting_instruction;
 assign starting_instruction = !stall && (next_addr == {{addr_bits-8{1'b0}}, next_instruction_value.opcode});

@@ -59,7 +59,9 @@ module Core(input wire  clk,
             output logic fpu_instr_valid,
             input  logic fpu_busy,
             input  logic fpu_int,
-            input  logic [15:0] fpu_status_word);
+            input  logic [15:0] fpu_status_word,
+            input  logic [15:0] fpu_control_word,
+            output logic fpu_control_word_write);
 
 // verilator lint_off UNUSED
 Instruction wr_instruction, cur_instruction, next_instruction_value;
@@ -70,7 +72,8 @@ wire [15:0] a_bus =
     a_sel == ADriver_RA ? reg_rd_val[0] :
     a_sel == ADriver_IP ? ip_current :
     a_sel == ADriver_MAR ? mar :
-    a_sel == ADriver_FPU_STATUS ? fpu_status_word : mdr;
+    a_sel == ADriver_FPU_STATUS ? fpu_status_word :
+    a_sel == ADriver_FPU_CONTROL ? fpu_control_word : mdr;
 	
 wire [15:0] b_bus =
     b_sel == BDriver_RB ? reg_rd_val[1] :
@@ -506,6 +509,7 @@ Microcode       Microcode(.clk(clk),
                           .segment_wr_en(segment_wr_en),
                           .tmp_wr_en(microcode_tmp_wr_en),
                           .tmp_wr_sel(tmp_wr_sel),
+                          .fpu_ctrl_wr(fpu_control_word_write),
                           .update_flags(update_flags),
                           .width(is_8_bit),
                           .fifo_rd_en(instruction_fifo_rd_en),

@@ -23,7 +23,8 @@ typedef enum bit [2:0] {
     ADriver_IP = 3'd1,
     ADriver_MAR = 3'd2,
     ADriver_MDR = 3'd3,
-    ADriver_FPU_STATUS = 3'd4
+    ADriver_FPU_STATUS = 3'd4,
+    ADriver_FPU_CONTROL = 3'd5
 } MC_ADriver_t;
 `define MC_ADriver_t_BITS 3
 
