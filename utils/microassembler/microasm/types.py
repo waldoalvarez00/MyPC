@@ -120,6 +120,7 @@ class JumpType(Enum):
     JUMP_TAKEN = 7
     RB_ZERO = 8
     LOOP_DONE = 9
+    FPU_BUSY = 10
 
 class MARWrSel(Enum):
     EA = 0

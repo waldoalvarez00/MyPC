@@ -90,7 +90,7 @@ module Microcode(input logic clk,
                  input logic [7:0] debug_addr,
                  input logic debug_run);
 
-localparam num_instructions = 1196;
+localparam num_instructions = 1198;
 localparam addr_bits = 11;
 localparam reset_address = 11'h129;
 localparam nmi_address = 11'h12a;

@@ -234,12 +234,9 @@ wire next_microinstruction;
 wire debug_set_ip = debug_stopped && ip_wr_en;
 wire do_next_instruction = (next_instruction & ~do_stall) | debug_set_ip;
 
-// FPU wait stall: Only stall when executing FWAIT (0x9B) and FPU is busy
-// This allows CPU and FPU to work concurrently on normal instructions
-wire fwait_stall = (opcode == 8'h9B) && fpu_busy;
-
 // General CPU stall condition
-wire do_stall = loadstore_busy | divide_busy | alu_busy | fwait_stall;
+// Note: FPU busy is NOT included here - FWAIT synchronization handled by microcode polling
+wire do_stall = loadstore_busy | divide_busy | alu_busy;
 wire start_interrupt;
 
 // IP
@@ -473,6 +470,7 @@ Microcode       Microcode(.clk(clk),
                           .int_enabled(flags[IF_IDX]),
                           .zf(flags[ZF_IDX]),
                           .tf(flags[TF_IDX]),
+                          .fpu_busy(fpu_busy),
                           .microcode_immediate(microcode_immediate),
                           .use_microcode_immediate(use_microcode_immediate),
                           .opcode(opcode),
