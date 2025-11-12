@@ -53,7 +53,7 @@ module Microcode(input logic clk,
 				 
 				 
                  // Microinstruction fields.
-                 output logic [1:0] a_sel,
+                 output logic [2:0] a_sel,  // Expanded from [1:0] for FPU_STATUS
                  output logic [5:0] alu_op,
                  output logic [2:0] b_sel,
                  output logic ext_int_yield,

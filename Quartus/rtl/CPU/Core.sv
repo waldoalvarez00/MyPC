@@ -203,7 +203,7 @@ wire [2:0] microcode_reg_rd_sel[2];
 wire [2:0] microcode_reg_wr_sel;
 wire [1:0] reg_wr_source;
 wire [1:0] seg_wr_sel;
-wire [1:0] a_sel;
+wire [2:0] a_sel;  // Expanded from [1:0] for ADriver_FPU_STATUS
 wire [2:0] b_sel;
 wire next_instruction;
 wire is_8_bit;
