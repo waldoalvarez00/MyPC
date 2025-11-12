@@ -3,6 +3,9 @@
 Quartus/serv_req_info.txt
 utils/bios/pcxtbios-iles.bin
 
+# Microassembler build artifacts
+utils/microassembler/microcode/*.preprocessed
+
 # Verilator generated files
 *.log
 obj_dir/
