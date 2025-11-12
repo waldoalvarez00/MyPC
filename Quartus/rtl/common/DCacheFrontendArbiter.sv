@@ -263,14 +263,13 @@ assign cpu_data_in = cpu_data_in_reg;
         if (!reset) begin
             // Monitor state transitions
             if (state != next_state) begin
-                $display("[ARBITER] State transition: %0s → %0s",
-                         state.name(), next_state.name());
+                $display("[ARBITER] State transition: %0d → %0d", state, next_state);
             end
 
             // Monitor stuck conditions
             if (state != IDLE && !cache_ack && !cache_access) begin
-                $display("[ARBITER] WARNING: In state %0s but cache_access=0 (serving_dma=%b serving_fpu=%b serving_cpu=%b)",
-                         state.name(), serving_dma, serving_fpu, serving_cpu);
+                $display("[ARBITER] WARNING: In state %0d but cache_access=0 (serving_dma=%b serving_fpu=%b serving_cpu=%b)",
+                         state, serving_dma, serving_fpu, serving_cpu);
             end
         end
     end

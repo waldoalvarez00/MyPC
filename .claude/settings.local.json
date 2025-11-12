@@ -3,7 +3,13 @@
     "allow": [
       "Bash(/c/intelFPGA_lite/17.0/quartus/bin/quartus_sh:*)",
       "Bash(/c/intelFPGA_lite/17.0/quartus/bin64/quartus_sh.exe --flow compile mycore)",
-      "Bash(tee:*)"
+      "Bash(tee:*)",
+      "Bash(python build_microcode.py:*)",
+      "Bash(cat:*)",
+      "Bash(pip install:*)",
+      "Bash(/tmp/all_functions.sv)",
+      "Bash(/tmp/microcode_module.sv)",
+      "Bash(\"C:/Users/waldo/Documents/GitHub/MyPC/Quartus/rtl/CPU/InstructionDefinitions.sv\")"
     ],
     "deny": [],
     "ask": []

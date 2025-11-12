@@ -22,7 +22,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) R
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) SegmentOverride.sv ]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) SegmentRegisterFile.sv ]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) TempReg.sv ]
-set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) Microcode.sv ]
+# Microcode.sv removed - InstructionDefinitions.sv (generated) contains the Microcode module
 
 
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) alu/aaa.sv ]
