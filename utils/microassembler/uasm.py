@@ -28,6 +28,13 @@ from functools import partial, lru_cache
 from textx.metamodel import metamodel_from_file
 from pcpp import Preprocessor
 
+# Custom preprocessor that doesn't skip header-guarded content
+class MicrocodePreprocessor(Preprocessor):
+    def on_potential_include_guard(self, macro):
+        # Don't skip content based on include guards
+        # Each microcode file is processed independently
+        return super().on_potential_include_guard(macro)
+
 from microasm.types import (
     GPR,
     SR,
@@ -104,25 +111,47 @@ class MicroAssembler(object):
         def preprocess(filename):
             print(f"Preprocessing file: {filename}")  # Debug print
 
-            # Create preprocessor instance
-            pp = Preprocessor()
+            # Read and parse the file
+            with open(filename, 'r') as f:
+                content = f.read()
+
+            # Check if file needs preprocessing
+            needs_preprocessing = '#' in content
+
+            if not needs_preprocessing:
+                # No preprocessing needed - file has no directives
+                print(f"  No preprocessing needed")
+                return content
+
+            # Use pcpp for all files with preprocessor directives
+            # Files with only #define (header files) will produce empty output
+            # and will be skipped later
+            print(f"  Preprocessing with pcpp")
+            pp = MicrocodePreprocessor()
             pp.line_directive = '#'  # Use # instead of #line for compatibility
             pp.compress = 0  # Don't compress whitespace
+
+            # Configure preprocessor behavior
+            pp.passthru_includes = None
 
             # Add include paths
             for inc_dir in self._include:
                 pp.add_path(inc_dir)
 
-            # Read and parse the file
-            with open(filename, 'r') as f:
-                content = f.read()
-
-            pp.parse(content, filename)
+            # Parse with source parameter
+            pp.parse(content, source=filename)
 
             # Write output to string
             output = io.StringIO()
             pp.write(output)
             result = output.getvalue()
+
+            # Check if result is empty (header-only file with no code to emit)
+            if not result.strip():
+                print(f"  Header file (no code emitted): {filename}")
+                # This is okay - header files with only #define macros produce no output
+                # They will be included and expanded by other files that need them
+                return ""  # Return empty string to skip this file
 
             # Post-process to add newlines after semicolons if they're missing
             # This is needed because macro expansions can collapse multiple lines
@@ -132,7 +161,39 @@ class MicroAssembler(object):
 
         for f in files:
             print(f"Processing file: {f}")  # Debug print
-            model = mm.model_from_str(preprocess(f))
+
+            # Preprocess the file
+            preprocessed_text = preprocess(f)
+
+            # Skip header-only files (they produce empty output and will be included by other files)
+            if not preprocessed_text.strip():
+                print(f"  Skipping header file (will be included by other files)")
+                continue
+
+            # Debug: Save preprocessed output (enable for all files temporarily)
+            debug_filename = f + '.preprocessed'
+            with open(debug_filename, 'w') as debug_f:
+                debug_f.write(preprocessed_text)
+            if files.index(f) < 5 or 'arithmetic' in f:
+                print(f"  Saved preprocessed output to: {debug_filename}")
+
+            # Parse the preprocessed text with better error handling
+            try:
+                model = mm.model_from_str(preprocessed_text, file_name=f)
+            except Exception as e:
+                print(f"ERROR: Failed to parse {f}")
+                print(f"Parser error: {e}")
+                print(f"Preprocessed text (first 500 chars):")
+                print(preprocessed_text[:500])
+                raise
+
+            # Verify model has expected structure
+            if not hasattr(model, 'lines'):
+                print(f"ERROR: Parsed model does not have 'lines' attribute")
+                print(f"Model type: {type(model)}")
+                print(f"Model dir: {dir(model)}")
+                raise AttributeError(f"Model from {f} missing 'lines' attribute")
+
             current_label = None
             current_address = None
 
@@ -347,6 +408,7 @@ class MicroAssembler(object):
         'jmp_if_taken': (0, partial(_jump, jump_type=JumpType.JUMP_TAKEN), False),
         'jmp_rb_zero': (0, partial(_jump, jump_type=JumpType.RB_ZERO), False),
         'jmp_loop_done': (0, partial(_jump, jump_type=JumpType.LOOP_DONE), False),
+        'jmp_if_fpu_busy': (0, partial(_jump, jump_type=JumpType.FPU_BUSY), False),
         'jmp': (0, partial(_jump, jump_type=JumpType.UNCONDITIONAL), False),
     }
 

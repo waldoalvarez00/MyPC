@@ -39,5 +39,13 @@ do_esc:
 #if (S80X86_TRAP_ESCAPE == 1)
     b_sel IMMEDIATE, immediate 0x1c, alu_op SELB, tmp_wr_en, jmp do_int;
 #else
+    // FPU ESC instructions (D8-DF) - Asynchronous coprocessor operation
+    // Hardware signals in Core.sv:
+    //   - fpu_opcode (output to FPU) - ESC opcode
+    //   - fpu_modrm (output to FPU) - ModR/M byte
+    //   - fpu_instr_valid (output to FPU) - Pulse when new ESC detected
+    //   - fpu_busy (input from FPU) - FPU executing (does NOT stall CPU)
+    // CPU and FPU work concurrently - CPU continues executing while FPU processes
+    // Use FWAIT instruction to synchronize (waits for fpu_busy to clear)
     next_instruction;
 #endif

@@ -555,6 +555,8 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/Floppy/floppy_disk_manager.sv
 set_global_assignment -name SYSTEMVERILOG_FILE "rtl/KF8237-DMA/DMAUnit.sv"
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/DMAArbiter.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/PipelinedDMAArbiter.sv
+# Replaced by DCacheFrontendArbiter for cache coherency (all data memory goes through D-cache)
+# set_global_assignment -name SYSTEMVERILOG_FILE rtl/PipelinedDMAFPUArbiter.sv
 set_global_assignment -name QIP_FILE "rtl/KF8237-DMA/KF8237-DMA.qip"
 set_global_assignment -name QIP_FILE rtl/Keyboard/keyboard.qip
 set_global_assignment -name VERILOG_FILE rtl/MSMouse/MSMouseWrapper.v
@@ -573,6 +575,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/PipelinedMemArbiterExtend.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/common/DCache2Way.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/common/ICache2Way.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/common/CacheArbiter.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/common/DCacheFrontendArbiter.sv
 set_global_assignment -name QIP_FILE rtl/uart/uart.qip
 set_global_assignment -name QIP_FILE rtl/ps2/ps2.qip
 set_global_assignment -name QIP_FILE rtl/CPU/CPU.qip

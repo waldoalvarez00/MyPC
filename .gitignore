@@ -3,6 +3,9 @@
 Quartus/serv_req_info.txt
 utils/bios/pcxtbios-iles.bin
 
+# Microassembler build artifacts
+utils/microassembler/microcode/*.preprocessed
+
 # Verilator generated files
 *.log
 obj_dir/
@@ -15,6 +18,7 @@ modelsim/master_test_results_*/
 
 # Compiled test binaries
 modelsim/*_tb
+modelsim/tb_*
 modelsim/*_test
 modelsim/*_sim
 modelsim/simple_uart_test

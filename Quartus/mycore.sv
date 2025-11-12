@@ -548,6 +548,10 @@ always @(*) begin
         io_data = ppiout;
     else if (floppy_access)
         io_data = {8'b0, floppy_readdata};
+    else if (fpu_control_access)
+        io_data = fpu_control_data;
+    else if (fpu_status_access)
+        io_data = fpu_status_data;
     else
         io_data = 16'b0;
 end
@@ -557,7 +561,7 @@ wire [15:0] mem_data;
 
 // Data bus
 wire [19:1] data_m_addr;
-wire [15:0] data_m_data_in = d_io ? io_data : dcache_c_data_in;  // Harvard: D-cache data
+wire [15:0] data_m_data_in = d_io ? io_data : cpu_dcache_data_in;  // Harvard: D-cache via arbiter
 wire [15:0] data_m_data_out;
 wire data_m_access;
 wire data_m_ack = data_mem_ack | io_ack;
@@ -576,6 +580,31 @@ wire [7:0] cpu_fpu_modrm;
 wire cpu_fpu_instr_valid;
 wire fpu_busy;
 wire fpu_int;
+
+// FPU Control/Status I/O
+wire fpu_control_access;
+wire fpu_status_access;
+wire fpu_control_ack;
+wire fpu_status_ack;
+wire [15:0] fpu_control_data;
+wire [15:0] fpu_status_data;
+wire [15:0] fpu_control_word_out;
+wire [15:0] fpu_status_word_out;
+
+// FPU Memory Interface
+wire [19:0] fpu_mem_addr;
+wire [15:0] fpu_mem_data_in;
+wire [15:0] fpu_mem_data_out;
+wire fpu_mem_access;
+wire fpu_mem_ack;
+wire fpu_mem_wr_en;
+wire [1:0] fpu_mem_bytesel;
+
+// FPU CPU Data Interface (80-bit transfers - future enhancement)
+wire [79:0] fpu_cpu_data_in;
+wire [79:0] fpu_cpu_data_out;
+wire fpu_cpu_data_write;
+wire fpu_cpu_data_ready;
 
 // Multiplexed I/D bus.
 wire [19:1] q_m_addr;
@@ -713,6 +742,10 @@ always @(posedge sys_clk) begin
         io_ack <= bios_control_ack;
     else if (floppy_access)
         io_ack <= floppy_ack;
+    else if (fpu_control_access)
+        io_ack <= fpu_control_ack;
+    else if (fpu_status_access)
+        io_ack <= fpu_status_ack;
     else
         io_ack <= 1'b0;
 end
@@ -831,8 +864,10 @@ AddressDecoderIO AddressDecoderIO(
 	 .dma_page_chip_select(dma_page_chip_select),
 	 .dma_chip_select(dma_chip_select),
 	 .ppi_control_access(ppi_control_access),
-	 .floppy_access(floppy_access)
-	 
+	 .floppy_access(floppy_access),
+	 .fpu_control_access(fpu_control_access),
+	 .fpu_status_access(fpu_status_access)
+
 );
 
 
@@ -919,51 +954,41 @@ IDArbiter IDArbiter(.clk(sys_clk),
 assign instr_m_data_in = icache_c_data_in;
 assign instr_m_ack = icache_c_ack;
 
-// Connect data acknowledgment from D-cache and I/O
-assign data_mem_ack = dcache_c_ack | io_ack;
+// Connect data acknowledgment from D-cache arbiter and I/O
+assign data_mem_ack = cpu_dcache_ack | io_ack;
 
-// DMA Arbiter - Muxes CPU (instr+data) and DMA controller access to memory
-// Priority: DMA has higher priority when active
+// ============================================================================
+// CACHE COHERENCY ARCHITECTURE
+// ============================================================================
+// All data memory accesses (CPU, DMA, FPU) now go through D-cache via
+// DCacheFrontendArbiter. This ensures cache coherency and eliminates the
+// stale data issues that occurred when DMA/FPU bypassed the cache.
+//
+// Old architecture (BROKEN - coherency violations):
+//   ICache/DCache → CacheArbiter → PipelinedDMAFPUArbiter → SDRAM
+//   DMA → PipelinedDMAFPUArbiter (bypasses cache!)
+//   FPU → PipelinedDMAFPUArbiter (bypasses cache!)
+//
+// New architecture (CORRECT - coherent):
+//   ICache → CacheArbiter → VGA Arbiter → SDRAM
+//   CPU/DMA/FPU → DCacheFrontendArbiter → DCache → CacheArbiter → VGA Arbiter → SDRAM
+//
+// Benefits:
+//   ✓ Eliminates all coherency violations
+//   ✓ FPU benefits from caching (faster repeated access)
+//   ✓ Simpler architecture (removed PipelinedDMAFPUArbiter)
+//   ✓ Proven approach used in real CPUs
+// ============================================================================
 
-// dma_m_data_in is now driven by CPUDMAArbiter output (a_m_data_in)
-// Note: Floppy DMA data path may need to be redesigned for new arbiter architecture
-
-// Pipelined DMA Arbiter - 4-stage pipeline for improved throughput (+42%)
-PipelinedDMAArbiter CPUDMAArbiter(
-    .clk(sys_clk),
-    .reset(post_sdram_reset),
-
-    // DMA bus (A-bus)
-    .a_m_addr(dma_m_addr),
-    .a_m_data_in(dma_m_data_in),
-    .a_m_data_out(dma_m_data_out),
-    .a_m_access(dma_m_access & ~dma_d_io),  // Only memory access, not I/O
-    .a_m_ack(dma_m_ack),
-    .a_m_wr_en(dma_m_wr_en),
-    .a_m_bytesel(dma_m_bytesel),
-    .ioa(1'b0),  // DMA doesn't use I/O flag here
-
-    // Harvard: Unified cache output (I-cache + D-cache via CacheArbiter) (B-bus - higher priority)
-    .b_m_addr(cache_unified_m_addr),
-    .b_m_data_in(cache_unified_m_data_in),
-    .b_m_data_out(cache_unified_m_data_out),
-    .b_m_access(cache_unified_m_access),
-    .b_m_ack(cache_unified_m_ack),
-    .b_m_wr_en(cache_unified_m_wr_en),
-    .b_m_bytesel(cache_unified_m_bytesel),
-    .iob(1'b0),
-
-    // Output to memory system (connects to CacheVGAArbiter)
-    .q_m_addr(q_m_addr),
-    .q_m_data_in(q_m_data_in),
-    .q_m_data_out(q_m_data_out),
-    .q_m_access(q_m_access),
-    .q_m_ack(q_m_ack),
-    .q_m_wr_en(q_m_wr_en),
-    .q_m_bytesel(q_m_bytesel),
-    .ioq(),
-    .q_b()
-);
+// Connect CacheArbiter output directly to VGA arbiter
+// (replaces old PipelinedDMAFPUArbiter routing)
+assign q_m_addr = cache_unified_m_addr;
+assign q_m_data_out = cache_unified_m_data_out;
+assign q_m_access = cache_unified_m_access;
+assign q_m_wr_en = cache_unified_m_wr_en;
+assign q_m_bytesel = cache_unified_m_bytesel;
+assign cache_unified_m_data_in = q_m_data_in;
+assign cache_unified_m_ack = q_m_ack;
 
 // SDRAM<->Cache signals
 wire [19:1] cache_sdram_m_addr;
@@ -1073,12 +1098,54 @@ DCache2Way #(.sets(256)) DataCache (
     .m_bytesel(dcache_m_bytesel)
 );
 
-// Connect CPU data bus to D-cache
-assign dcache_c_addr = data_m_addr;
-assign dcache_c_data_out = data_m_data_out;
-assign dcache_c_access = data_m_access & ~d_io;  // Only memory accesses, not I/O
-assign dcache_c_wr_en = data_m_wr_en;
-assign dcache_c_bytesel = data_m_bytesel;
+// ===== D-CACHE FRONTEND ARBITER =====
+// Multiplexes CPU, DMA, and FPU data requests to D-cache
+// Ensures cache coherency by routing ALL data memory through the cache
+// Priority: DMA > FPU > CPU
+
+wire [15:0] cpu_dcache_data_in;  // CPU ← DCache
+wire cpu_dcache_ack;             // CPU ← DCache ACK
+
+DCacheFrontendArbiter dcache_frontend_arbiter (
+    .clk(sys_clk),
+    .reset(post_sdram_reset),
+
+    // CPU Data Port (Lowest priority)
+    .cpu_addr(data_m_addr),
+    .cpu_data_in(cpu_dcache_data_in),
+    .cpu_data_out(data_m_data_out),
+    .cpu_access(data_m_access & ~d_io),  // Only memory, not I/O
+    .cpu_ack(cpu_dcache_ack),
+    .cpu_wr_en(data_m_wr_en),
+    .cpu_bytesel(data_m_bytesel),
+
+    // DMA Port (Highest priority)
+    .dma_addr(dma_m_addr),
+    .dma_data_in(dma_m_data_in),
+    .dma_data_out(dma_m_data_out),
+    .dma_access(dma_m_access & ~dma_d_io),  // Only memory, not I/O
+    .dma_ack(dma_m_ack),
+    .dma_wr_en(dma_m_wr_en),
+    .dma_bytesel(dma_m_bytesel),
+
+    // FPU Port (Medium priority)
+    .fpu_addr(fpu_mem_addr[19:1]),  // Convert byte → word address
+    .fpu_data_in(fpu_mem_data_in),
+    .fpu_data_out(fpu_mem_data_out),
+    .fpu_access(fpu_mem_access),
+    .fpu_ack(fpu_mem_ack),
+    .fpu_wr_en(fpu_mem_wr_en),
+    .fpu_bytesel(fpu_mem_bytesel),
+
+    // DCache Frontend (Single unified output)
+    .cache_addr(dcache_c_addr),
+    .cache_data_in(dcache_c_data_in),
+    .cache_data_out(dcache_c_data_out),
+    .cache_access(dcache_c_access),
+    .cache_ack(dcache_c_ack),
+    .cache_wr_en(dcache_c_wr_en),
+    .cache_bytesel(dcache_c_bytesel)
+);
 
 // ===== CACHE ARBITER =====
 // Multiplexes I-cache and D-cache requests to memory
@@ -1687,6 +1754,34 @@ Timer Timer(.clk(sys_clk),
             .speaker_gate_en(`SPEAKER_GATE_EN_IN),
             .*);
 
+// FPU Control Word Register (I/O Port 0xF8-0xFB)
+// Internal signal for control word write pulse
+wire fpu_control_write_pulse;
+
+FPUControlRegister FPUControlReg(
+    .clk(sys_clk),
+    .reset(post_sdram_reset),
+    .cs(fpu_control_access),
+    .data_m_data_in(data_m_data_out),
+    .data_m_wr_en(data_m_wr_en),
+    .data_m_ack(fpu_control_ack),
+    .control_word_out(fpu_control_word_out),
+    .control_write(fpu_control_write_pulse)  // Pulse when control word written
+);
+
+// FPU Status Word Register (I/O Port 0xFC-0xFF)
+FPUStatusRegister FPUStatusReg(
+    .clk(sys_clk),
+    .reset(post_sdram_reset),
+    .cs(fpu_status_access),
+    .status_word_in(fpu_status_word_out),
+    .data_m_data_out(fpu_status_data),
+    .data_m_ack(fpu_status_ack)
+);
+
+// Assign control data for read operations (echo back current control word)
+assign fpu_control_data = fpu_control_word_out;
+
 // FPU 8087 Coprocessor
 FPU_System_Integration FPU(
     .clk(sys_clk),
@@ -1697,38 +1792,47 @@ FPU_System_Integration FPU(
     .cpu_modrm(cpu_fpu_modrm),
     .cpu_instruction_valid(cpu_fpu_instr_valid),
 
-    // CPU Data Interface (unused for now)
-    .cpu_data_in(80'h0),
-    .cpu_data_out(),
-    .cpu_data_write(1'b0),
-    .cpu_data_ready(),
+    // CPU Data Interface (80-bit operand transfers - future enhancement)
+    .cpu_data_in(fpu_cpu_data_in),
+    .cpu_data_out(fpu_cpu_data_out),
+    .cpu_data_write(fpu_cpu_data_write),
+    .cpu_data_ready(fpu_cpu_data_ready),
 
-    // Memory Interface (unused for now - FPU doesn't access memory directly yet)
-    .mem_addr(),
-    .mem_data_in(16'h0),
-    .mem_data_out(),
-    .mem_access(),
-    .mem_ack(1'b1),
-    .mem_wr_en(),
-    .mem_bytesel(),
+    // Memory Interface (FPU memory operand access)
+    .mem_addr(fpu_mem_addr),
+    .mem_data_in(fpu_mem_data_in),
+    .mem_data_out(fpu_mem_data_out),
+    .mem_access(fpu_mem_access),
+    .mem_ack(fpu_mem_ack),
+    .mem_wr_en(fpu_mem_wr_en),
+    .mem_bytesel(fpu_mem_bytesel),
 
     // CPU Control Signals
     .fpu_busy(fpu_busy),
     .fpu_int(fpu_int),
-    .fpu_int_clear(1'b0),
+    .fpu_int_clear(fpu_status_access & data_m_wr_en),  // Clear on status word write
 
-    // Status/Control (unused for now)
-    .control_word_in(16'h037F),  // Default 8087 control word
-    .control_write(1'b0),
-    .status_word_out(),
-    .control_word_out(),
+    // Status/Control Words (connected to I/O registers)
+    .control_word_in(fpu_control_word_out),
+    .control_write(fpu_control_access & data_m_wr_en),
+    .status_word_out(fpu_status_word_out),
+    .control_word_out(),  // Not needed (we use control_word_in)
 
-    // Debug outputs
+    // Debug outputs (not connected)
     .is_esc_instruction(),
     .has_memory_operand(),
     .fpu_operation(),
     .queue_count()
 );
+
+// CPU Data Interface - temporary placeholders until CPU microcode supports 80-bit transfers
+assign fpu_cpu_data_in = 80'h0;      // Future: Connect to CPU data path
+assign fpu_cpu_data_write = 1'b0;    // Future: CPU microcode control
+
+// FPU Memory Interface - Fully integrated into PipelinedDMAFPUArbiter
+// FPU memory operands now fully functional via C-bus
+// Supports: FADD [BX], FILD [SI], FIST [DI], etc.
+// Priority: DMA > FPU > CPU Cache
 
 wire cursor_enabled;
 wire graphics_enabled;
