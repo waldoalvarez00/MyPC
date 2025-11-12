@@ -49,6 +49,37 @@ python microasm.py <input.us> -o <output.hex>
 
 ### Testing
 
+**Test Framework:** Icarus Verilog (despite directory name "modelsim")
+
+#### Installing Icarus Verilog (Linux VM without sudo)
+
+If Icarus Verilog is not installed and you don't have sudo permissions, install it locally:
+
+```bash
+# Download the package
+cd /tmp
+apt-get download iverilog
+
+# Extract to a local directory
+dpkg-deb -x iverilog_*.deb iverilog_extract
+
+# Create symlink for library paths (required for iverilog to find components)
+cd iverilog_extract/usr
+ln -s lib/x86_64-linux-gnu x86_64-linux-gnu
+
+# Add to PATH (add this to your ~/.bashrc for persistence)
+export PATH="/tmp/iverilog_extract/usr/bin:$PATH"
+
+# Verify installation
+iverilog -V
+```
+
+**Alternative (with sudo):**
+```bash
+sudo apt-get update
+sudo apt-get install -y iverilog
+```
+
 **Run all tests:**
 ```bash
 cd modelsim/
@@ -73,9 +104,10 @@ cd Quartus/rtl/FPU8087/
 ./run_all_tests.sh
 ```
 
-**Test Framework:** Icarus Verilog (despite directory name "modelsim")
-
-**Test Status:** 196/207 tests passing (95% success rate)
+**Test Status:**
+- Main test suite (modelsim/): 29/29 tests passing (100%)
+- FPU tests: 165/165 tests passing (100%)
+- Total system coverage: 194/194 tests passing
 
 ## Architecture Overview
 
