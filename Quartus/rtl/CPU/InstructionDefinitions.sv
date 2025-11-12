@@ -37,6 +37,7 @@ module Microcode(input logic clk,
                  input logic int_enabled,
                  input logic zf,
                  input logic tf,
+                 input logic fpu_busy,
                  output logic [15:0] microcode_immediate,
                  output logic [8:0] update_flags,
                  output logic modrm_start,
@@ -304,6 +305,7 @@ always_comb begin
     JumpType_RB_ZERO: jump_target = rb_zero ? current.next : addr + 1'b1;
     JumpType_LOOP_DONE: jump_target = loop_done ? current.next : addr + 1'b1;
     JumpType_JUMP_TAKEN: jump_target = jump_taken ? current.next : addr + 1'b1;
+    JumpType_FPU_BUSY: jump_target = fpu_busy ? current.next : addr + 1'b1;
     default: jump_target = current.next;
     endcase
 end
