@@ -570,6 +570,13 @@ wire [15:0] instr_m_data_in;
 wire instr_m_access;
 wire instr_m_ack;
 
+// FPU 8087 Interface
+wire [7:0] cpu_fpu_opcode;
+wire [7:0] cpu_fpu_modrm;
+wire cpu_fpu_instr_valid;
+wire fpu_busy;
+wire fpu_int;
+
 // Multiplexed I/D bus.
 wire [19:1] q_m_addr;
 wire [15:0] q_m_data_out;
@@ -1463,7 +1470,14 @@ Core u80186(
     .debug_run(debug_run),
     .debug_val(debug_val),
     .debug_wr_val(debug_wr_val),
-    .debug_wr_en(debug_wr_en)
+    .debug_wr_en(debug_wr_en),
+
+    // FPU Interface
+    .fpu_opcode(cpu_fpu_opcode),
+    .fpu_modrm(cpu_fpu_modrm),
+    .fpu_instr_valid(cpu_fpu_instr_valid),
+    .fpu_busy(fpu_busy),
+    .fpu_int(fpu_int)
 );
 
 
@@ -1673,6 +1687,48 @@ Timer Timer(.clk(sys_clk),
             .speaker_gate_en(`SPEAKER_GATE_EN_IN),
             .*);
 
+// FPU 8087 Coprocessor
+FPU_System_Integration FPU(
+    .clk(sys_clk),
+    .reset(post_sdram_reset),
+
+    // CPU Instruction Interface
+    .cpu_opcode(cpu_fpu_opcode),
+    .cpu_modrm(cpu_fpu_modrm),
+    .cpu_instruction_valid(cpu_fpu_instr_valid),
+
+    // CPU Data Interface (unused for now)
+    .cpu_data_in(80'h0),
+    .cpu_data_out(),
+    .cpu_data_write(1'b0),
+    .cpu_data_ready(),
+
+    // Memory Interface (unused for now - FPU doesn't access memory directly yet)
+    .mem_addr(),
+    .mem_data_in(16'h0),
+    .mem_data_out(),
+    .mem_access(),
+    .mem_ack(1'b1),
+    .mem_wr_en(),
+    .mem_bytesel(),
+
+    // CPU Control Signals
+    .fpu_busy(fpu_busy),
+    .fpu_int(fpu_int),
+    .fpu_int_clear(1'b0),
+
+    // Status/Control (unused for now)
+    .control_word_in(16'h037F),  // Default 8087 control word
+    .control_write(1'b0),
+    .status_word_out(),
+    .control_word_out(),
+
+    // Debug outputs
+    .is_esc_instruction(),
+    .has_memory_operand(),
+    .fpu_operation(),
+    .queue_count()
+);
 
 wire cursor_enabled;
 wire graphics_enabled;
