@@ -237,6 +237,13 @@ wire timer_access;
 wire timer_ack;
 wire [15:0] timer_data;
 
+// FPU 8087
+wire [7:0] cpu_fpu_opcode;
+wire [7:0] cpu_fpu_modrm;
+wire cpu_fpu_instr_valid;
+wire fpu_busy;
+wire fpu_int;
+
 wire default_io_access;
 wire default_io_ack;
 
@@ -519,7 +526,7 @@ SysPLL	SysPLL(.refclk(clk),
 		  
 Core Core(
     .clk(sys_clk),
-    .reset(reset_signal), // Replace with actual reset signal name
+    .reset(reset),
 
     // Interrupts
     .nmi(nmi),
@@ -541,7 +548,7 @@ Core Core(
     .data_m_ack(data_m_ack),
     .data_m_wr_en(data_m_wr_en),
     .data_m_bytesel(data_m_bytesel),
-    .d_io(d_io), 
+    .d_io(d_io),
     .lock(),
 
     // Debug
@@ -551,7 +558,14 @@ Core Core(
     .debug_run(debug_run),
     .debug_val(debug_val),
     .debug_wr_val(debug_wr_val),
-    .debug_wr_en(debug_wr_en)
+    .debug_wr_en(debug_wr_en),
+
+    // FPU Interface
+    .fpu_opcode(cpu_fpu_opcode),
+    .fpu_modrm(cpu_fpu_modrm),
+    .fpu_instr_valid(cpu_fpu_instr_valid),
+    .fpu_busy(fpu_busy),
+    .fpu_int(fpu_int)
 );
 
 		  
@@ -582,6 +596,49 @@ Timer Timer(.clk(sys_clk),
             .speaker_out(`SPEAKER_TIMER_OUT),
             .speaker_gate_en(`SPEAKER_GATE_EN_IN),
             .*);
+
+// FPU 8087 Coprocessor
+FPU_System_Integration FPU(
+    .clk(sys_clk),
+    .reset(reset),
+
+    // CPU Instruction Interface
+    .cpu_opcode(cpu_fpu_opcode),
+    .cpu_modrm(cpu_fpu_modrm),
+    .cpu_instruction_valid(cpu_fpu_instr_valid),
+
+    // CPU Data Interface (unused for now)
+    .cpu_data_in(80'h0),
+    .cpu_data_out(),
+    .cpu_data_write(1'b0),
+    .cpu_data_ready(),
+
+    // Memory Interface (unused for now - FPU doesn't access memory directly yet)
+    .mem_addr(),
+    .mem_data_in(16'h0),
+    .mem_data_out(),
+    .mem_access(),
+    .mem_ack(1'b1),
+    .mem_wr_en(),
+    .mem_bytesel(),
+
+    // CPU Control Signals
+    .fpu_busy(fpu_busy),
+    .fpu_int(fpu_int),
+    .fpu_int_clear(1'b0),
+
+    // Status/Control (unused for now)
+    .control_word_in(16'h037F),  // Default 8087 control word
+    .control_write(1'b0),
+    .status_word_out(),
+    .control_word_out(),
+
+    // Debug outputs
+    .is_esc_instruction(),
+    .has_memory_operand(),
+    .fpu_operation(),
+    .queue_count()
+);
 
 `ifdef CONFIG_VGA
 wire cursor_enabled;
