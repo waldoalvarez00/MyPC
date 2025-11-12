@@ -65,6 +65,9 @@ function state_t next_instr;
     next_instr = (nearly_full || stall) && insn_complete ? STATE_WAIT_SPACE : STATE_OPCODE;
 endfunction
 
+// Auto-generated helper functions for instruction decoding
+`include "InstructionDefinitions_helpers.sv"
+
 always_comb begin
     insn_complete = 1'b0;
 
