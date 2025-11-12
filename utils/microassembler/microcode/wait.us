@@ -17,8 +17,9 @@
 
 .at 0x9b;
     // FWAIT (WAIT) instruction - CPU waits for FPU to complete
-    // Hardware-level FPU integration: Core.sv checks fpu_busy signal
-    // and stalls the pipeline until FPU ready
-    // Current status: FPU interface inactive, FWAIT acts as NOP
-    // Future work: Enable fpu_busy stall logic in Core.sv
+    // Hardware stall implementation in Core.sv:
+    //   wire fwait_stall = (opcode == 8'h9B) && fpu_busy;
+    // When FWAIT executes and fpu_busy=1, CPU pipeline stalls
+    // When fpu_busy=0, CPU proceeds to next instruction
+    // This allows CPU and FPU to work concurrently on other instructions
     next_instruction;

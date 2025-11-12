@@ -233,7 +233,13 @@ wire next_microinstruction;
 // Misc control signals
 wire debug_set_ip = debug_stopped && ip_wr_en;
 wire do_next_instruction = (next_instruction & ~do_stall) | debug_set_ip;
-wire do_stall = loadstore_busy | divide_busy | alu_busy | fpu_busy;
+
+// FPU wait stall: Only stall when executing FWAIT (0x9B) and FPU is busy
+// This allows CPU and FPU to work concurrently on normal instructions
+wire fwait_stall = (opcode == 8'h9B) && fpu_busy;
+
+// General CPU stall condition
+wire do_stall = loadstore_busy | divide_busy | alu_busy | fwait_stall;
 wire start_interrupt;
 
 // IP
