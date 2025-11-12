@@ -37,7 +37,9 @@ def main():
     cpp_types_output = os.path.join(binary_dir, 'MicrocodeTypes.h')
 
     # Include directories
-    include_dirs = [binary_dir, os.path.join(binary_dir, '..')]
+    # Add source_dir so #include "arithmetic.us" etc. can find header files
+    # Add '.' (current dir) so #include <config.h> can find utils/microassembler/config.h
+    include_dirs = ['.', source_dir, binary_dir, os.path.join(binary_dir, '..')]
 
     print("=" * 70)
     print("Building CPU Microcode")
