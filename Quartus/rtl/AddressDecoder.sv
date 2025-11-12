@@ -69,11 +69,12 @@ always_comb begin
     sdram_config_access  = 1'b0;
     default_io_access    = 1'b0;
     uart_access          = 1'b0;
-    
+
     irq_control_access   = 1'b0;
     pic_access           = 1'b0;
     timer_access         = 1'b0;
     bios_control_access  = 1'b0;
+    vga_reg_access       = 1'b0;
     mcga_reg_access      = 1'b0;
     ps2_mouse_access     = 1'b0;
     ppi_control_access   = 1'b0;

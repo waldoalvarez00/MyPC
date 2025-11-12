@@ -1,4 +1,5 @@
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) BitSync.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) BusSync.sv ]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) MCP.sv ]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) SyncPulse.sv ]
 

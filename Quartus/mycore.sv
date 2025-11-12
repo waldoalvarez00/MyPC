@@ -19,6 +19,8 @@
 //
 //============================================================================
 
+`include "rtl/VGA/VGATypes.sv"
+
 module emu
 (
 	//Master input clock
@@ -325,15 +327,23 @@ wire [1:0]  img_mounted;      // Pulse when disk image mounted (bit 0=drive A, b
 wire [1:0]  img_readonly;     // Write protect status
 wire [63:0] img_size;         // Disk image size in bytes
 
-// SD card interface signals
-wire [31:0] sd_lba;           // Logical block address
+// SD card interface signals (from floppy manager)
+wire [31:0] sd_lba_single;    // Logical block address (from floppy)
 wire [1:0]  sd_rd;            // Read request
 wire [1:0]  sd_wr;            // Write request
 wire [1:0]  sd_ack;           // Transfer acknowledge
 wire [8:0]  sd_buff_addr;     // Buffer address (0-511)
 wire [7:0]  sd_buff_dout;     // Data from SD card
-wire [7:0]  sd_buff_din;      // Data to SD card
+wire [7:0]  sd_buff_din_single; // Data to SD card (from floppy, 8-bit)
 wire        sd_buff_wr;       // Buffer write enable
+
+// SD card interface signals (arrays for hps_io)
+wire [31:0] sd_lba[1];        // Logical block address array
+wire [15:0] sd_buff_din[1];   // Data to SD card array (16-bit for WIDE=1)
+
+// Connect single signals to arrays for hps_io
+assign sd_lba[0] = sd_lba_single;
+assign sd_buff_din[0] = {8'h00, sd_buff_din_single}; // Pad 8-bit to 16-bit
 
 hps_io #(.CONF_STR(CONF_STR), .PS2DIV(10), .PS2WE(1), .WIDE(1)) hps_io
 (
@@ -568,18 +578,15 @@ wire [15:0] q_m_data_out;
 
 // Harvard: q_m_data_in comes from memory/peripherals, not caches
 // Caches have their own data paths via cache_unified_m_data_in
-wire [15:0] q_m_data_in = sdram_data |
-            vga_data                 |
-	         cga_data                 |
-            bios_data;
+// q_m_data_in is now driven by CacheVGAArbiter output (cpu_m_data_in)
+wire [15:0] q_m_data_in;
 	 
 	 
 
 
 // Harvard: q_m_ack doesn't include cache_ack (caches ack directly to CPU)
-wire q_m_ack = vga_ack     |
-	            cga_mem_ack |
-               bios_ack;
+// q_m_ack is now driven by CacheVGAArbiter output (cpu_m_ack)
+wire q_m_ack;
 
 
 wire q_m_access;
@@ -816,7 +823,7 @@ AddressDecoderIO AddressDecoderIO(
 	 .cga_reg_access(cga_reg_access),
 	 .dma_page_chip_select(dma_page_chip_select),
 	 .dma_chip_select(dma_chip_select),
-	 .ppi_control_access(ppi_control_access)
+	 .ppi_control_access(ppi_control_access),
 	 .floppy_access(floppy_access)
 	 
 );
@@ -911,9 +918,8 @@ assign data_mem_ack = dcache_c_ack | io_ack;
 // DMA Arbiter - Muxes CPU (instr+data) and DMA controller access to memory
 // Priority: DMA has higher priority when active
 
-// Prepare DMA data input (floppy write data when floppy DMA active)
-assign dma_m_data_in[7:0] = (dma_acknowledge[2] & ~dma_m_wr_en) ? floppy_dma_writedata : 8'h00;
-assign dma_m_data_in[15:8] = 8'h00;  // DMA transfers are 8-bit
+// dma_m_data_in is now driven by CPUDMAArbiter output (a_m_data_in)
+// Note: Floppy DMA data path may need to be redesigned for new arbiter architecture
 
 // Pipelined DMA Arbiter - 4-stage pipeline for improved throughput (+42%)
 PipelinedDMAArbiter CPUDMAArbiter(
@@ -1592,13 +1598,13 @@ floppy_disk_manager floppy_mgr (
     .img_size               (img_size),
 
     // SD card interface
-    .sd_lba                 (sd_lba),
+    .sd_lba                 (sd_lba_single),
     .sd_rd                  (sd_rd),
     .sd_wr                  (sd_wr),
     .sd_ack                 (sd_ack),
     .sd_buff_addr           (sd_buff_addr),
     .sd_buff_dout           (sd_buff_dout),
-    .sd_buff_din            (sd_buff_din),
+    .sd_buff_din            (sd_buff_din_single),
     .sd_buff_wr             (sd_buff_wr),
 
     // Floppy controller management interface
@@ -1679,6 +1685,7 @@ wire [2:0] cursor_scan_end;
 wire vga_256_color;
 wire [7:0] vga_dac_idx;
 wire [17:0] vga_dac_rd;
+VideoModeNumber_t mode_num;
 
 wire [14:0] cpu_fb_addr = q_m_addr[19:16] == 4'ha ?
     q_m_addr[15:1] : {2'b0, q_m_addr[13:1]};

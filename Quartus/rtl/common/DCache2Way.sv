@@ -318,8 +318,6 @@ endtask
 // Reset logic
 always_ff @(posedge clk or posedge reset) begin
     if (reset) begin
-        busy <= 1'b0;
-        flushing <= 1'b0;
         accessing <= 1'b0;
     end else begin
         accessing <= c_access;
@@ -370,6 +368,8 @@ always_ff @(posedge clk or posedge reset) begin
     if (reset) begin
         line_idx <= 3'b0;
         line_valid <= 8'b0;
+        busy <= 1'b0;
+        flushing <= 1'b0;
     end else if (enabled && m_ack) begin
         c_m_addr <= {c_m_addr[19:4], c_m_addr[3:1] + 1'b1};
         line_idx <= line_idx + 1'b1;

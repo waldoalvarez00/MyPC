@@ -13,7 +13,7 @@ set_global_assignment -name PARTITION_NETLIST_TYPE SOURCE -section_id Top
 set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id Top
 set_global_assignment -name PARTITION_COLOR 16764057 -section_id Top
 
-set_global_assignment -name LAST_QUARTUS_VERSION "17.0.2 Lite Edition"
+set_global_assignment -name LAST_QUARTUS_VERSION "17.0.0 Lite Edition"
 
 set_global_assignment -name GENERATE_RBF_FILE ON
 set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
@@ -551,6 +551,7 @@ set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_data_in[88] -t
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/Debug/triggernhigh.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/Floppy/simplefifo.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/Floppy/floppy.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/Floppy/floppy_disk_manager.sv
 set_global_assignment -name SYSTEMVERILOG_FILE "rtl/KF8237-DMA/DMAUnit.sv"
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/DMAArbiter.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/PipelinedDMAArbiter.sv
@@ -572,8 +573,6 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/PipelinedMemArbiterExtend.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/common/DCache2Way.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/common/ICache2Way.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/common/CacheArbiter.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/common/DPRam.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/common/BlockRam.sv
 set_global_assignment -name QIP_FILE rtl/uart/uart.qip
 set_global_assignment -name QIP_FILE rtl/ps2/ps2.qip
 set_global_assignment -name QIP_FILE rtl/CPU/CPU.qip
