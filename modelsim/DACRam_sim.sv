@@ -5,7 +5,7 @@
 // Used for VGA DAC palette storage
 
 `default_nettype none
-module DACRam (
+module DACRam_sim (
     input wire [7:0]  address_a,
     input wire [7:0]  address_b,
     input wire        clock_a,

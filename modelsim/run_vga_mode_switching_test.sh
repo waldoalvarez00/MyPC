@@ -49,7 +49,7 @@ echo ""
 
 # Run simulation
 cd "$RESULTS_DIR"
-./vga_mode_switching_tb 2>&1 | tee simulation.log
+vvp vga_mode_switching_tb 2>&1 | tee simulation.log
 SIM_RESULT=${PIPESTATUS[0]}
 cd ..
 
