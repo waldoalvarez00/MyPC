@@ -131,6 +131,13 @@ module FPU_Range_Reduction(
         reg [14:0] result_exp;
         integer shift_amt;
         begin
+            // Initialize to prevent latch inference
+            exp_diff = 0;
+            mant_b_shifted = 0;
+            result_mant = 0;
+            result_exp = 0;
+            shift_amt = 0;
+
             exp_a = a[78:64];
             exp_b = b[78:64];
             mant_a = a[63:0];

@@ -102,7 +102,7 @@ module FPU_Polynomial_Evaluator(
     );
 
     //=================================================================
-    // STRATEGY 2D: Shared Arithmetic Units
+    // Shared Arithmetic Units
     // REMOVED: Duplicate Multiply and AddSub units (~20,000 gates)
     // Now using shared units from FPU_ArithmeticUnit via external interface
     //

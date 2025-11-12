@@ -301,11 +301,12 @@ set_global_assignment -name VERILOG_FILE rtl/FPU8087/BarrelShifter.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/BitShifter.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/ByteShifter.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/CORDIC_Rotator.v
-set_global_assignment -name VERILOG_FILE rtl/FPU8087/CPU_FPU_Adapter.v
-set_global_assignment -name VERILOG_FILE rtl/FPU8087/CPU_FPU_Bridge.v
-set_global_assignment -name VERILOG_FILE rtl/FPU8087/CPU_FPU_Coprocessor_Bridge_v2.v
-set_global_assignment -name VERILOG_FILE rtl/FPU8087/CPU_FPU_Integrated_System.v
-set_global_assignment -name VERILOG_FILE rtl/FPU8087/CPU_FPU_Integrated_System_v2.v
+# Obsolete - moved to tests/obsolete/
+# set_global_assignment -name VERILOG_FILE rtl/FPU8087/CPU_FPU_Adapter.v
+# set_global_assignment -name VERILOG_FILE rtl/FPU8087/CPU_FPU_Bridge.v
+# set_global_assignment -name VERILOG_FILE rtl/FPU8087/CPU_FPU_Coprocessor_Bridge_v2.v
+# set_global_assignment -name VERILOG_FILE rtl/FPU8087/CPU_FPU_Integrated_System.v
+# set_global_assignment -name VERILOG_FILE rtl/FPU8087/CPU_FPU_Integrated_System_v2.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/ControlWord.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/ESC_Decoder.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU8087.v
@@ -320,7 +321,8 @@ set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_CPU_Interface.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_ControlWord.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_Core.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_Core_Async.v
-set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_Core_Wrapper.v
+# Obsolete test wrapper
+# set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_Core_Wrapper.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_Exception_Handler.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_FP32_to_FP80.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_FP64_to_FP80.v
@@ -345,7 +347,8 @@ set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_Range_Reduction.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_RegisterStack.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_SQRT_Newton.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_StatusWord.v
-set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_System_Integration.v
+# Obsolete placeholder
+# set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_System_Integration.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_Transcendental.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_UInt64_to_FP80.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/LZCByte.v
@@ -1108,5 +1111,5 @@ set_global_assignment -name SLD_NODE_PARAMETER_ASSIGNMENT "SLD_STORAGE_QUALIFIER
 set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_trigger_in[306] -to "emu:emu|floppy:floppy|irq" -section_id auto_signaltap_0
 set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_data_in[306] -to "emu:emu|floppy:floppy|irq" -section_id auto_signaltap_0
 set_global_assignment -name SLD_NODE_PARAMETER_ASSIGNMENT "SLD_ADVANCED_TRIGGER_ENTITY=sld_reserved_mypc_auto_signaltap_0_1_2f85," -section_id auto_signaltap_0
-set_global_assignment -name SLD_FILE db/stp1_auto_stripped.stp
 set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
+set_global_assignment -name SLD_FILE db/stp1_auto_stripped.stp

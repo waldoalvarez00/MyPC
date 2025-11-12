@@ -1782,23 +1782,27 @@ FPUStatusRegister FPUStatusReg(
 // Assign control data for read operations (echo back current control word)
 assign fpu_control_data = fpu_control_word_out;
 
-// FPU 8087 Coprocessor
-FPU_System_Integration FPU(
+// FPU 8087 Coprocessor - Unified Production Module
+FPU8087 FPU(
     .clk(sys_clk),
     .reset(post_sdram_reset),
 
-    // CPU Instruction Interface
-    .cpu_opcode(cpu_fpu_opcode),
-    .cpu_modrm(cpu_fpu_modrm),
-    .cpu_instruction_valid(cpu_fpu_instr_valid),
+    // CPU Instruction Interface (D8-DF ESC instructions)
+    .cpu_fpu_instr_valid(cpu_fpu_instr_valid),
+    .cpu_fpu_opcode(cpu_fpu_opcode),
+    .cpu_fpu_modrm(cpu_fpu_modrm),
+    .cpu_fpu_instr_ack(),  // Not used yet
 
-    // CPU Data Interface (80-bit operand transfers - future enhancement)
-    .cpu_data_in(fpu_cpu_data_in),
-    .cpu_data_out(fpu_cpu_data_out),
-    .cpu_data_write(fpu_cpu_data_write),
-    .cpu_data_ready(fpu_cpu_data_ready),
+    // CPU Data Transfer Interface (80-bit operand transfers - register operations)
+    .cpu_fpu_data_write(fpu_cpu_data_write),
+    .cpu_fpu_data_read(1'b0),  // TODO: Connect to CPU microcode
+    .cpu_fpu_data_size(3'b011),  // Default to 80-bit
+    .cpu_fpu_data_in(fpu_cpu_data_in),
+    .cpu_fpu_data_out(fpu_cpu_data_out),
+    .cpu_fpu_data_ready(fpu_cpu_data_ready),
 
-    // Memory Interface (FPU memory operand access)
+    // Memory Interface (Direct Access - memory operand instructions)
+    // FPU accesses memory directly via arbiter (authentic 8087 behavior)
     .mem_addr(fpu_mem_addr),
     .mem_data_in(fpu_mem_data_in),
     .mem_data_out(fpu_mem_data_out),
@@ -1807,22 +1811,17 @@ FPU_System_Integration FPU(
     .mem_wr_en(fpu_mem_wr_en),
     .mem_bytesel(fpu_mem_bytesel),
 
-    // CPU Control Signals
-    .fpu_busy(fpu_busy),
-    .fpu_int(fpu_int),
-    .fpu_int_clear(fpu_status_access & data_m_wr_en),  // Clear on status word write
+    // Status and Control
+    .cpu_fpu_busy(fpu_busy),
+    .cpu_fpu_status_word(fpu_status_word_out),
+    .cpu_fpu_control_word(fpu_control_word_out),
+    .cpu_fpu_ctrl_write(fpu_control_access & data_m_wr_en),
+    .cpu_fpu_exception(),  // Not connected yet
+    .cpu_fpu_irq(fpu_int),
 
-    // Status/Control Words (connected to I/O registers)
-    .control_word_in(fpu_control_word_out),
-    .control_write(fpu_control_access & data_m_wr_en),
-    .status_word_out(fpu_status_word_out),
-    .control_word_out(),  // Not needed (we use control_word_in)
-
-    // Debug outputs (not connected)
-    .is_esc_instruction(),
-    .has_memory_operand(),
-    .fpu_operation(),
-    .queue_count()
+    // Synchronization (FWAIT)
+    .cpu_fpu_wait(1'b0),  // TODO: Connect to CPU FWAIT signal
+    .cpu_fpu_ready()  // Not used yet
 );
 
 // CPU Data Interface - temporary placeholders until CPU microcode supports 80-bit transfers

@@ -8,11 +8,9 @@ set_global_assignment -name VERILOG_FILE rtl/FPU8087/BarrelShifter.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/BitShifter.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/ByteShifter.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/CORDIC_Rotator.v
-set_global_assignment -name VERILOG_FILE rtl/FPU8087/CPU_FPU_Adapter.v
-set_global_assignment -name VERILOG_FILE rtl/FPU8087/CPU_FPU_Bridge.v
-set_global_assignment -name VERILOG_FILE rtl/FPU8087/CPU_FPU_Coprocessor_Bridge_v2.v
-set_global_assignment -name VERILOG_FILE rtl/FPU8087/CPU_FPU_Integrated_System.v
-set_global_assignment -name VERILOG_FILE rtl/FPU8087/CPU_FPU_Integrated_System_v2.v
+# Obsolete integration attempts moved to tests/obsolete/:
+# - CPU_FPU_Adapter.v, CPU_FPU_Bridge.v, CPU_FPU_Coprocessor_Bridge_v2.v
+# - CPU_FPU_Integrated_System.v, CPU_FPU_Integrated_System_v2.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/ControlWord.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/ESC_Decoder.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU8087.v
@@ -27,7 +25,7 @@ set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_CPU_Interface.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_ControlWord.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_Core.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_Core_Async.v
-set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_Core_Wrapper.v
+# FPU_Core_Wrapper.v moved to tests/obsolete/ (test stub only)
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_Exception_Handler.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_FP32_to_FP80.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_FP64_to_FP80.v
@@ -52,7 +50,7 @@ set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_Range_Reduction.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_RegisterStack.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_SQRT_Newton.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_StatusWord.v
-set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_System_Integration.v
+# FPU_System_Integration.v moved to tests/obsolete/ (incomplete placeholder)
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_Transcendental.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_UInt64_to_FP80.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/LZCByte.v

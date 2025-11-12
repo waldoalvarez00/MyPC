@@ -40,7 +40,7 @@ module MicroSequencer_Extended_BCD (
     // Interface to FPU_ArithmeticUnit
     output reg [4:0]  arith_operation,      // Operation code
     output reg        arith_enable,         // Start operation
-    output reg [1:0]  arith_rounding_mode,  // Rounding mode
+    input wire [1:0]  arith_rounding_mode,  // Rounding mode (from control word)
     output reg [79:0] arith_operand_a,      // Operand A (80-bit FP)
     output reg [79:0] arith_operand_b,      // Operand B (80-bit FP)
     output reg signed [15:0] arith_int16_in,
@@ -602,7 +602,7 @@ module MicroSequencer_Extended_BCD (
             // Reset hardware unit interfaces
             arith_enable <= 1'b0;
             arith_operation <= 5'd0;
-            arith_rounding_mode <= 2'd0;
+            // arith_rounding_mode is now an input - don't assign
             arith_operand_a <= 80'd0;
             arith_operand_b <= 80'd0;
             arith_int16_in <= 16'd0;

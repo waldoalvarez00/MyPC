@@ -451,14 +451,24 @@ module FPU_ArithmeticUnit(
                 sign_bit = int_val[15];
                 abs_val = sign_bit ? -int_val : int_val;
 
-                // Find MSB position (leading one)
+                // Find MSB position (leading one) - use priority encoder pattern
                 msb_pos = 0;
-                for (i = 15; i >= 0; i = i - 1) begin
-                    if (abs_val[i]) begin
-                        msb_pos = i;
-                        i = -1;  // Break loop
-                    end
-                end
+                if (abs_val[15]) msb_pos = 15;
+                else if (abs_val[14]) msb_pos = 14;
+                else if (abs_val[13]) msb_pos = 13;
+                else if (abs_val[12]) msb_pos = 12;
+                else if (abs_val[11]) msb_pos = 11;
+                else if (abs_val[10]) msb_pos = 10;
+                else if (abs_val[9]) msb_pos = 9;
+                else if (abs_val[8]) msb_pos = 8;
+                else if (abs_val[7]) msb_pos = 7;
+                else if (abs_val[6]) msb_pos = 6;
+                else if (abs_val[5]) msb_pos = 5;
+                else if (abs_val[4]) msb_pos = 4;
+                else if (abs_val[3]) msb_pos = 3;
+                else if (abs_val[2]) msb_pos = 2;
+                else if (abs_val[1]) msb_pos = 1;
+                else msb_pos = 0;
 
                 // Biased exponent = 16383 + msb_pos
                 biased_exp = 15'd16383 + msb_pos;
@@ -518,6 +528,8 @@ module FPU_ArithmeticUnit(
 
     always @(*) begin
         fscale_done = enable && (operation == OP_FSCALE);
+        new_exp = 0;  // Initialize to prevent latch inference
+
 
         // Extract integer scale value from operand_b (ST(1))
         if (operand_b[78:64] < 15'd16383) begin
