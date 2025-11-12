@@ -16,4 +16,9 @@
 // along with s80x86.  If not, see <http://www.gnu.org/licenses/>.
 
 .at 0x9b;
+    // FWAIT (WAIT) instruction - CPU waits for FPU to complete
+    // Hardware-level FPU integration: Core.sv checks fpu_busy signal
+    // and stalls the pipeline until FPU ready
+    // Current status: FPU interface inactive, FWAIT acts as NOP
+    // Future work: Enable fpu_busy stall logic in Core.sv
     next_instruction;

@@ -39,5 +39,14 @@ do_esc:
 #if (S80X86_TRAP_ESCAPE == 1)
     b_sel IMMEDIATE, immediate 0x1c, alu_op SELB, tmp_wr_en, jmp do_int;
 #else
+    // FPU ESC instructions (D8-DF) execute normally
+    // Hardware-level FPU integration: Core.sv detects ESC opcodes and
+    // communicates with FPU via dedicated signals:
+    //   - fpu_opcode (output to FPU)
+    //   - fpu_modrm (output to FPU)
+    //   - fpu_instr_valid (output to FPU)
+    //   - fpu_busy (input from FPU)
+    // Current status: FPU signals in Core.sv are hardcoded to 0 (inactive)
+    // Future work: Enable FPU interface in Core.sv for actual FPU communication
     next_instruction;
 #endif

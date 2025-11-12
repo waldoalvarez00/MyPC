@@ -20,7 +20,7 @@ def main():
         'io.us', 'jmp.us', 'lds.us', 'lea.us', 'leave.us', 'les.us',
         'lods.us', 'loop.us', 'mov.us', 'movs.us', 'mul.us', 'neg.us',
         'not.us', 'or.us', 'pop.us', 'push.us', 'rcl.us', 'rcr.us',
-        'ret.us', 'ror.us', 'sar.us', 'sbb.us', 'scas.us',
+        'ret.us', 'rol.us', 'ror.us', 'sar.us', 'sbb.us', 'scas.us',
         'shift.us', 'shl.us', 'shr.us', 'stos.us', 'sub.us', 'test.us',
         'xchg.us', 'xlat.us', 'xor.us', 'wait.us', 'microcode.us',
         'debug.us'
