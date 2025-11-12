@@ -555,6 +555,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/Floppy/floppy_disk_manager.sv
 set_global_assignment -name SYSTEMVERILOG_FILE "rtl/KF8237-DMA/DMAUnit.sv"
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/DMAArbiter.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/PipelinedDMAArbiter.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/PipelinedDMAFPUArbiter.sv
 set_global_assignment -name QIP_FILE "rtl/KF8237-DMA/KF8237-DMA.qip"
 set_global_assignment -name QIP_FILE rtl/Keyboard/keyboard.qip
 set_global_assignment -name VERILOG_FILE rtl/MSMouse/MSMouseWrapper.v

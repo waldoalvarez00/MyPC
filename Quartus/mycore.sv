@@ -963,12 +963,13 @@ assign data_mem_ack = dcache_c_ack | io_ack;
 // dma_m_data_in is now driven by CPUDMAArbiter output (a_m_data_in)
 // Note: Floppy DMA data path may need to be redesigned for new arbiter architecture
 
-// Pipelined DMA Arbiter - 4-stage pipeline for improved throughput (+42%)
-PipelinedDMAArbiter CPUDMAArbiter(
+// Pipelined DMA/FPU/CPU Arbiter - 3-port with FPU support for memory operands
+// Priority: DMA (A) > FPU (C) > CPU Cache (B)
+PipelinedDMAFPUArbiter CPUDMAFPUArbiter(
     .clk(sys_clk),
     .reset(post_sdram_reset),
 
-    // DMA bus (A-bus)
+    // DMA bus (A-bus) - Highest priority
     .a_m_addr(dma_m_addr),
     .a_m_data_in(dma_m_data_in),
     .a_m_data_out(dma_m_data_out),
@@ -978,7 +979,8 @@ PipelinedDMAArbiter CPUDMAArbiter(
     .a_m_bytesel(dma_m_bytesel),
     .ioa(1'b0),  // DMA doesn't use I/O flag here
 
-    // Harvard: Unified cache output (I-cache + D-cache via CacheArbiter) (B-bus - higher priority)
+    // CPU Cache bus (B-bus) - Lowest priority
+    // Harvard: Unified cache output (I-cache + D-cache via CacheArbiter)
     .b_m_addr(cache_unified_m_addr),
     .b_m_data_in(cache_unified_m_data_in),
     .b_m_data_out(cache_unified_m_data_out),
@@ -987,6 +989,16 @@ PipelinedDMAArbiter CPUDMAArbiter(
     .b_m_wr_en(cache_unified_m_wr_en),
     .b_m_bytesel(cache_unified_m_bytesel),
     .iob(1'b0),
+
+    // FPU bus (C-bus) - Medium priority
+    // Enables FPU memory operand instructions: FADD [BX], FILD [SI], etc.
+    .c_m_addr(fpu_mem_addr[19:1]),  // Convert 20-bit byte address to 19:1 word address
+    .c_m_data_in(fpu_mem_data_in),
+    .c_m_data_out(fpu_mem_data_out),
+    .c_m_access(fpu_mem_access),
+    .c_m_ack(fpu_mem_ack),
+    .c_m_wr_en(fpu_mem_wr_en),
+    .c_m_bytesel(fpu_mem_bytesel),
 
     // Output to memory system (connects to CacheVGAArbiter)
     .q_m_addr(q_m_addr),
@@ -997,7 +1009,7 @@ PipelinedDMAArbiter CPUDMAArbiter(
     .q_m_wr_en(q_m_wr_en),
     .q_m_bytesel(q_m_bytesel),
     .ioq(),
-    .q_b()
+    .q_grant()  // 00=none, 01=DMA, 10=CPU, 11=FPU
 );
 
 // SDRAM<->Cache signals
@@ -1797,26 +1809,10 @@ FPU_System_Integration FPU(
 assign fpu_cpu_data_in = 80'h0;      // Future: Connect to CPU data path
 assign fpu_cpu_data_write = 1'b0;    // Future: CPU microcode control
 
-// FPU Memory Interface - Address conversion and arbiter connection
-// TODO: Fully integrate FPU memory access into memory arbiter chain
-// For now: Simple acknowledgement to allow FPU register operations
-// Future: Add FPU to PipelinedDMAArbiter for full memory operand support
-
-wire [19:1] fpu_mem_addr_converted;
-assign fpu_mem_addr_converted = fpu_mem_addr[19:1];  // Convert 20-bit byte address to 19:1 word address
-
-// Temporary: Immediate acknowledgement for FPU memory requests
-// This allows FPU register-only operations to work
-// Memory operand instructions (e.g., FADD [BX]) will need full arbiter integration
-reg fpu_mem_ack_reg;
-always @(posedge sys_clk) begin
-    if (post_sdram_reset)
-        fpu_mem_ack_reg <= 1'b0;
-    else
-        fpu_mem_ack_reg <= fpu_mem_access;  // Acknowledge one cycle after request
-end
-assign fpu_mem_ack = fpu_mem_ack_reg;
-assign fpu_mem_data_in = 16'h0;  // Return zeros for now
+// FPU Memory Interface - Fully integrated into PipelinedDMAFPUArbiter
+// FPU memory operands now fully functional via C-bus
+// Supports: FADD [BX], FILD [SI], FIST [DI], etc.
+// Priority: DMA > FPU > CPU Cache
 
 wire cursor_enabled;
 wire graphics_enabled;
