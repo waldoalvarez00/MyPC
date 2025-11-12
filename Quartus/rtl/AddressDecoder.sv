@@ -29,7 +29,9 @@ module AddressDecoderIO(
 						  output reg   mcga_reg_access,
                     output reg   ppi_control_access,
 					  output reg   floppy_access,
-						  
+					  output reg   fpu_control_access,
+					  output reg   fpu_status_access,
+
 						  output logic dma_chip_select,
                     output logic dma_page_chip_select
 						  
@@ -81,6 +83,8 @@ always_comb begin
     cga_reg_access       = 1'b0;
     uart2_access         = 1'b0;
     floppy_access        = 1'b0;
+    fpu_control_access   = 1'b0;
+    fpu_status_access    = 1'b0;
     dma_chip_select      = 1'b0;
     dma_page_chip_select = 1'b0;
 	 
@@ -165,6 +169,13 @@ always_comb begin
 		  end
 		  else if (data_m_addr[16:3] == 14'b0000_0011_1111_0) begin  // 3F0h-3F7h (Floppy)
 		      floppy_access = 1'b1;
+		  end
+		  else if (data_m_addr[16:4] == 13'b0000_0000_1111_0) begin  // 0xF0-0xFF (FPU/Math Coprocessor)
+		      if (data_m_addr[3:2] == 2'b10) begin  // 0xF8-0xFB (Control Word)
+		          fpu_control_access = 1'b1;
+		      end else if (data_m_addr[3:2] == 2'b11) begin  // 0xFC-0xFF (Status Word)
+		          fpu_status_access = 1'b1;
+		      end
 		  end
 
 		  /*else if (data_m_addr[16:3] == 14'b0000_0000_0110_00) begin  // 62h 63h

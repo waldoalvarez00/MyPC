@@ -548,6 +548,10 @@ always @(*) begin
         io_data = ppiout;
     else if (floppy_access)
         io_data = {8'b0, floppy_readdata};
+    else if (fpu_control_access)
+        io_data = fpu_control_data;
+    else if (fpu_status_access)
+        io_data = fpu_status_data;
     else
         io_data = 16'b0;
 end
@@ -576,6 +580,31 @@ wire [7:0] cpu_fpu_modrm;
 wire cpu_fpu_instr_valid;
 wire fpu_busy;
 wire fpu_int;
+
+// FPU Control/Status I/O
+wire fpu_control_access;
+wire fpu_status_access;
+wire fpu_control_ack;
+wire fpu_status_ack;
+wire [15:0] fpu_control_data;
+wire [15:0] fpu_status_data;
+wire [15:0] fpu_control_word_out;
+wire [15:0] fpu_status_word_out;
+
+// FPU Memory Interface
+wire [19:0] fpu_mem_addr;
+wire [15:0] fpu_mem_data_in;
+wire [15:0] fpu_mem_data_out;
+wire fpu_mem_access;
+wire fpu_mem_ack;
+wire fpu_mem_wr_en;
+wire [1:0] fpu_mem_bytesel;
+
+// FPU CPU Data Interface (80-bit transfers - future enhancement)
+wire [79:0] fpu_cpu_data_in;
+wire [79:0] fpu_cpu_data_out;
+wire fpu_cpu_data_write;
+wire fpu_cpu_data_ready;
 
 // Multiplexed I/D bus.
 wire [19:1] q_m_addr;
@@ -713,6 +742,10 @@ always @(posedge sys_clk) begin
         io_ack <= bios_control_ack;
     else if (floppy_access)
         io_ack <= floppy_ack;
+    else if (fpu_control_access)
+        io_ack <= fpu_control_ack;
+    else if (fpu_status_access)
+        io_ack <= fpu_status_ack;
     else
         io_ack <= 1'b0;
 end
@@ -831,8 +864,10 @@ AddressDecoderIO AddressDecoderIO(
 	 .dma_page_chip_select(dma_page_chip_select),
 	 .dma_chip_select(dma_chip_select),
 	 .ppi_control_access(ppi_control_access),
-	 .floppy_access(floppy_access)
-	 
+	 .floppy_access(floppy_access),
+	 .fpu_control_access(fpu_control_access),
+	 .fpu_status_access(fpu_status_access)
+
 );
 
 
@@ -1687,6 +1722,34 @@ Timer Timer(.clk(sys_clk),
             .speaker_gate_en(`SPEAKER_GATE_EN_IN),
             .*);
 
+// FPU Control Word Register (I/O Port 0xF8-0xFB)
+// Internal signal for control word write pulse
+wire fpu_control_write_pulse;
+
+FPUControlRegister FPUControlReg(
+    .clk(sys_clk),
+    .reset(post_sdram_reset),
+    .cs(fpu_control_access),
+    .data_m_data_in(data_m_data_out),
+    .data_m_wr_en(data_m_wr_en),
+    .data_m_ack(fpu_control_ack),
+    .control_word_out(fpu_control_word_out),
+    .control_write(fpu_control_write_pulse)  // Pulse when control word written
+);
+
+// FPU Status Word Register (I/O Port 0xFC-0xFF)
+FPUStatusRegister FPUStatusReg(
+    .clk(sys_clk),
+    .reset(post_sdram_reset),
+    .cs(fpu_status_access),
+    .status_word_in(fpu_status_word_out),
+    .data_m_data_out(fpu_status_data),
+    .data_m_ack(fpu_status_ack)
+);
+
+// Assign control data for read operations (echo back current control word)
+assign fpu_control_data = fpu_control_word_out;
+
 // FPU 8087 Coprocessor
 FPU_System_Integration FPU(
     .clk(sys_clk),
@@ -1697,38 +1760,63 @@ FPU_System_Integration FPU(
     .cpu_modrm(cpu_fpu_modrm),
     .cpu_instruction_valid(cpu_fpu_instr_valid),
 
-    // CPU Data Interface (unused for now)
-    .cpu_data_in(80'h0),
-    .cpu_data_out(),
-    .cpu_data_write(1'b0),
-    .cpu_data_ready(),
+    // CPU Data Interface (80-bit operand transfers - future enhancement)
+    .cpu_data_in(fpu_cpu_data_in),
+    .cpu_data_out(fpu_cpu_data_out),
+    .cpu_data_write(fpu_cpu_data_write),
+    .cpu_data_ready(fpu_cpu_data_ready),
 
-    // Memory Interface (unused for now - FPU doesn't access memory directly yet)
-    .mem_addr(),
-    .mem_data_in(16'h0),
-    .mem_data_out(),
-    .mem_access(),
-    .mem_ack(1'b1),
-    .mem_wr_en(),
-    .mem_bytesel(),
+    // Memory Interface (FPU memory operand access)
+    .mem_addr(fpu_mem_addr),
+    .mem_data_in(fpu_mem_data_in),
+    .mem_data_out(fpu_mem_data_out),
+    .mem_access(fpu_mem_access),
+    .mem_ack(fpu_mem_ack),
+    .mem_wr_en(fpu_mem_wr_en),
+    .mem_bytesel(fpu_mem_bytesel),
 
     // CPU Control Signals
     .fpu_busy(fpu_busy),
     .fpu_int(fpu_int),
-    .fpu_int_clear(1'b0),
+    .fpu_int_clear(fpu_status_access & data_m_wr_en),  // Clear on status word write
 
-    // Status/Control (unused for now)
-    .control_word_in(16'h037F),  // Default 8087 control word
-    .control_write(1'b0),
-    .status_word_out(),
-    .control_word_out(),
+    // Status/Control Words (connected to I/O registers)
+    .control_word_in(fpu_control_word_out),
+    .control_write(fpu_control_access & data_m_wr_en),
+    .status_word_out(fpu_status_word_out),
+    .control_word_out(),  // Not needed (we use control_word_in)
 
-    // Debug outputs
+    // Debug outputs (not connected)
     .is_esc_instruction(),
     .has_memory_operand(),
     .fpu_operation(),
     .queue_count()
 );
+
+// CPU Data Interface - temporary placeholders until CPU microcode supports 80-bit transfers
+assign fpu_cpu_data_in = 80'h0;      // Future: Connect to CPU data path
+assign fpu_cpu_data_write = 1'b0;    // Future: CPU microcode control
+
+// FPU Memory Interface - Address conversion and arbiter connection
+// TODO: Fully integrate FPU memory access into memory arbiter chain
+// For now: Simple acknowledgement to allow FPU register operations
+// Future: Add FPU to PipelinedDMAArbiter for full memory operand support
+
+wire [19:1] fpu_mem_addr_converted;
+assign fpu_mem_addr_converted = fpu_mem_addr[19:1];  // Convert 20-bit byte address to 19:1 word address
+
+// Temporary: Immediate acknowledgement for FPU memory requests
+// This allows FPU register-only operations to work
+// Memory operand instructions (e.g., FADD [BX]) will need full arbiter integration
+reg fpu_mem_ack_reg;
+always @(posedge sys_clk) begin
+    if (post_sdram_reset)
+        fpu_mem_ack_reg <= 1'b0;
+    else
+        fpu_mem_ack_reg <= fpu_mem_access;  // Acknowledge one cycle after request
+end
+assign fpu_mem_ack = fpu_mem_ack_reg;
+assign fpu_mem_data_in = 16'h0;  // Return zeros for now
 
 wire cursor_enabled;
 wire graphics_enabled;
