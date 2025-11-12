@@ -212,11 +212,12 @@ module tb_dcache_coherency;
                 $finish(1);
             end
 
-            @(posedge clk);
+            // Drop access immediately when ACK seen (no extra cycle!)
             cpu_access = 1'b0;
             cpu_wr_en = 1'b0;
 
             $display("  [CPU] Write acknowledged (cycles=%0d)", timeout_counter);
+            @(posedge clk);  // Wait one cycle before returning
         end
     endtask
 
@@ -245,11 +246,12 @@ module tb_dcache_coherency;
                 $finish(1);
             end
 
+            // Capture data and drop access immediately when ACK seen
             data = cpu_data_in;
-            @(posedge clk);
             cpu_access = 1'b0;
 
             $display("  [CPU] Read acknowledged data=%h (cycles=%0d)", data, timeout_counter);
+            @(posedge clk);  // Wait one cycle before returning
         end
     endtask
 
@@ -279,11 +281,12 @@ module tb_dcache_coherency;
                 $finish(1);
             end
 
-            @(posedge clk);
+            // Drop access immediately when ACK seen (no extra cycle!)
             dma_access = 1'b0;
             dma_wr_en = 1'b0;
 
             $display("  [DMA] Write acknowledged (cycles=%0d)", timeout_counter);
+            @(posedge clk);  // Wait one cycle before returning
         end
     endtask
 
@@ -299,11 +302,13 @@ module tb_dcache_coherency;
 
             // Wait for ACK
             wait(dma_ack);
+
+            // Capture data and drop access immediately when ACK seen
             data = dma_data_in;
-            @(posedge clk);
             dma_access = 1'b0;
 
             $display("  [DMA] Read acknowledged data=%h", data);
+            @(posedge clk);  // Wait one cycle before returning
         end
     endtask
 
@@ -320,11 +325,13 @@ module tb_dcache_coherency;
 
             // Wait for ACK
             wait(fpu_ack);
-            @(posedge clk);
+
+            // Drop access immediately when ACK seen (no extra cycle!)
             fpu_access = 1'b0;
             fpu_wr_en = 1'b0;
 
             $display("  [FPU] Write acknowledged");
+            @(posedge clk);  // Wait one cycle before returning
         end
     endtask
 
@@ -353,11 +360,12 @@ module tb_dcache_coherency;
                 $finish(1);
             end
 
+            // Capture data and drop access immediately when ACK seen
             data = fpu_data_in;
-            @(posedge clk);
             fpu_access = 1'b0;
 
             $display("  [FPU] Read acknowledged data=%h (cycles=%0d)", data, timeout_counter);
+            @(posedge clk);  // Wait one cycle before returning
         end
     endtask
 

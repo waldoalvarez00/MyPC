@@ -111,28 +111,14 @@ always_ff @(posedge clk or posedge reset) begin
     end else begin
         state <= next_state;
 
-        case (next_state)
-            SERVING_DMA: begin
-                serving_dma <= 1'b1;
-                serving_fpu <= 1'b0;
-                serving_cpu <= 1'b0;
-            end
-            SERVING_FPU: begin
-                serving_dma <= 1'b0;
-                serving_fpu <= 1'b1;
-                serving_cpu <= 1'b0;
-            end
-            SERVING_CPU: begin
-                serving_dma <= 1'b0;
-                serving_fpu <= 1'b0;
-                serving_cpu <= 1'b1;
-            end
-            default: begin  // IDLE
-                serving_dma <= 1'b0;
-                serving_fpu <= 1'b0;
-                serving_cpu <= 1'b0;
-            end
-        endcase
+        // Update serving flags based on CURRENT or NEXT state
+        // This ensures:
+        //  1. Serving flag goes HIGH immediately when entering SERVING state
+        //  2. Serving flag stays HIGH for 1 cycle after leaving SERVING state
+        // This prevents immediate re-entry while avoiding stuck conditions
+        serving_dma <= (state == SERVING_DMA) || (next_state == SERVING_DMA);
+        serving_fpu <= (state == SERVING_FPU) || (next_state == SERVING_FPU);
+        serving_cpu <= (state == SERVING_CPU) || (next_state == SERVING_CPU);
     end
 end
 
@@ -141,18 +127,25 @@ end
 //=============================================================================
 
 // Priority: DMA > FPU > CPU
+// Note: Transitions to IDLE after ACK, then waits one cycle before accepting
+// new requests. This prevents re-entering the same SERVING state before the
+// requestor has dropped their access signal.
 always_comb begin
     next_state = state;
 
     case (state)
         IDLE: begin
-            // Check requests in priority order
-            if (dma_access)
-                next_state = SERVING_DMA;
-            else if (fpu_access)
-                next_state = SERVING_FPU;
-            else if (cpu_access)
-                next_state = SERVING_CPU;
+            // Only transition if NOT just completing a request
+            // (serving flags are still high for one cycle after transitioning to IDLE)
+            if (!serving_dma && !serving_fpu && !serving_cpu) begin
+                // Check requests in priority order
+                if (dma_access)
+                    next_state = SERVING_DMA;
+                else if (fpu_access)
+                    next_state = SERVING_FPU;
+                else if (cpu_access)
+                    next_state = SERVING_CPU;
+            end
         end
 
         SERVING_DMA: begin
@@ -260,6 +253,28 @@ end
 assign dma_data_in = dma_data_in_reg;
 assign fpu_data_in = fpu_data_in_reg;
 assign cpu_data_in = cpu_data_in_reg;
+
+//=============================================================================
+// Debug Tracing (for simulation)
+//=============================================================================
+
+`ifndef SYNTHESIS
+    always_ff @(posedge clk) begin
+        if (!reset) begin
+            // Monitor state transitions
+            if (state != next_state) begin
+                $display("[ARBITER] State transition: %0s → %0s",
+                         state.name(), next_state.name());
+            end
+
+            // Monitor stuck conditions
+            if (state != IDLE && !cache_ack && !cache_access) begin
+                $display("[ARBITER] WARNING: In state %0s but cache_access=0 (serving_dma=%b serving_fpu=%b serving_cpu=%b)",
+                         state.name(), serving_dma, serving_fpu, serving_cpu);
+            end
+        end
+    end
+`endif
 
 //=============================================================================
 // Assertions (for formal verification)
