@@ -6,7 +6,8 @@
 //
 // Complete production-ready 8087 FPU implementation combining:
 // - FPU_Instruction_Decoder: Real D8-DF opcode decoding
-// - FPU_Core_Async: Async execution with instruction queue
+// - FPU_Outer_Queue: 4-entry instruction queue for async operation
+// - FPU_Core_Async: Async execution with internal instruction queue
 // - FPU_Core: Complete execution engine with all arithmetic units
 //   * FPU_ArithmeticUnit (IEEE 754 AddSub, MulDiv, Transcendental)
 //   * MicroSequencer_Extended_BCD
@@ -14,16 +15,15 @@
 //   * FPU_RegisterStack (8 × 80-bit registers)
 //   * FPU_ControlWord, FPU_StatusWord
 //
-// Architecture: Authentic 8087 with dual-interface design
-// - Memory Interface: Direct memory access for memory operands (like original 8087)
-// - CPU Data Interface: 80-bit data path for register operations
+// Architecture: Authentic 8087 with dual-queue async design
+// - Outer Queue: Buffers instructions+EA for memory operation serialization
+// - Inner Queue: Arithmetic operation pipelining (FPU_Core_Async)
+// - Memory Interface: Direct memory access for memory operands
 //
-// This replaces all previous integration attempts:
-// - FPU_System_Integration (obsolete placeholder)
-// - FPU8087_Integrated (wrapper-based)
-// - FPU_Core_Wrapper (test stub)
+// CPU provides effective address via cpu_fpu_ea when memory operand detected.
+// FPU queues instruction+EA, then processes asynchronously while CPU continues.
 //
-// Date: 2025-11-12
+// Date: 2025-11-13
 //=====================================================================
 
 module FPU8087(
@@ -39,13 +39,9 @@ module FPU8087(
     input wire [7:0]  cpu_fpu_modrm,          // ModR/M byte
     output wire       cpu_fpu_instr_ack,      // FPU acknowledges instruction
 
-    // CPU Data Transfer Interface (for register operations)
-    input wire        cpu_fpu_data_write,     // CPU writes data to FPU
-    input wire        cpu_fpu_data_read,      // CPU reads data from FPU
-    input wire [2:0]  cpu_fpu_data_size,      // 0=16bit, 1=32bit, 2=64bit, 3=80bit
-    input wire [79:0] cpu_fpu_data_in,        // Data from CPU
-    output wire [79:0] cpu_fpu_data_out,      // Data to CPU
-    output wire       cpu_fpu_data_ready,     // FPU data ready
+    // Effective Address Interface (for memory operands)
+    input wire [19:0] cpu_fpu_ea,             // Effective address from CPU
+    input wire        cpu_fpu_ea_valid,       // EA valid (for memory operands)
 
     // ========== Memory Interface (Direct Access) ==========
     // FPU accesses memory directly for memory operands (authentic 8087 behavior)
@@ -62,16 +58,12 @@ module FPU8087(
 
     // ========== Status and Control ==========
 
-    output wire       cpu_fpu_busy,           // FPU busy executing
+    output wire       cpu_fpu_busy,           // FPU busy executing (queue not empty or processing)
     output wire [15:0] cpu_fpu_status_word,   // FPU status word (FSTSW)
     input wire [15:0] cpu_fpu_control_word,   // FPU control word (FLDCW)
     input wire        cpu_fpu_ctrl_write,     // Write control word
     output wire       cpu_fpu_exception,      // Unmasked exception occurred
-    output wire       cpu_fpu_irq,            // Interrupt request (8087 INT)
-
-    // Synchronization (FWAIT)
-    input wire        cpu_fpu_wait,           // CPU executing FWAIT
-    output wire       cpu_fpu_ready           // FPU ready (not busy)
+    output wire       cpu_fpu_irq             // Interrupt request (8087 INT)
 );
 
     //=================================================================
@@ -115,6 +107,55 @@ module FPU8087(
     );
 
     //=================================================================
+    // FPU Outer Queue (Instruction+EA Buffering)
+    //=================================================================
+
+    reg         queue_enqueue;
+    reg         queue_dequeue;
+    wire        queue_full;
+    wire        queue_empty;
+    wire [2:0]  queue_count;
+
+    wire [7:0]  queued_opcode;
+    wire [2:0]  queued_stack_index;
+    wire [19:0] queued_ea;
+    wire [1:0]  queued_operand_size;
+    wire        queued_is_integer;
+    wire        queued_is_bcd;
+    wire        queued_has_memory_op;
+    wire        queued_has_pop;
+
+    FPU_Outer_Queue outer_queue (
+        .clk(clk),
+        .reset(reset),
+
+        // Enqueue from CPU
+        .enqueue(queue_enqueue),
+        .opcode_in(decoded_opcode),
+        .stack_index_in(decoded_stack_index),
+        .ea_in(cpu_fpu_ea),
+        .operand_size_in(decoded_operand_size),
+        .is_integer_in(decoded_is_integer),
+        .is_bcd_in(decoded_is_bcd),
+        .has_memory_op_in(decoded_has_memory_op),
+        .has_pop_in(decoded_has_pop),
+        .queue_full(queue_full),
+
+        // Dequeue to execution
+        .dequeue(queue_dequeue),
+        .opcode_out(queued_opcode),
+        .stack_index_out(queued_stack_index),
+        .ea_out(queued_ea),
+        .operand_size_out(queued_operand_size),
+        .is_integer_out(queued_is_integer),
+        .is_bcd_out(queued_is_bcd),
+        .has_memory_op_out(queued_has_memory_op),
+        .has_pop_out(queued_has_pop),
+        .queue_empty(queue_empty),
+        .queue_count(queue_count)
+    );
+
+    //=================================================================
     // Memory Interface State Machine
     //=================================================================
 
@@ -138,15 +179,14 @@ module FPU8087(
     //=================================================================
 
     localparam STATE_IDLE       = 4'd0;
-    localparam STATE_DECODE     = 4'd1;
     localparam STATE_MEM_LOAD   = 4'd2;
     localparam STATE_EXECUTE    = 4'd3;
     localparam STATE_MEM_STORE  = 4'd4;
     localparam STATE_RESULT     = 4'd5;
 
-    reg [3:0] state, next_state;
+    reg [3:0] state;
 
-    // Instruction context registers
+    // Instruction context registers (from queue)
     reg [7:0]  current_opcode;
     reg [2:0]  current_stack_index;
     reg        current_has_memory_op;
@@ -161,7 +201,6 @@ module FPU8087(
     reg [79:0] result_buffer;
     reg        internal_busy;
     reg        instruction_ack;
-    reg        data_ready;
 
     //=================================================================
     // FPU Core Async Signals
@@ -182,14 +221,14 @@ module FPU8087(
     reg  [31:0] core_int_data_in;
 
     //=================================================================
-    // FPU Core Async (Queue + Core)
+    // FPU Core Async (Inner Queue + Core)
     //=================================================================
 
     FPU_Core_Async fpu_core_async (
         .clk(clk),
         .reset(reset),
 
-        // Instruction interface (simplified opcodes from decoder)
+        // Instruction interface (simplified opcodes from queue)
         .instruction(current_opcode),
         .stack_index(current_stack_index),
         .execute(core_execute),
@@ -258,7 +297,13 @@ module FPU8087(
                     mem_access_reg <= 1'b1;
                     mem_wr_en_reg <= 1'b0;
                     mem_bytesel_reg <= 2'b11;  // Word access
-                    mem_addr_reg <= mem_addr_reg + {mem_transfer_count, 1'b0};  // Word-aligned
+
+                    // Address calculation: base + word_offset
+                    if (mem_transfer_count == 0) begin
+                        mem_addr_reg <= mem_addr_reg;  // Use captured EA
+                    end else begin
+                        mem_addr_reg <= mem_addr_reg + 2;  // Increment by 2 bytes
+                    end
 
                     if (mem_ack) begin
                         // Store received word
@@ -288,7 +333,13 @@ module FPU8087(
                     mem_access_reg <= 1'b1;
                     mem_wr_en_reg <= 1'b1;
                     mem_bytesel_reg <= 2'b11;  // Word access
-                    mem_addr_reg <= mem_addr_reg + {mem_transfer_count, 1'b0};
+
+                    // Address calculation
+                    if (mem_transfer_count == 0) begin
+                        mem_addr_reg <= mem_addr_reg;  // Use captured EA
+                    end else begin
+                        mem_addr_reg <= mem_addr_reg + 2;
+                    end
 
                     // Select word to write
                     case (mem_transfer_count)
@@ -324,7 +375,7 @@ module FPU8087(
     end
 
     //=================================================================
-    // Main Interface State Machine
+    // Main Interface State Machine (Queue-Driven)
     //=================================================================
 
     always @(posedge clk) begin
@@ -332,7 +383,8 @@ module FPU8087(
             state <= STATE_IDLE;
             internal_busy <= 1'b0;
             instruction_ack <= 1'b0;
-            data_ready <= 1'b0;
+            queue_enqueue <= 1'b0;
+            queue_dequeue <= 1'b0;
             core_execute <= 1'b0;
             operand_buffer <= 80'h0;
             result_buffer <= 80'h0;
@@ -349,33 +401,41 @@ module FPU8087(
         end else begin
             // Default: deassert one-shot signals
             instruction_ack <= 1'b0;
+            queue_enqueue <= 1'b0;
+            queue_dequeue <= 1'b0;
             core_execute <= 1'b0;
+
+            // Enqueue logic: Always try to enqueue when CPU sends instruction
+            if (cpu_fpu_instr_valid && decoded_valid && !queue_full) begin
+                instruction_ack <= 1'b1;
+                queue_enqueue <= 1'b1;
+            end
 
             case (state)
                 STATE_IDLE: begin
                     internal_busy <= 1'b0;
-                    data_ready <= 1'b0;
 
-                    // Check for new instruction
-                    if (cpu_fpu_instr_valid && decoded_valid) begin
-                        instruction_ack <= 1'b1;
+                    // Process queued instructions when available and not busy
+                    if (!queue_empty && !internal_busy) begin
+                        queue_dequeue <= 1'b1;
                         internal_busy <= 1'b1;
 
-                        // Capture decoded instruction info
-                        current_opcode <= decoded_opcode;
-                        current_stack_index <= decoded_stack_index;
-                        current_has_memory_op <= decoded_has_memory_op;
-                        current_operand_size <= decoded_operand_size;
-                        current_is_integer <= decoded_is_integer;
-                        current_is_bcd <= decoded_is_bcd;
+                        // Capture from queue (not from CPU!)
+                        current_opcode <= queued_opcode;
+                        current_stack_index <= queued_stack_index;
+                        current_has_memory_op <= queued_has_memory_op;
+                        current_operand_size <= queued_operand_size;
+                        current_is_integer <= queued_is_integer;
+                        current_is_bcd <= queued_is_bcd;
+
+                        // Initialize memory address with EA from queue
+                        mem_addr_reg <= queued_ea;
 
                         // Determine operation type
-                        if (decoded_has_memory_op) begin
+                        if (queued_has_memory_op) begin
                             // Memory operand instruction
-                            // Check if it's a load (FLD, FILD, FADD [mem], etc.) or store (FST, FIST, etc.)
-                            // For now, assume loads need memory read
-                            needs_mem_load <= 1'b1;  // TODO: Refine based on instruction
-                            needs_mem_store <= decoded_has_pop;  // Store operations typically pop
+                            needs_mem_load <= 1'b1;
+                            needs_mem_store <= queued_has_pop;  // Store operations pop
                             state <= STATE_MEM_LOAD;
                         end else begin
                             // Register-only operation
@@ -400,13 +460,11 @@ module FPU8087(
                         // Prepare data for core
                         if (needs_mem_load) begin
                             core_data_in <= operand_buffer;
-                        end else if (cpu_fpu_data_write) begin
-                            core_data_in <= cpu_fpu_data_in;
                         end else begin
                             core_data_in <= 80'h0;
                         end
 
-                        core_int_data_in <= 32'h0;  // TODO: Handle integer data
+                        core_int_data_in <= 32'h0;
                         core_execute <= 1'b1;
                         state <= STATE_RESULT;
                     end
@@ -419,14 +477,8 @@ module FPU8087(
 
                         if (needs_mem_store) begin
                             state <= STATE_MEM_STORE;
-                        end else if (cpu_fpu_data_read) begin
-                            data_ready <= 1'b1;
-                            // Wait for CPU to read
-                            if (cpu_fpu_data_read) begin
-                                data_ready <= 1'b0;
-                                state <= STATE_IDLE;
-                            end
                         end else begin
+                            internal_busy <= 1'b0;
                             state <= STATE_IDLE;
                         end
                     end
@@ -435,6 +487,7 @@ module FPU8087(
                 STATE_MEM_STORE: begin
                     // Wait for memory write to complete
                     if (mem_operation_complete) begin
+                        internal_busy <= 1'b0;
                         state <= STATE_IDLE;
                     end
                 end
@@ -450,10 +503,7 @@ module FPU8087(
 
     // CPU Interface
     assign cpu_fpu_instr_ack = instruction_ack;
-    assign cpu_fpu_busy = internal_busy || core_busy || (state != STATE_IDLE);
-    assign cpu_fpu_ready = !cpu_fpu_busy;
-    assign cpu_fpu_data_out = result_buffer;
-    assign cpu_fpu_data_ready = data_ready;
+    assign cpu_fpu_busy = internal_busy || !queue_empty || core_busy;
     assign cpu_fpu_status_word = core_status_out;
     assign cpu_fpu_exception = core_error;
     assign cpu_fpu_irq = core_int_request;

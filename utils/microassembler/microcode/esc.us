@@ -18,19 +18,19 @@
 #include <config.h>
 
 .at 0xd8;
-    jmp do_esc;
+    mar_write, mar_wr_sel EA, jmp do_esc;
 .at 0xd9;
     mar_write, mar_wr_sel EA, jmp_dispatch_reg dispatch_d9;
 .at 0xda;
-    jmp do_esc;
+    mar_write, mar_wr_sel EA, jmp do_esc;
 .at 0xdb;
-    jmp do_esc;
+    mar_write, mar_wr_sel EA, jmp do_esc;
 .at 0xdc;
-    jmp do_esc;
+    mar_write, mar_wr_sel EA, jmp do_esc;
 .at 0xdd;
     mar_write, mar_wr_sel EA, jmp_dispatch_reg dispatch_dd;
 .at 0xde;
-    jmp do_esc;
+    mar_write, mar_wr_sel EA, jmp do_esc;
 .at 0xdf;
     mar_write, mar_wr_sel EA, jmp_dispatch_reg dispatch_df;
 

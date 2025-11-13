@@ -57,6 +57,8 @@ module Core(input wire  clk,
             output logic [7:0] fpu_opcode,
             output logic [7:0] fpu_modrm,
             output logic fpu_instr_valid,
+            output logic [19:0] fpu_effective_addr,  // Physical address for memory operands
+            output logic fpu_ea_valid,               // EA valid strobe
             input  logic fpu_busy,
             input  logic fpu_int,
             input  logic [15:0] fpu_status_word,
@@ -123,6 +125,12 @@ assign fpu_modrm = is_esc_instruction ? cur_instruction.mod_rm : 8'h00;
 // Generate instruction valid pulse when starting a new ESC instruction
 // This tells the FPU that a new instruction is available
 assign fpu_instr_valid = is_esc_instruction & starting_instruction;
+
+// FPU Effective Address Handoff
+// When ESC instruction has memory operand, provide physical address to FPU
+// Physical address = (segment << 4) + effective_address
+assign fpu_effective_addr = {seg_rd_val, 4'b0000} + {4'b0000, effective_address};
+assign fpu_ea_valid = is_esc_instruction & microcode_write_mar & !rm_is_reg;
 
 wire decode_immed_start;
 wire decode_immed_is_8bit;

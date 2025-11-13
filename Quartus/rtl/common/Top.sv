@@ -241,6 +241,8 @@ wire [15:0] timer_data;
 wire [7:0] cpu_fpu_opcode;
 wire [7:0] cpu_fpu_modrm;
 wire cpu_fpu_instr_valid;
+wire [19:0] fpu_effective_addr;
+wire fpu_ea_valid;
 wire fpu_busy;
 wire fpu_int;
 
@@ -631,6 +633,8 @@ Core Core(
     .fpu_opcode(cpu_fpu_opcode),
     .fpu_modrm(cpu_fpu_modrm),
     .fpu_instr_valid(cpu_fpu_instr_valid),
+    .fpu_effective_addr(fpu_effective_addr),
+    .fpu_ea_valid(fpu_ea_valid),
     .fpu_busy(fpu_busy),
     .fpu_int(fpu_int),
     .fpu_status_word(fpu_status_word),
@@ -678,13 +682,9 @@ FPU8087 FPU(
     .cpu_fpu_modrm(cpu_fpu_modrm),
     .cpu_fpu_instr_ack(),  // Not used yet
 
-    // CPU Data Transfer Interface (not used - FPU handles via memory interface)
-    .cpu_fpu_data_write(1'b0),
-    .cpu_fpu_data_read(1'b0),
-    .cpu_fpu_data_size(3'b0),
-    .cpu_fpu_data_in(80'h0),
-    .cpu_fpu_data_out(),  // Not used
-    .cpu_fpu_data_ready(),  // Not used
+    // Effective Address Interface
+    .cpu_fpu_ea(fpu_effective_addr),
+    .cpu_fpu_ea_valid(fpu_ea_valid),
 
     // Memory Interface - Connected to arbiter
     .mem_addr(fpu_mem_addr),
@@ -701,11 +701,7 @@ FPU8087 FPU(
     .cpu_fpu_control_word(fpu_control_word_reg),  // Programmable via FLDCW
     .cpu_fpu_ctrl_write(fpu_control_word_write),  // Write enable from microcode
     .cpu_fpu_exception(),
-    .cpu_fpu_irq(fpu_int),
-
-    // Synchronization (FWAIT)
-    .cpu_fpu_wait(1'b0),  // Not used
-    .cpu_fpu_ready()      // Not used
+    .cpu_fpu_irq(fpu_int)
 );
 
 `ifdef CONFIG_VGA
