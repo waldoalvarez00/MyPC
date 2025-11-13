@@ -130,7 +130,7 @@ assign fpu_instr_valid = is_esc_instruction & starting_instruction;
 // When ESC instruction has memory operand, provide physical address to FPU
 // Physical address = (segment << 4) + effective_address
 assign fpu_effective_addr = {seg_rd_val, 4'b0000} + {4'b0000, effective_address};
-assign fpu_ea_valid = is_esc_instruction & mar_write & !rm_is_reg;
+assign fpu_ea_valid = is_esc_instruction & microcode_write_mar & !rm_is_reg;
 
 wire decode_immed_start;
 wire decode_immed_is_8bit;
