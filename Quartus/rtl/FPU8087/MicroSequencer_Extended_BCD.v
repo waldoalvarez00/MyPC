@@ -78,25 +78,7 @@ module MicroSequencer_Extended_BCD (
     output reg        bin2bcd_sign_in,
     input wire [79:0] bin2bcd_bcd_out,
     input wire        bin2bcd_done,
-    input wire        bin2bcd_error,
-
-    // Interface to Stack Manager
-    output reg        stack_push_req,       // Push request
-    output reg        stack_pop_req,        // Pop request
-    output reg [2:0]  stack_read_sel,       // Which register to read
-    output reg [2:0]  stack_write_sel,      // Which register to write
-    output reg        stack_write_en,       // Write enable
-    output reg [79:0] stack_write_data,     // Data to write
-    input wire [79:0] stack_read_data,      // Data read from stack
-    input wire        stack_op_done,        // Stack operation complete
-
-    // Status/Control interface
-    input wire [15:0] status_word_in,
-    output reg [15:0] status_word_out,
-    output reg        status_word_write,
-    input wire [15:0] control_word_in,
-    output reg [15:0] control_word_out,
-    output reg        control_word_write
+    input wire        bin2bcd_error
 );
 
     //=================================================================
@@ -130,15 +112,8 @@ module MicroSequencer_Extended_BCD (
     localparam MOP_CALL_ARITH     = 5'h10; // Start arithmetic operation
     localparam MOP_WAIT_ARITH     = 5'h11; // Wait for arithmetic completion
     localparam MOP_LOAD_ARITH_RES = 5'h12; // Load result from arithmetic unit
-    localparam MOP_CALL_STACK     = 5'h13; // Execute stack operation
-    localparam MOP_WAIT_STACK     = 5'h14; // Wait for stack completion
-    localparam MOP_LOAD_STACK_REG = 5'h15; // Load from stack register
-    localparam MOP_STORE_STACK_REG= 5'h16; // Store to stack register
-    localparam MOP_SET_STATUS     = 5'h17; // Set status flags
-    localparam MOP_GET_STATUS     = 5'h18; // Get status flags
-    localparam MOP_GET_CC         = 5'h19; // Get condition codes
 
-    // NEW: BCD conversion operations (0x1A-0x1F)
+    // BCD conversion operations (0x1A-0x1F)
     localparam MOP_CALL_BCD2BIN   = 5'h1A; // Start BCD → Binary conversion
     localparam MOP_WAIT_BCD2BIN   = 5'h1B; // Wait for BCD → Binary completion
     localparam MOP_LOAD_BCD2BIN   = 5'h1C; // Load result from BCD → Binary
@@ -261,7 +236,6 @@ module MicroSequencer_Extended_BCD (
 
     reg [63:0] temp_reg;        // General purpose temp
     reg [31:0] loop_reg;        // Loop counter
-    reg [2:0]  temp_stack_idx;  // Stack index
 
     // FP Constants (IEEE 754 extended precision format)
     localparam [79:0] CONST_HALF = 80'h3FFE8000000000000000;  // 0.5
@@ -271,9 +245,8 @@ module MicroSequencer_Extended_BCD (
     //=================================================================
 
     reg waiting_for_arith;
-    reg waiting_for_stack;
-    reg waiting_for_bcd2bin;  // NEW!
-    reg waiting_for_bin2bcd;  // NEW!
+    reg waiting_for_bcd2bin;
+    reg waiting_for_bin2bcd;
 
     //=================================================================
     // Microcode ROM
@@ -597,7 +570,6 @@ module MicroSequencer_Extended_BCD (
             temp_sign <= 1'b0;
             temp_reg <= 64'd0;
             loop_reg <= 32'd0;
-            temp_stack_idx <= 3'd0;
 
             // Reset hardware unit interfaces
             arith_enable <= 1'b0;
@@ -619,22 +591,9 @@ module MicroSequencer_Extended_BCD (
             bin2bcd_binary_in <= 64'd0;
             bin2bcd_sign_in <= 1'b0;
 
-            stack_push_req <= 1'b0;
-            stack_pop_req <= 1'b0;
-            stack_read_sel <= 3'd0;
-            stack_write_sel <= 3'd0;
-            stack_write_en <= 1'b0;
-            stack_write_data <= 80'd0;
-
-            status_word_out <= 16'd0;
-            status_word_write <= 1'b0;
-            control_word_out <= 16'd0;
-            control_word_write <= 1'b0;
-
             data_out <= 80'd0;
 
             waiting_for_arith <= 1'b0;
-            waiting_for_stack <= 1'b0;
             waiting_for_bcd2bin <= 1'b0;
             waiting_for_bin2bcd <= 1'b0;
 
@@ -643,11 +602,6 @@ module MicroSequencer_Extended_BCD (
             arith_enable <= 1'b0;
             bcd2bin_enable <= 1'b0;
             bin2bcd_enable <= 1'b0;
-            stack_push_req <= 1'b0;
-            stack_pop_req <= 1'b0;
-            stack_write_en <= 1'b0;
-            status_word_write <= 1'b0;
-            control_word_write <= 1'b0;
 
             case (state)
                 STATE_IDLE: begin
@@ -656,7 +610,6 @@ module MicroSequencer_Extended_BCD (
                         instruction_complete <= 1'b0;
                         call_sp <= 4'd0;
                         waiting_for_arith <= 1'b0;
-                        waiting_for_stack <= 1'b0;
                         waiting_for_bcd2bin <= 1'b0;
                         waiting_for_bin2bcd <= 1'b0;
                         state <= STATE_FETCH;
