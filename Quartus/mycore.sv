@@ -578,6 +578,8 @@ wire instr_m_ack;
 wire [7:0] cpu_fpu_opcode;
 wire [7:0] cpu_fpu_modrm;
 wire cpu_fpu_instr_valid;
+wire [19:0] fpu_effective_addr;
+wire fpu_ea_valid;
 wire fpu_busy;
 wire fpu_int;
 
@@ -590,6 +592,7 @@ wire [15:0] fpu_control_data;
 wire [15:0] fpu_status_data;
 wire [15:0] fpu_control_word_out;
 wire [15:0] fpu_status_word_out;
+wire fpu_control_word_write;  // From Core microcode
 
 // FPU Memory Interface
 wire [19:0] fpu_mem_addr;
@@ -599,12 +602,6 @@ wire fpu_mem_access;
 wire fpu_mem_ack;
 wire fpu_mem_wr_en;
 wire [1:0] fpu_mem_bytesel;
-
-// FPU CPU Data Interface (80-bit transfers - future enhancement)
-wire [79:0] fpu_cpu_data_in;
-wire [79:0] fpu_cpu_data_out;
-wire fpu_cpu_data_write;
-wire fpu_cpu_data_ready;
 
 // Multiplexed I/D bus.
 wire [19:1] q_m_addr;
@@ -1543,8 +1540,13 @@ Core u80186(
     .fpu_opcode(cpu_fpu_opcode),
     .fpu_modrm(cpu_fpu_modrm),
     .fpu_instr_valid(cpu_fpu_instr_valid),
+    .fpu_effective_addr(fpu_effective_addr),
+    .fpu_ea_valid(fpu_ea_valid),
     .fpu_busy(fpu_busy),
-    .fpu_int(fpu_int)
+    .fpu_int(fpu_int),
+    .fpu_status_word(fpu_status_word_out),
+    .fpu_control_word(fpu_control_word_out),
+    .fpu_control_word_write(fpu_control_word_write)
 );
 
 
@@ -1793,13 +1795,9 @@ FPU8087 FPU(
     .cpu_fpu_modrm(cpu_fpu_modrm),
     .cpu_fpu_instr_ack(),  // Not used yet
 
-    // CPU Data Transfer Interface (80-bit operand transfers - register operations)
-    .cpu_fpu_data_write(fpu_cpu_data_write),
-    .cpu_fpu_data_read(1'b0),  // TODO: Connect to CPU microcode
-    .cpu_fpu_data_size(3'b011),  // Default to 80-bit
-    .cpu_fpu_data_in(fpu_cpu_data_in),
-    .cpu_fpu_data_out(fpu_cpu_data_out),
-    .cpu_fpu_data_ready(fpu_cpu_data_ready),
+    // Effective Address Interface
+    .cpu_fpu_ea(fpu_effective_addr),
+    .cpu_fpu_ea_valid(fpu_ea_valid),
 
     // Memory Interface (Direct Access - memory operand instructions)
     // FPU accesses memory directly via arbiter (authentic 8087 behavior)
@@ -1815,18 +1813,10 @@ FPU8087 FPU(
     .cpu_fpu_busy(fpu_busy),
     .cpu_fpu_status_word(fpu_status_word_out),
     .cpu_fpu_control_word(fpu_control_word_out),
-    .cpu_fpu_ctrl_write(fpu_control_access & data_m_wr_en),
+    .cpu_fpu_ctrl_write(fpu_control_word_write),
     .cpu_fpu_exception(),  // Not connected yet
-    .cpu_fpu_irq(fpu_int),
-
-    // Synchronization (FWAIT)
-    .cpu_fpu_wait(1'b0),  // TODO: Connect to CPU FWAIT signal
-    .cpu_fpu_ready()  // Not used yet
+    .cpu_fpu_irq(fpu_int)
 );
-
-// CPU Data Interface - temporary placeholders until CPU microcode supports 80-bit transfers
-assign fpu_cpu_data_in = 80'h0;      // Future: Connect to CPU data path
-assign fpu_cpu_data_write = 1'b0;    // Future: CPU microcode control
 
 // FPU Memory Interface - Fully integrated into PipelinedDMAFPUArbiter
 // FPU memory operands now fully functional via C-bus
