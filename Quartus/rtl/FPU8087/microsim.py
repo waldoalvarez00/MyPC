@@ -52,17 +52,10 @@ class MicroOp(IntEnum):
     REG_OPS        = 0xE  # immediate: 0=READ_STATUS, 1=READ_CONTROL, 2=READ_TAG, 3=WRITE_STATUS
     ROUND          = 0xF
 
-    # Hardware unit interface operations (0x10-0x1F) - NEW!
+    # Hardware unit interface operations (0x10-0x1F)
     CALL_ARITH     = 0x10  # Start arithmetic operation
     WAIT_ARITH     = 0x11  # Wait for arithmetic completion
     LOAD_ARITH_RES = 0x12  # Load result from arithmetic unit
-    CALL_STACK     = 0x13  # Execute stack operation
-    WAIT_STACK     = 0x14  # Wait for stack completion
-    LOAD_STACK_REG = 0x15  # Load from stack register
-    STORE_STACK_REG= 0x16  # Store to stack register
-    SET_STATUS     = 0x17  # Set status flags
-    GET_STATUS     = 0x18  # Get status flags
-    GET_CC         = 0x19  # Get condition codes
 
 
 # ============================================================================
@@ -624,46 +617,6 @@ class MicrosequencerSimulator:
             self.fpu_state.temp_result = self.fpu_state.arith_result
             if self.verbose:
                 print(f"  LOAD_ARITH_RES: temp_result = {self.fpu_state.temp_result}")
-
-        elif micro_op == MicroOp.LOAD_STACK_REG:
-            # Load from stack register
-            stack_idx = immediate & 0x7
-            self.fpu_state.temp_result = self.fpu_state.stack[stack_idx]
-            if self.verbose:
-                print(f"  LOAD_STACK_REG: ST({stack_idx}) = {self.fpu_state.temp_result}")
-
-        elif micro_op == MicroOp.STORE_STACK_REG:
-            # Store to stack register
-            stack_idx = immediate & 0x7
-            self.fpu_state.stack[stack_idx] = self.fpu_state.temp_result
-            if self.verbose:
-                print(f"  STORE_STACK_REG: ST({stack_idx}) = {self.fpu_state.temp_result}")
-
-        elif micro_op == MicroOp.GET_STATUS:
-            # Get status word
-            self.fpu_state.temp_reg = self.fpu_state.status_word & 0xFFFF
-            if self.verbose:
-                print(f"  GET_STATUS: 0x{self.fpu_state.status_word:04X}")
-
-        elif micro_op == MicroOp.SET_STATUS:
-            # Set status word
-            self.fpu_state.status_word = self.fpu_state.temp_reg & 0xFFFF
-            if self.verbose:
-                print(f"  SET_STATUS: 0x{self.fpu_state.status_word:04X}")
-
-        elif micro_op == MicroOp.GET_CC:
-            # Get condition codes
-            self.fpu_state.temp_reg = (
-                (1 if self.fpu_state.arith_cc_less else 0) |
-                ((1 if self.fpu_state.arith_cc_equal else 0) << 1) |
-                ((1 if self.fpu_state.arith_cc_greater else 0) << 2) |
-                ((1 if self.fpu_state.arith_cc_unordered else 0) << 3)
-            )
-            if self.verbose:
-                print(f"  GET_CC: L={self.fpu_state.arith_cc_less} "
-                      f"E={self.fpu_state.arith_cc_equal} "
-                      f"G={self.fpu_state.arith_cc_greater} "
-                      f"U={self.fpu_state.arith_cc_unordered}")
 
         else:
             if self.verbose:

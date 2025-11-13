@@ -76,25 +76,7 @@ module tb_microcode_extended;
         .bin2bcd_sign_in(),
         .bin2bcd_bcd_out(80'h0),
         .bin2bcd_done(1'b1),
-        .bin2bcd_error(1'b0),
-
-        // Stack stubs
-        .stack_push_req(),
-        .stack_pop_req(),
-        .stack_read_sel(),
-        .stack_write_sel(),
-        .stack_write_en(),
-        .stack_write_data(),
-        .stack_read_data(80'h0),
-        .stack_op_done(1'b0),
-
-        // Status/control stubs
-        .status_word_in(16'h0),
-        .status_word_out(),
-        .status_word_write(),
-        .control_word_in(16'h0),
-        .control_word_out(),
-        .control_word_write()
+        .bin2bcd_error(1'b0)
     );
 
     //------------------------------------------------------------------------
