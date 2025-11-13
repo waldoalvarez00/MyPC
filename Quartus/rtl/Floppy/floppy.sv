@@ -150,16 +150,29 @@ wire [1:0] selected_drive = {1'b0, ~reset &
 
 reg motor_enable[2];
 reg old_motor_enable[2];
+reg old_enable;
 always @(posedge clk or posedge reset) begin
-	if(reset)                               motor_enable[0] <= 1'b0;
-	else if(io_write && io_address == 3'h2) motor_enable[0] <= io_writedata[4];
-	                                        old_motor_enable[0] <= motor_enable[0];
+	if(reset) begin
+		motor_enable[0] <= 1'b0;
+		old_motor_enable[0] <= 1'b0;
+	end
+	else begin
+		if(io_write && io_address == 3'h2)
+			motor_enable[0] <= io_writedata[4];
+		old_motor_enable[0] <= motor_enable[0];
+	end
 end
 
 always @(posedge clk or posedge reset) begin
-	if(reset)                               motor_enable[1] <= 1'b0;
-	else if(io_write && io_address == 3'h2) motor_enable[1] <= io_writedata[5];
-	                                        old_motor_enable[1] <= motor_enable[1];
+	if(reset) begin
+		motor_enable[1] <= 1'b0;
+		old_motor_enable[1] <= 1'b0;
+	end
+	else begin
+		if(io_write && io_address == 3'h2)
+			motor_enable[1] <= io_writedata[5];
+		old_motor_enable[1] <= motor_enable[1];
+	end
 end
 
 reg dma_irq_enable;
@@ -463,16 +476,17 @@ end
 //------------------------------------------------------------------------------ cmd: sense interrupt status
 
 always @(posedge clk  or posedge reset or posedge sw_reset) begin
-
-	reg old_enable;
-
-	old_enable <= enable;
-
-	if(reset | sw_reset)                                 irq <= 1'b0;
-	else if(~old_enable & enable)                        irq <= 1'b1;
-	else if(ndma_write | ndma_read)                      irq <= 1'b0;
-	else if(ndma_irq | raise_interrupt)                  irq <= 1'b1;
-	else if(io_read && io_address == 3'd5 && ~ndma_read) irq <= 1'b0;
+	if(reset | sw_reset) begin
+		irq <= 1'b0;
+		old_enable <= 1'b0;
+	end
+	else begin
+		old_enable <= enable;
+		if(~old_enable & enable)                        irq <= 1'b1;
+		else if(ndma_write | ndma_read)                 irq <= 1'b0;
+		else if(ndma_irq | raise_interrupt)             irq <= 1'b1;
+		else if(io_read && io_address == 3'd5 && ~ndma_read) irq <= 1'b0;
+	end
 end
 
 
