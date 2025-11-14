@@ -596,16 +596,16 @@ module MicroSequencer_Extended_BCD (
         // Load input angle from data_in
         microcode_rom[16'h0180] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0181};
 
-        // Clear accumulator
-        microcode_rom[16'h0181] = {OPCODE_EXEC, MOP_CLEAR_ACCUM, 8'd0, 15'h0182};
-
         // Extract mantissa from input angle (temp_fp_a)
-        microcode_rom[16'h0182] = {OPCODE_EXEC, MOP_EXTRACT_MANT, 8'd0, 15'h0183};
+        microcode_rom[16'h0181] = {OPCODE_EXEC, MOP_EXTRACT_MANT, 8'd0, 15'h0182};
 
-        // Load 2/π chunk 0 (most significant) from ROM
-        microcode_rom[16'h0183] = {OPCODE_EXEC, MOP_LOAD_ROM, 8'd0, 15'h0184};
+        // Load 2/π chunk 0 (most significant) from ROM - sets address
+        microcode_rom[16'h0182] = {OPCODE_EXEC, MOP_LOAD_ROM, 8'd0, 15'h0183};
 
-        // Multiply mantissa by 2/π chunk 0 → 128-bit result in accumulator
+        // Clear accumulator (NOP to wait for ROM data to be ready)
+        microcode_rom[16'h0183] = {OPCODE_EXEC, MOP_CLEAR_ACCUM, 8'd0, 15'h0184};
+
+        // Multiply mantissa by 2/π chunk 0 → 128-bit result (ROM data now valid)
         microcode_rom[16'h0184] = {OPCODE_EXEC, MOP_MUL64, 8'd0, 15'h0185};
 
         // Extract quadrant (bits 1:0 of upper accumulator)
@@ -626,13 +626,13 @@ module MicroSequencer_Extended_BCD (
         // Pack as FP80: sign=0, exp=0x3FFD, mantissa from temp_reg
         microcode_rom[16'h0189] = {OPCODE_EXEC, MOP_PACK_FP80, 8'd0, 15'h018A};
 
-        // Move normalized fraction to temp_fp_a for multiplication
-        microcode_rom[16'h018A] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h018B};
+        // Load π/2 from ROM (address 4) - sets address
+        microcode_rom[16'h018A] = {OPCODE_EXEC, MOP_LOAD_ROM, 8'd4, 15'h018B};
 
-        // Load π/2 from ROM (address 4)
-        microcode_rom[16'h018B] = {OPCODE_EXEC, MOP_LOAD_ROM, 8'd4, 15'h018C};
+        // Move normalized fraction to temp_fp_a (wait for ROM)
+        microcode_rom[16'h018B] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h018C};
 
-        // Load ROM data (π/2) into temp_fp_b
+        // Load ROM data (π/2) into temp_fp_b (ROM data now valid)
         microcode_rom[16'h018C] = {OPCODE_EXEC, MOP_LOAD_ROM_DATA, 8'd0, 15'h018D};
 
         // Multiply fraction by π/2
