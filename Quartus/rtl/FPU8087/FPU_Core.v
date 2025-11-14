@@ -431,6 +431,16 @@ module FPU_Core(
     );
 
     //=================================================================
+    // Payne-Hanek ROM for Extended Precision Range Reduction
+    //=================================================================
+
+    FPU_Payne_Hanek_ROM payne_hanek_rom (
+        .clk(clk),
+        .addr(ph_rom_addr),
+        .data_out(ph_rom_data)
+    );
+
+    //=================================================================
     // BCD Microsequencer
     //=================================================================
 
@@ -461,6 +471,10 @@ module FPU_Core(
     wire        microseq_bin2bcd_enable;
     wire [63:0] microseq_bin2bcd_binary_in;
     wire        microseq_bin2bcd_sign_in;
+
+    // Payne-Hanek ROM interface
+    wire [2:0]  ph_rom_addr;
+    wire [79:0] ph_rom_data;
 
     // Shared control: when microsequencer is active, it controls the hardware units
     reg microseq_active;
@@ -545,7 +559,11 @@ module FPU_Core(
         .bin2bcd_sign_in(microseq_bin2bcd_sign_in),
         .bin2bcd_bcd_out(bin2bcd_bcd_out),
         .bin2bcd_done(bin2bcd_done),
-        .bin2bcd_error(bin2bcd_error)
+        .bin2bcd_error(bin2bcd_error),
+
+        // Payne-Hanek ROM interface
+        .ph_rom_addr(ph_rom_addr),
+        .ph_rom_data(ph_rom_data)
     );
 
     //=================================================================

@@ -106,6 +106,7 @@ module MicroSequencer_Extended_BCD (
     localparam MOP_LOAD_B         = 5'h06;  // Load data_in into temp_fp_b
     localparam MOP_MOVE_RES_TO_A  = 5'h07;  // Move temp_result to temp_fp_a
     localparam MOP_MOVE_RES_TO_B  = 5'h08;  // Move temp_result to temp_fp_b
+    localparam MOP_MOVE_RES_TO_C  = 5'h29;  // Move temp_result to temp_fp_c
     localparam MOP_MOVE_A_TO_C    = 5'h09;  // Move temp_fp_a to temp_fp_c
     localparam MOP_MOVE_A_TO_B    = 5'h0A;  // Move temp_fp_a to temp_fp_b
     localparam MOP_MOVE_C_TO_A    = 5'h0B;  // Move temp_fp_c to temp_fp_a
@@ -134,6 +135,7 @@ module MicroSequencer_Extended_BCD (
     localparam MOP_EXTRACT_BITS    = 5'h25;  // Extract bit range from register
     localparam MOP_PACK_FP80       = 5'h26;  // Pack sign/exp/mant → FP80
     localparam MOP_CLEAR_ACCUM     = 5'h27;  // Clear accumulators
+    localparam MOP_LOAD_ROM_DATA   = 5'h28;  // Load ROM data to temp_fp_b
 
     //=================================================================
     // FSM States
@@ -572,6 +574,75 @@ module MicroSequencer_Extended_BCD (
         microcode_rom[16'h0771] = {OPCODE_EXEC, MOP_MOVE_A_TO_B, 8'd0, 15'h0772};     // Copy to result
         microcode_rom[16'h0772] = {OPCODE_EXEC, MOP_STORE, 8'd0, 15'h0773};           // Store result
         microcode_rom[16'h0773] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+
+        //-------------------------------------------------------------
+        // Program 22: Payne-Hanek Range Reduction (Simplified - Phase 2A)
+        // Address: 0x0180-0x0195
+        // Input: temp_fp_a = large angle (FP80)
+        // Output: temp_result = reduced angle in [0, π/2)
+        //         Quadrant information in temp_reg[1:0]
+        //
+        // Algorithm:
+        //   1. Extract 64-bit mantissa from input angle
+        //   2. Multiply by 2/π (128-bit result)
+        //   3. Extract quadrant (bits 1:0) and fraction (bits 63:2)
+        //   4. Convert fraction to FP80
+        //   5. Multiply by π/2 to get final reduced angle
+        //-------------------------------------------------------------
+
+        // Clear accumulator
+        microcode_rom[16'h0180] = {OPCODE_EXEC, MOP_CLEAR_ACCUM, 8'd0, 15'h0181};
+
+        // Extract mantissa from input angle (temp_fp_a)
+        microcode_rom[16'h0181] = {OPCODE_EXEC, MOP_EXTRACT_MANT, 8'd0, 15'h0182};
+
+        // Load 2/π chunk 0 (most significant) from ROM
+        microcode_rom[16'h0182] = {OPCODE_EXEC, MOP_LOAD_ROM, 8'd0, 15'h0183};
+
+        // Multiply mantissa by 2/π chunk 0 → 128-bit result in accumulator
+        microcode_rom[16'h0183] = {OPCODE_EXEC, MOP_MUL64, 8'd0, 15'h0184};
+
+        // Extract quadrant (bits 1:0 of upper accumulator)
+        microcode_rom[16'h0184] = {OPCODE_EXEC, MOP_EXTRACT_BITS, 8'd0, 15'h0185};
+
+        // Store quadrant in temp_fp_c for later
+        microcode_rom[16'h0185] = {OPCODE_EXEC, MOP_MOVE_RES_TO_C, 8'd0, 15'h0186};
+
+        // Extract fraction (bits 63:2 of upper accumulator)
+        microcode_rom[16'h0186] = {OPCODE_EXEC, MOP_EXTRACT_BITS, 8'd1, 15'h0187};
+
+        // Normalize fraction to [0, 1) by setting exponent
+        // Exponent for [0.5, 1) range is 0x3FFE (bias=16383, exponent=-1)
+        // Adjust to 0x3FFD for [0.25, 0.5) to account for bit 63 position
+        microcode_rom[16'h0187] = {OPCODE_EXEC, MOP_EXTRACT_EXP, 8'd0, 15'h0188};
+
+        // Use temp_reg as mantissa holder, set fixed exponent
+        // Pack as FP80: sign=0, exp=0x3FFD, mantissa from temp_reg
+        microcode_rom[16'h0188] = {OPCODE_EXEC, MOP_PACK_FP80, 8'd0, 15'h0189};
+
+        // Move normalized fraction to temp_fp_a for multiplication
+        microcode_rom[16'h0189] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h018A};
+
+        // Load π/2 from ROM (address 4)
+        microcode_rom[16'h018A] = {OPCODE_EXEC, MOP_LOAD_ROM, 8'd4, 15'h018B};
+
+        // Load ROM data (π/2) into temp_fp_b
+        microcode_rom[16'h018B] = {OPCODE_EXEC, MOP_LOAD_ROM_DATA, 8'd0, 15'h018C};
+
+        // Multiply fraction by π/2
+        microcode_rom[16'h018C] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h018D};
+
+        // Wait for multiplication to complete
+        microcode_rom[16'h018D] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h018E};
+
+        // Load result (reduced angle)
+        microcode_rom[16'h018E] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h018F};
+
+        // Restore quadrant to temp_reg
+        microcode_rom[16'h018F] = {OPCODE_EXEC, MOP_MOVE_C_TO_B, 8'd0, 15'h0190};
+
+        // Return with result in temp_result and quadrant in temp_fp_c
+        microcode_rom[16'h0190] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};
     end
 
     //=================================================================
@@ -614,6 +685,14 @@ module MicroSequencer_Extended_BCD (
             bin2bcd_enable <= 1'b0;
             bin2bcd_binary_in <= 64'd0;
             bin2bcd_sign_in <= 1'b0;
+
+            // Reset Payne-Hanek multi-precision registers
+            accum_hi <= 64'd0;
+            accum_lo <= 64'd0;
+            temp_64bit <= 64'd0;
+            rom_addr_reg <= 3'd0;
+            carry_bit <= 1'b0;
+            ph_rom_addr <= 3'd0;
 
             data_out <= 80'd0;
 
@@ -694,6 +773,13 @@ module MicroSequencer_Extended_BCD (
                                     pc <= next_addr;
                                     state <= STATE_FETCH;
                                     $display("[MICROSEQ_BCD] MOVE_RES_TO_B: %h", temp_result);
+                                end
+
+                                MOP_MOVE_RES_TO_C: begin
+                                    temp_fp_c <= temp_result;
+                                    pc <= next_addr;
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ_BCD] MOVE_RES_TO_C: %h", temp_result);
                                 end
 
                                 MOP_MOVE_A_TO_B: begin
@@ -823,6 +909,97 @@ module MicroSequencer_Extended_BCD (
                                     pc <= next_addr;
                                     state <= STATE_FETCH;
                                     $display("[MICROSEQ_BCD] LOAD_BIN2BCD: BCD=%h", bin2bcd_bcd_out);
+                                end
+
+                                // Payne-Hanek Multi-Precision Operations
+                                MOP_CLEAR_ACCUM: begin
+                                    accum_hi <= 64'd0;
+                                    accum_lo <= 64'd0;
+                                    carry_bit <= 1'b0;
+                                    pc <= next_addr;
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ_BCD] CLEAR_ACCUM");
+                                end
+
+                                MOP_LOAD_ROM: begin
+                                    // immediate[2:0] contains ROM address (0-4)
+                                    ph_rom_addr <= immediate[2:0];
+                                    // Result available in ph_rom_data next cycle
+                                    // Store ROM address for reference
+                                    rom_addr_reg <= immediate[2:0];
+                                    pc <= next_addr;
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ_BCD] LOAD_ROM: addr=%0d", immediate[2:0]);
+                                end
+
+                                MOP_EXTRACT_MANT: begin
+                                    // Extract 64-bit mantissa from FP80 (bits 63:0)
+                                    temp_64bit <= temp_fp_a[63:0];
+                                    pc <= next_addr;
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ_BCD] EXTRACT_MANT: %h", temp_fp_a[63:0]);
+                                end
+
+                                MOP_EXTRACT_EXP: begin
+                                    // Extract 15-bit exponent from FP80 (bits 78:64)
+                                    temp_reg <= {49'd0, temp_fp_a[78:64]};
+                                    pc <= next_addr;
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ_BCD] EXTRACT_EXP: %h", temp_fp_a[78:64]);
+                                end
+
+                                MOP_MUL64: begin
+                                    // 64×64 multiply → 128-bit result
+                                    // Multiply temp_64bit by ROM data (64-bit chunk)
+                                    {accum_hi, accum_lo} <= temp_64bit * ph_rom_data[63:0];
+                                    pc <= next_addr;
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ_BCD] MUL64: %h * %h = %h_%h",
+                                             temp_64bit, ph_rom_data[63:0], accum_hi, accum_lo);
+                                end
+
+                                MOP_ADD128: begin
+                                    // 128-bit addition with carry
+                                    // Add temp_reg to accumulator
+                                    {carry_bit, accum_lo} <= accum_lo + temp_reg;
+                                    accum_hi <= accum_hi + {63'd0, carry_bit};
+                                    pc <= next_addr;
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ_BCD] ADD128: accum + %h", temp_reg);
+                                end
+
+                                MOP_EXTRACT_BITS: begin
+                                    // Extract bit range from accumulator
+                                    case (immediate[2:0])
+                                        3'd0: temp_reg <= {62'd0, accum_hi[1:0]};        // Quadrant (bits 1:0)
+                                        3'd1: temp_reg <= accum_hi[63:2];                // Fraction (bits 63:2)
+                                        3'd2: temp_reg <= accum_lo;                      // Lower 64 bits
+                                        3'd3: temp_reg <= accum_hi;                      // Upper 64 bits
+                                        default: temp_reg <= 64'd0;
+                                    endcase
+                                    pc <= next_addr;
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ_BCD] EXTRACT_BITS: mode=%0d, result=%h", immediate[2:0], temp_reg);
+                                end
+
+                                MOP_PACK_FP80: begin
+                                    // Pack sign, exponent, and mantissa into FP80
+                                    // temp_reg[14:0] = exponent, temp_64bit = mantissa
+                                    // Sign bit from immediate[0]
+                                    temp_result <= {immediate[0], temp_reg[14:0], temp_64bit};
+                                    pc <= next_addr;
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ_BCD] PACK_FP80: sign=%b exp=%h mant=%h",
+                                             immediate[0], temp_reg[14:0], temp_64bit);
+                                end
+
+                                MOP_LOAD_ROM_DATA: begin
+                                    // Load ROM data (ph_rom_data) into temp_fp_b
+                                    // ROM data is already available from previous LOAD_ROM
+                                    temp_fp_b <= ph_rom_data;
+                                    pc <= next_addr;
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ_BCD] LOAD_ROM_DATA: %h", ph_rom_data);
                                 end
 
                                 default: begin
