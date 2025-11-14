@@ -584,7 +584,7 @@ module MicroSequencer_Extended_BCD (
         // Output: temp_result = reduced angle in [0, π/2)
         //         Quadrant information in temp_fp_c (to be implemented)
         //
-        // Phase 3B Algorithm (Complete):
+        // Phase 3B Algorithm (Simplified Multi-Precision):
         //   Step 1: n = angle × (2/π)         // Convert to units of π/2
         //   Step 2: int_part = floor(n)        // Extract integer part
         //   Step 3: frac = n - int_part        // Extract fractional part [0, 1)
@@ -592,6 +592,57 @@ module MicroSequencer_Extended_BCD (
         //   Step 5: reduced = frac × (π/2)     // Scale back to radians
         //
         // This properly implements the Payne-Hanek algorithm using FPU arithmetic.
+        //
+        // CURRENT LIMITATIONS:
+        //   - Uses single FP80 multiply (80-bit precision for 2/π)
+        //   - Accuracy: ~1e-6 to 1e-9 for large angles
+        //   - Performance: ~45 cycles
+        //   - Adequate for most practical applications
+        //
+        // FOR FULL MULTI-PRECISION ACCURACY (<1e-15 error):
+        //   Would require implementing true Payne-Hanek with:
+        //
+        //   1. Exponent-Based Chunk Selection (~3 cycles, +25 ALMs)
+        //      - Analyze angle exponent to determine bit position k
+        //      - Select 2-3 chunks from ROM (addresses 0-3: 256-bit 2/π)
+        //      - Calculate bit shift for alignment
+        //
+        //   2. Multi-Precision Multiplication (~24 cycles, +150 ALMs)
+        //      - Extract angle mantissa (64-bit)
+        //      - Multiply mantissa × chunk[i] using FPU or 64×64 multiplier
+        //      - Multiply mantissa × chunk[i+1] (shifted appropriately)
+        //      - Optional: multiply × chunk[i+2] for extreme precision
+        //      - Accumulate into 192-bit register
+        //
+        //   3. Bit-Aligned Integer/Fractional Extraction (~8 cycles, +70 ALMs)
+        //      - Extract integer part from specific bit position (not just FLOOR)
+        //      - Extract 64-bit fractional part from multi-precision result
+        //      - Convert fractional bits to normalized FP80
+        //
+        //   4. Final Scaling (~6 cycles, existing hardware)
+        //      - Multiply fractional FP80 × (π/2)
+        //      - Extract quadrant from integer part (mod 4)
+        //
+        //   TOTAL MULTI-PRECISION REQUIREMENTS:
+        //   - Additional hardware: ~370-440 ALMs (1.5-1.7% FPGA)
+        //   - New units needed:
+        //     * Chunk selector (exponent analysis)
+        //     * Bit aligner (barrel shifter for mantissa)
+        //     * 192-bit accumulator (multi-precision sum)
+        //     * Integer/fractional extractor (bit selection)
+        //     * Fractional-to-FP80 converter (normalization)
+        //   - Microcode: +30 instructions (~55 total vs current 25)
+        //   - Performance: ~105 cycles (vs current ~45)
+        //   - Accuracy: <1e-15 (vs current ~1e-6 to 1e-9)
+        //
+        //   RECOMMENDED APPROACH: Hybrid Precision
+        //     - Use current simplified algorithm for angles < 2^20 (fast path)
+        //     - Use multi-precision for angles >= 2^20 (accuracy path)
+        //     - Dispatch based on exponent threshold
+        //     - Benefits: 99.9% of cases use fast path (45 cycles)
+        //                 Extreme angles get full precision (105 cycles)
+        //
+        //   See docs/True_Multi_Precision_Payne_Hanek_Analysis.md for details.
         //-------------------------------------------------------------
 
         // Step 1: Compute n = angle × (2/π)
