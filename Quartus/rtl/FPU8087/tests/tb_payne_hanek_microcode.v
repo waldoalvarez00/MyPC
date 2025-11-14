@@ -240,7 +240,44 @@ module tb_payne_hanek_microcode;
                 end
 
                 5'd1: begin // SUB
-                    perform_fp80_operation = a;
+                    // Simplified FP80 subtract: a - b
+                    // For now, just flip sign of b and add (not fully accurate, but works for testing)
+                    sign_res = sign_a ^ sign_b;
+
+                    // Check for zero
+                    if (exp_a == 0) begin
+                        // a is zero, return -b
+                        perform_fp80_operation = {~b[79], b[78:0]};
+                    end else if (exp_b == 0) begin
+                        // b is zero, return a
+                        perform_fp80_operation = a;
+                    end else if (exp_a == exp_b) begin
+                        // Same exponent - subtract mantissas
+                        // This is simplified - proper subtraction is complex
+                        if (mant_a >= mant_b) begin
+                            mant_res = mant_a - mant_b;
+                            sign_res = sign_a;
+                        end else begin
+                            mant_res = mant_b - mant_a;
+                            sign_res = ~sign_a;
+                        end
+
+                        // Normalize result
+                        exp_res = exp_a;
+                        if (mant_res == 0) begin
+                            perform_fp80_operation = 80'd0;
+                        end else begin
+                            // Shift left until MSB is set
+                            while (mant_res[63] == 0 && exp_res > 0) begin
+                                mant_res = mant_res << 1;
+                                exp_res = exp_res - 1;
+                            end
+                            perform_fp80_operation = {sign_res, exp_res, mant_res};
+                        end
+                    end else begin
+                        // Different exponents - simplified handling
+                        perform_fp80_operation = a;
+                    end
                 end
 
                 5'd2: begin // MUL
@@ -270,6 +307,40 @@ module tb_payne_hanek_microcode;
 
                 5'd3: begin // DIV
                     perform_fp80_operation = a;
+                end
+
+                5'd14: begin // FLOOR - Extract integer part
+                    // Extract integer part of FP80 number
+                    // If value < 1.0, return 0
+                    // Otherwise, mask off fractional bits
+
+                    if (exp_a < 15'h3FFF) begin
+                        // Value < 1.0, return 0
+                        perform_fp80_operation = 80'd0;
+                    end else if (exp_a >= 15'h3FFF + 63) begin
+                        // Value >= 2^63, already an integer
+                        perform_fp80_operation = a;
+                    end else begin
+                        // Extract integer bits based on exponent
+                        // Exponent 0x3FFF means binary point is after bit 63 (the integer bit)
+                        // Exponent 0x4000 means binary point is after bit 62
+                        // etc.
+                        integer shift_amount;
+                        shift_amount = 63 - (exp_a - 15'h3FFF);
+
+                        if (shift_amount >= 64) begin
+                            // Less than 1.0
+                            perform_fp80_operation = 80'd0;
+                        end else begin
+                            // Mask off fractional bits
+                            mant_res = mant_a;
+                            if (shift_amount > 0) begin
+                                // Zero out the fractional bits
+                                mant_res = (mant_a >> shift_amount) << shift_amount;
+                            end
+                            perform_fp80_operation = {sign_a, exp_a, mant_res};
+                        end
+                    end
                 end
 
                 default: begin

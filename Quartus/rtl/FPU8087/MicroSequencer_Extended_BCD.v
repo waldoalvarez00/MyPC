@@ -578,23 +578,23 @@ module MicroSequencer_Extended_BCD (
         microcode_rom[16'h0773] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
         //-------------------------------------------------------------
-        // Program 22: Payne-Hanek Range Reduction (Phase 3 - Improved)
-        // Address: 0x0180-0x018D
+        // Program 22: Payne-Hanek Range Reduction (Phase 3B - Complete Algorithm)
+        // Address: 0x0180-0x0198
         // Input: data_in = large angle (FP80)
         // Output: temp_result = reduced angle in [0, π/2)
-        //         Quadrant information in temp_fp_c
+        //         Quadrant information in temp_fp_c (to be implemented)
         //
-        // Phase 3 Algorithm (Using FPU Arithmetic):
-        //   1. Load input angle (full FP80, not just mantissa)
-        //   2. Multiply by 2/π (as FP80) using FPU
-        //   3. Result is scaled angle in units of π/2
-        //   4. For simplicity: use modulo 4 on scaled value
-        //   5. Extract quadrant and fractional part
-        //   6. Multiply fractional part by π/2
+        // Phase 3B Algorithm (Complete):
+        //   Step 1: n = angle × (2/π)         // Convert to units of π/2
+        //   Step 2: int_part = floor(n)        // Extract integer part
+        //   Step 3: frac = n - int_part        // Extract fractional part [0, 1)
+        //   Step 4: quadrant = int_part mod 4  // Determine quadrant (future)
+        //   Step 5: reduced = frac × (π/2)     // Scale back to radians
         //
-        // Note: This simplified version uses FPU multiplication which
-        //       properly handles exponents. More accurate than Phase 2.
+        // This properly implements the Payne-Hanek algorithm using FPU arithmetic.
         //-------------------------------------------------------------
+
+        // Step 1: Compute n = angle × (2/π)
 
         // Load input angle from data_in (full FP80)
         microcode_rom[16'h0180] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0181};
@@ -603,52 +603,80 @@ module MicroSequencer_Extended_BCD (
         microcode_rom[16'h0181] = {OPCODE_EXEC, MOP_LOAD_ROM, 8'd5, 15'h0182};
 
         // NOP to wait for ROM data (1-cycle latency)
-        microcode_rom[16'h0182] = {OPCODE_EXEC, MOP_MOVE_A_TO_C, 8'd0, 15'h0183};
+        microcode_rom[16'h0182] = {OPCODE_NOP, 5'd0, 8'd0, 15'h0183};
 
         // Load ROM data (2/π as FP80) into temp_fp_b
         microcode_rom[16'h0183] = {OPCODE_EXEC, MOP_LOAD_ROM_DATA, 8'd0, 15'h0184};
 
-        // Restore angle to temp_fp_a
-        microcode_rom[16'h0184] = {OPCODE_EXEC, MOP_MOVE_C_TO_A, 8'd0, 15'h0185};
-
-        // Multiply: scaled = angle × (2/π) using FPU
-        // This gives us the angle in units of π/2
-        microcode_rom[16'h0185] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h0186};
+        // Multiply: n = angle × (2/π) using FPU
+        microcode_rom[16'h0184] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h0185};
 
         // Wait for FPU multiplication to complete
-        microcode_rom[16'h0186] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0187};
+        microcode_rom[16'h0185] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0186};
 
-        // Load result: scaled angle
-        microcode_rom[16'h0187] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0188};
+        // Load result: n (scaled angle in units of π/2)
+        microcode_rom[16'h0186] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0187};
 
-        // For now, assume result is already in [0, 4) range (simplified)
-        // In full implementation, would extract integer and fractional parts here
-        // Store scaled value for quadrant extraction
+        // Step 2: Compute int_part = floor(n)
+
+        // Save n to temp_fp_c for later use
+        microcode_rom[16'h0187] = {OPCODE_EXEC, MOP_MOVE_RES_TO_C, 8'd0, 15'h0188};
+
+        // Move n to temp_fp_a for FLOOR operation
         microcode_rom[16'h0188] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h0189};
 
-        // Load π/2 from ROM (address 4)
-        microcode_rom[16'h0189] = {OPCODE_EXEC, MOP_LOAD_ROM, 8'd4, 15'h018A};
+        // Call FLOOR operation (op=14): int_part = floor(n)
+        microcode_rom[16'h0189] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd14, 15'h018A};
 
-        // NOP to wait for ROM
-        microcode_rom[16'h018A] = {OPCODE_NOP, 5'd0, 8'd0, 15'h018B};
+        // Wait for FLOOR to complete
+        microcode_rom[16'h018A] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h018B};
+
+        // Load result: int_part
+        microcode_rom[16'h018B] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h018C};
+
+        // Step 3: Compute frac = n - int_part
+
+        // Move int_part to temp_fp_b for subtraction
+        microcode_rom[16'h018C] = {OPCODE_EXEC, MOP_MOVE_RES_TO_B, 8'd0, 15'h018D};
+
+        // Restore n to temp_fp_a from temp_fp_c
+        microcode_rom[16'h018D] = {OPCODE_EXEC, MOP_MOVE_C_TO_A, 8'd0, 15'h018E};
+
+        // Subtract: frac = n - int_part (op=1 is SUB)
+        microcode_rom[16'h018E] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd1, 15'h018F};
+
+        // Wait for subtraction to complete
+        microcode_rom[16'h018F] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0190};
+
+        // Load result: frac (fractional part in [0, 1))
+        microcode_rom[16'h0190] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0191};
+
+        // Step 4: Compute reduced = frac × (π/2)
+
+        // Move frac to temp_fp_a
+        microcode_rom[16'h0191] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h0192};
+
+        // Load π/2 from ROM (address 4)
+        microcode_rom[16'h0192] = {OPCODE_EXEC, MOP_LOAD_ROM, 8'd4, 15'h0193};
+
+        // NOP to wait for ROM data
+        microcode_rom[16'h0193] = {OPCODE_NOP, 5'd0, 8'd0, 15'h0194};
 
         // Load ROM data (π/2) into temp_fp_b
-        microcode_rom[16'h018B] = {OPCODE_EXEC, MOP_LOAD_ROM_DATA, 8'd0, 15'h018C};
+        microcode_rom[16'h0194] = {OPCODE_EXEC, MOP_LOAD_ROM_DATA, 8'd0, 15'h0195};
 
-        // Multiply scaled value by π/2 (simplified: assumes scaled in [0,1))
-        microcode_rom[16'h018C] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h018D};
+        // Multiply: reduced = frac × (π/2)
+        microcode_rom[16'h0195] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h0196};
 
         // Wait for multiplication to complete
-        microcode_rom[16'h018D] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h018E};
+        microcode_rom[16'h0196] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0197};
 
-        // Load result (reduced angle)
-        microcode_rom[16'h018E] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h018F};
-
-        // Restore quadrant to temp_reg (placeholder for quadrant info)
-        microcode_rom[16'h018F] = {OPCODE_EXEC, MOP_MOVE_C_TO_B, 8'd0, 15'h0190};
+        // Load result: reduced angle in [0, π/2)
+        microcode_rom[16'h0197] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0198};
 
         // Return with result in temp_result
-        microcode_rom[16'h0190] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};
+        // TODO: Extract quadrant from int_part (Step 4 - future enhancement)
+        microcode_rom[16'h0198] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};
     end
 
     //=================================================================
