@@ -78,7 +78,11 @@ module MicroSequencer_Extended_BCD (
     output reg        bin2bcd_sign_in,
     input wire [79:0] bin2bcd_bcd_out,
     input wire        bin2bcd_done,
-    input wire        bin2bcd_error
+    input wire        bin2bcd_error,
+
+    // NEW: Interface to Payne-Hanek ROM
+    output reg [2:0]  ph_rom_addr,      // ROM address (0-4)
+    input wire [79:0] ph_rom_data       // ROM data output
 );
 
     //=================================================================
@@ -120,6 +124,16 @@ module MicroSequencer_Extended_BCD (
     localparam MOP_CALL_BIN2BCD   = 5'h1D; // Start Binary → BCD conversion
     localparam MOP_WAIT_BIN2BCD   = 5'h1E; // Wait for Binary → BCD completion
     localparam MOP_LOAD_BIN2BCD   = 5'h1F; // Load result from Binary → BCD
+
+    // Payne-Hanek specific operations (0x20-0x27)
+    localparam MOP_LOAD_ROM        = 5'h20;  // Load from Payne-Hanek ROM
+    localparam MOP_EXTRACT_MANT    = 5'h21;  // Extract 64-bit mantissa from FP80
+    localparam MOP_EXTRACT_EXP     = 5'h22;  // Extract 15-bit exponent from FP80
+    localparam MOP_MUL64           = 5'h23;  // 64×64 multiply → 128-bit result
+    localparam MOP_ADD128          = 5'h24;  // 128-bit addition with carry
+    localparam MOP_EXTRACT_BITS    = 5'h25;  // Extract bit range from register
+    localparam MOP_PACK_FP80       = 5'h26;  // Pack sign/exp/mant → FP80
+    localparam MOP_CLEAR_ACCUM     = 5'h27;  // Clear accumulators
 
     //=================================================================
     // FSM States
@@ -203,8 +217,8 @@ module MicroSequencer_Extended_BCD (
         micro_program_table[20] = 16'h0760;
         // Program 21: FRNDINT - Round to integer
         micro_program_table[21] = 16'h0770;
-        // Reserved for future use
-        micro_program_table[22] = 16'h0800;
+        // Program 22: Payne-Hanek range reduction (extended precision)
+        micro_program_table[22] = 16'h0180;
         micro_program_table[23] = 16'h0810;
         micro_program_table[24] = 16'h0820;
         micro_program_table[25] = 16'h0830;
@@ -236,6 +250,16 @@ module MicroSequencer_Extended_BCD (
 
     reg [63:0] temp_reg;        // General purpose temp
     reg [31:0] loop_reg;        // Loop counter
+
+    //=================================================================
+    // Multi-Precision Registers (for Payne-Hanek)
+    //=================================================================
+
+    reg [63:0] accum_hi;        // Upper 64 bits of 128-bit accumulator
+    reg [63:0] accum_lo;        // Lower 64 bits of 128-bit accumulator
+    reg [63:0] temp_64bit;      // Temporary 64-bit register
+    reg [2:0]  rom_addr_reg;    // ROM address register
+    reg        carry_bit;       // Carry flag for multi-precision addition
 
     // FP Constants (IEEE 754 extended precision format)
     localparam [79:0] CONST_HALF = 80'h3FFE8000000000000000;  // 0.5
