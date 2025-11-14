@@ -46,7 +46,16 @@ module FPU_Payne_Hanek(
 
     // Status
     output reg done,
-    output reg error
+    output reg error,
+
+    // Microcode interface (for large angles >= 100π)
+    output reg        microcode_invoke,      // Pulse to invoke microcode
+    output reg [11:0] microcode_addr,        // Entry point address (0x0180)
+    output reg [79:0] microcode_operand_a,   // Input angle
+    input wire        microcode_done,        // Completion signal
+    input wire [79:0] microcode_result,      // Reduced angle result
+    input wire [1:0]  microcode_quadrant,    // Quadrant result
+    input wire        microcode_error        // Error flag
 );
 
     //=================================================================
@@ -65,15 +74,17 @@ module FPU_Payne_Hanek(
     // State Machine
     //=================================================================
 
-    localparam [2:0] STATE_IDLE          = 3'd0;
-    localparam [2:0] STATE_CHECK_RANGE   = 3'd1;
-    localparam [2:0] STATE_SUB_2PI       = 3'd2;
-    localparam [2:0] STATE_FIND_QUADRANT = 3'd3;
-    localparam [2:0] STATE_SUB_QUAD      = 3'd4;
-    localparam [2:0] STATE_FINALIZE      = 3'd5;
-    localparam [2:0] STATE_DONE          = 3'd6;
+    localparam [3:0] STATE_IDLE          = 4'd0;
+    localparam [3:0] STATE_DISPATCH      = 4'd1;  // NEW: Route to iterative or microcode
+    localparam [3:0] STATE_CHECK_RANGE   = 4'd2;
+    localparam [3:0] STATE_SUB_2PI       = 4'd3;
+    localparam [3:0] STATE_FIND_QUADRANT = 4'd4;
+    localparam [3:0] STATE_SUB_QUAD      = 4'd5;
+    localparam [3:0] STATE_FINALIZE      = 4'd6;
+    localparam [3:0] STATE_MICROCODE_WAIT = 4'd7; // NEW: Wait for microcode completion
+    localparam [3:0] STATE_DONE          = 4'd8;
 
-    reg [2:0] state;
+    reg [3:0] state;
 
     //=================================================================
     // Internal Registers
@@ -86,6 +97,28 @@ module FPU_Payne_Hanek(
     wire angle_ge_2pi;
     wire angle_ge_pi;
     wire angle_ge_pi_over_2;
+
+    //=================================================================
+    // Threshold Detection for Large Angles (>= 100π)
+    //
+    // 100π ≈ 314.159 ≈ 2^8.299
+    // FP80 exponent for 100π: 0x3FFF + 8 = 0x4007
+    //
+    // Any angle with exponent >= 0x4007 is >= 256, which includes all >= 100π
+    //=================================================================
+
+    localparam [14:0] THRESHOLD_EXPONENT = 15'h4007; // 100π threshold
+
+    wire is_large_angle;
+    wire is_special_value;
+
+    // Detect large angles by exponent
+    assign is_large_angle = (angle_in[78:64] >= THRESHOLD_EXPONENT) &&
+                            (angle_in[78:64] != 15'h7FFF); // Not infinity/NaN
+
+    // Detect special values that need hardware handling
+    assign is_special_value = (angle_in[78:64] == 15'h7FFF) || // Infinity or NaN
+                              ((angle_in[78:64] == 15'd0) && (angle_in[63:0] == 64'd0)); // Zero
 
     //=================================================================
     // Floating Point Comparison
@@ -225,6 +258,9 @@ module FPU_Payne_Hanek(
             quadrant <= 2'b00;
             angle_working <= FP80_ZERO;
             iteration_count <= 8'd0;
+            microcode_invoke <= 1'b0;
+            microcode_addr <= 12'd0;
+            microcode_operand_a <= 80'd0;
 
         end else begin
             case (state)
@@ -232,24 +268,58 @@ module FPU_Payne_Hanek(
                     done <= 1'b0;
                     error <= 1'b0;
                     iteration_count <= 8'd0;
+                    microcode_invoke <= 1'b0;
 
                     if (enable) begin
-                        // Check for special values
-                        if (is_zero) begin
-                            angle_out <= FP80_ZERO;
-                            quadrant <= 2'b00;
-                            done <= 1'b1;
-                            state <= STATE_DONE;
-                        end else if (is_inf || is_nan) begin
-                            error <= 1'b1;
-                            done <= 1'b1;
-                            state <= STATE_DONE;
-                        end else begin
-                            // Load working register (use absolute value)
-                            angle_working <= {1'b0, angle_in[78:0]};
-                            state <= STATE_CHECK_RANGE;
-                        end
+                        // Transition to dispatch state
+                        state <= STATE_DISPATCH;
                     end
+                end
+
+                STATE_DISPATCH: begin
+                    // Check for special values first
+                    if (is_zero) begin
+                        // Zero angle - return immediately
+                        angle_out <= FP80_ZERO;
+                        quadrant <= 2'b00;
+                        done <= 1'b1;
+                        state <= STATE_DONE;
+                    end else if (is_inf || is_nan) begin
+                        // Infinity or NaN - error
+                        error <= 1'b1;
+                        done <= 1'b1;
+                        state <= STATE_DONE;
+                    end else if (is_large_angle) begin
+                        // Large angle (>= 100π) - use microcode path
+                        microcode_invoke <= 1'b1;
+                        microcode_addr <= 12'h180;  // Entry point for Payne-Hanek
+                        microcode_operand_a <= angle_in;
+                        state <= STATE_MICROCODE_WAIT;
+                    end else begin
+                        // Small angle (< 100π) - use iterative path
+                        angle_working <= {1'b0, angle_in[78:0]}; // Absolute value
+                        state <= STATE_CHECK_RANGE;
+                    end
+                end
+
+                STATE_MICROCODE_WAIT: begin
+                    // Clear invoke signal after one cycle
+                    microcode_invoke <= 1'b0;
+
+                    // Wait for microcode completion
+                    if (microcode_done) begin
+                        if (microcode_error) begin
+                            // Microcode reported an error
+                            error <= 1'b1;
+                        end else begin
+                            // Retrieve results from microcode
+                            angle_out <= microcode_result;
+                            quadrant <= microcode_quadrant;
+                        end
+                        done <= 1'b1;
+                        state <= STATE_DONE;
+                    end
+                    // Otherwise keep waiting
                 end
 
                 STATE_CHECK_RANGE: begin
