@@ -43,7 +43,16 @@ module FPU_Range_Reduction(
     output reg       negate_cos,    // 1 if cos result should be negated
 
     output reg done,
-    output reg error                // Error if angle is ±∞ or NaN
+    output reg error,               // Error if angle is ±∞ or NaN
+
+    // Microcode interface (pass-through from FPU_Payne_Hanek)
+    output wire        ph_microcode_invoke,
+    output wire [11:0] ph_microcode_addr,
+    output wire [79:0] ph_microcode_operand_a,
+    input wire         ph_microcode_done,
+    input wire [79:0]  ph_microcode_result,
+    input wire [1:0]   ph_microcode_quadrant,
+    input wire         ph_microcode_error
 );
 
     //=================================================================
@@ -112,7 +121,16 @@ module FPU_Range_Reduction(
         .angle_out(ph_angle_out),
         .quadrant(ph_quadrant),
         .done(ph_done),
-        .error(ph_error)
+        .error(ph_error),
+
+        // Microcode interface (pass-through to FPU_Core)
+        .microcode_invoke(ph_microcode_invoke),
+        .microcode_addr(ph_microcode_addr),
+        .microcode_operand_a(ph_microcode_operand_a),
+        .microcode_done(ph_microcode_done),
+        .microcode_result(ph_microcode_result),
+        .microcode_quadrant(ph_microcode_quadrant),
+        .microcode_error(ph_microcode_error)
     );
 
     //=================================================================
