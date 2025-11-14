@@ -175,35 +175,118 @@ module tb_payne_hanek_microcode;
     );
 
     //=========================================================================
-    // Simple Arithmetic Unit Mock (for FP80 multiplication)
+    // Real FPU Arithmetic Units
     //=========================================================================
+
+    // AddSub unit signals
+    wire addsub_enable;
+    wire addsub_subtract;
+    wire [79:0] addsub_result;
+    wire addsub_done;
+    wire addsub_cmp_equal, addsub_cmp_less, addsub_cmp_greater;
+    wire addsub_invalid, addsub_overflow, addsub_underflow, addsub_inexact;
+
+    // MulDiv unit signals
+    wire muldiv_enable;
+    wire muldiv_operation;  // 0=mul, 1=div
+    wire [79:0] muldiv_result;
+    wire muldiv_done;
+    wire muldiv_invalid, muldiv_div_by_zero, muldiv_overflow, muldiv_underflow, muldiv_inexact;
+
+    // Operation routing
     reg [4:0]  arith_op_reg;
     reg [79:0] arith_a_reg;
     reg [79:0] arith_b_reg;
-    reg [3:0]  arith_delay_counter;
+    reg        arith_active;
 
+    assign addsub_enable = arith_active && (arith_op_reg == 5'd0 || arith_op_reg == 5'd1);
+    assign addsub_subtract = (arith_op_reg == 5'd1);
+
+    assign muldiv_enable = arith_active && (arith_op_reg == 5'd2 || arith_op_reg == 5'd3);
+    assign muldiv_operation = (arith_op_reg == 5'd3);  // 0=mul, 1=div
+
+    // Real FPU IEEE754 AddSub Unit
+    FPU_IEEE754_AddSub addsub_unit (
+        .clk(clk),
+        .reset(reset),
+        .enable(addsub_enable),
+        .operand_a(arith_a_reg),
+        .operand_b(arith_b_reg),
+        .subtract(addsub_subtract),
+        .rounding_mode(2'b00),  // Round to nearest
+        .result(addsub_result),
+        .done(addsub_done),
+        .cmp_equal(addsub_cmp_equal),
+        .cmp_less(addsub_cmp_less),
+        .cmp_greater(addsub_cmp_greater),
+        .flag_invalid(addsub_invalid),
+        .flag_overflow(addsub_overflow),
+        .flag_underflow(addsub_underflow),
+        .flag_inexact(addsub_inexact)
+    );
+
+    // Real FPU IEEE754 MulDiv Unit
+    FPU_IEEE754_MulDiv_Unified muldiv_unit (
+        .clk(clk),
+        .reset(reset),
+        .enable(muldiv_enable),
+        .operation(muldiv_operation),
+        .operand_a(arith_a_reg),
+        .operand_b(arith_b_reg),
+        .rounding_mode(2'b00),  // Round to nearest
+        .result(muldiv_result),
+        .done(muldiv_done),
+        .flag_invalid(muldiv_invalid),
+        .flag_div_by_zero(muldiv_div_by_zero),
+        .flag_overflow(muldiv_overflow),
+        .flag_underflow(muldiv_underflow),
+        .flag_inexact(muldiv_inexact)
+    );
+
+    // Control logic
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             arith_done <= 0;
             arith_result <= 0;
-            arith_delay_counter <= 0;
+            arith_op_reg <= 0;
+            arith_a_reg <= 0;
+            arith_b_reg <= 0;
+            arith_active <= 0;
             arith_invalid <= 0;
             arith_overflow <= 0;
         end else begin
-            if (arith_enable) begin
+            if (arith_enable && !arith_active) begin
+                // Start new operation
                 arith_op_reg <= arith_operation;
                 arith_a_reg <= arith_operand_a;
                 arith_b_reg <= arith_operand_b;
-                arith_delay_counter <= 4'd10; // Simulate 10-cycle operation
+                arith_active <= 1;
                 arith_done <= 0;
-                $display("[ARITH] Started operation %0d: A=%h, B=%h", arith_operation, arith_operand_a, arith_operand_b);
-            end else if (arith_delay_counter > 0) begin
-                arith_delay_counter <= arith_delay_counter - 1;
-                if (arith_delay_counter == 1) begin
-                    // Complete operation
+                $display("[ARITH_REAL] Started operation %0d: A=%h, B=%h", arith_operation, arith_operand_a, arith_operand_b);
+            end else if (arith_active) begin
+                // Check if operation completed
+                if ((arith_op_reg == 5'd0 || arith_op_reg == 5'd1) && addsub_done) begin
+                    // AddSub completed
+                    arith_result <= addsub_result;
                     arith_done <= 1;
-                    arith_result <= perform_fp80_operation(arith_op_reg, arith_a_reg, arith_b_reg);
-                    $display("[ARITH] Completed operation %0d: Result=%h", arith_op_reg, arith_result);
+                    arith_active <= 0;
+                    arith_invalid <= addsub_invalid;
+                    arith_overflow <= addsub_overflow;
+                    $display("[ARITH_REAL] AddSub completed: Result=%h", addsub_result);
+                end else if ((arith_op_reg == 5'd2 || arith_op_reg == 5'd3) && muldiv_done) begin
+                    // MulDiv completed
+                    arith_result <= muldiv_result;
+                    arith_done <= 1;
+                    arith_active <= 0;
+                    arith_invalid <= muldiv_invalid;
+                    arith_overflow <= muldiv_overflow;
+                    $display("[ARITH_REAL] MulDiv completed: Result=%h", muldiv_result);
+                end else if (arith_op_reg == 5'd14) begin
+                    // FLOOR operation (custom, not in real FPU)
+                    arith_result <= perform_fp80_floor(arith_a_reg);
+                    arith_done <= 1;
+                    arith_active <= 0;
+                    $display("[ARITH_REAL] FLOOR completed: Result=%h", arith_result);
                 end
             end else begin
                 arith_done <= 0;
@@ -212,141 +295,41 @@ module tb_payne_hanek_microcode;
     end
 
     //=========================================================================
-    // FP80 Operation Function (Simplified)
+    // FLOOR Operation Function (Custom - not in real FPU)
     //=========================================================================
-    function [79:0] perform_fp80_operation;
-        input [4:0] op;
+    function [79:0] perform_fp80_floor;
         input [79:0] a;
-        input [79:0] b;
-        reg sign_a, sign_b, sign_res;
-        reg [14:0] exp_a, exp_b, exp_res;
-        reg [63:0] mant_a, mant_b;
-        reg [127:0] mant_res_128;
+        reg [14:0] exp_a;
+        reg [63:0] mant_a;
         reg [63:0] mant_res;
+        integer shift_amount;
         begin
-            // Extract components
-            sign_a = a[79];
             exp_a = a[78:64];
             mant_a = a[63:0];
 
-            sign_b = b[79];
-            exp_b = b[78:64];
-            mant_b = b[63:0];
+            if (exp_a < 15'h3FFF) begin
+                // Value < 1.0, return 0
+                perform_fp80_floor = 80'd0;
+            end else if (exp_a >= 15'h3FFF + 63) begin
+                // Value >= 2^63, already an integer
+                perform_fp80_floor = a;
+            end else begin
+                // Extract integer bits based on exponent
+                shift_amount = 63 - (exp_a - 15'h3FFF);
 
-            case (op)
-                5'd0: begin // ADD
-                    // Simplified: just return a (not accurate, but sufficient for testing structure)
-                    perform_fp80_operation = a;
-                end
-
-                5'd1: begin // SUB
-                    // Simplified FP80 subtract: a - b
-                    // For now, just flip sign of b and add (not fully accurate, but works for testing)
-                    sign_res = sign_a ^ sign_b;
-
-                    // Check for zero
-                    if (exp_a == 0) begin
-                        // a is zero, return -b
-                        perform_fp80_operation = {~b[79], b[78:0]};
-                    end else if (exp_b == 0) begin
-                        // b is zero, return a
-                        perform_fp80_operation = a;
-                    end else if (exp_a == exp_b) begin
-                        // Same exponent - subtract mantissas
-                        // This is simplified - proper subtraction is complex
-                        if (mant_a >= mant_b) begin
-                            mant_res = mant_a - mant_b;
-                            sign_res = sign_a;
-                        end else begin
-                            mant_res = mant_b - mant_a;
-                            sign_res = ~sign_a;
-                        end
-
-                        // Normalize result
-                        exp_res = exp_a;
-                        if (mant_res == 0) begin
-                            perform_fp80_operation = 80'd0;
-                        end else begin
-                            // Shift left until MSB is set
-                            while (mant_res[63] == 0 && exp_res > 0) begin
-                                mant_res = mant_res << 1;
-                                exp_res = exp_res - 1;
-                            end
-                            perform_fp80_operation = {sign_res, exp_res, mant_res};
-                        end
-                    end else begin
-                        // Different exponents - simplified handling
-                        perform_fp80_operation = a;
+                if (shift_amount >= 64) begin
+                    // Less than 1.0
+                    perform_fp80_floor = 80'd0;
+                end else begin
+                    // Mask off fractional bits
+                    mant_res = mant_a;
+                    if (shift_amount > 0) begin
+                        // Zero out the fractional bits
+                        mant_res = (mant_a >> shift_amount) << shift_amount;
                     end
+                    perform_fp80_floor = {a[79], exp_a, mant_res};
                 end
-
-                5'd2: begin // MUL
-                    // Simplified FP80 multiply
-                    sign_res = sign_a ^ sign_b;
-
-                    // Check for zero
-                    if (exp_a == 0 || exp_b == 0) begin
-                        perform_fp80_operation = 80'd0;
-                    end else begin
-                        // Add exponents (with bias correction)
-                        exp_res = exp_a + exp_b - 15'h3FFF;
-
-                        // Multiply mantissas (upper 64 bits of 128-bit result)
-                        mant_res_128 = mant_a * mant_b;
-                        mant_res = mant_res_128[127:64];
-
-                        // Normalize if needed (check MSB)
-                        if (mant_res[63] == 0) begin
-                            mant_res = mant_res << 1;
-                            exp_res = exp_res - 1;
-                        end
-
-                        perform_fp80_operation = {sign_res, exp_res, mant_res};
-                    end
-                end
-
-                5'd3: begin // DIV
-                    perform_fp80_operation = a;
-                end
-
-                5'd14: begin // FLOOR - Extract integer part
-                    // Extract integer part of FP80 number
-                    // If value < 1.0, return 0
-                    // Otherwise, mask off fractional bits
-
-                    if (exp_a < 15'h3FFF) begin
-                        // Value < 1.0, return 0
-                        perform_fp80_operation = 80'd0;
-                    end else if (exp_a >= 15'h3FFF + 63) begin
-                        // Value >= 2^63, already an integer
-                        perform_fp80_operation = a;
-                    end else begin
-                        // Extract integer bits based on exponent
-                        // Exponent 0x3FFF means binary point is after bit 63 (the integer bit)
-                        // Exponent 0x4000 means binary point is after bit 62
-                        // etc.
-                        integer shift_amount;
-                        shift_amount = 63 - (exp_a - 15'h3FFF);
-
-                        if (shift_amount >= 64) begin
-                            // Less than 1.0
-                            perform_fp80_operation = 80'd0;
-                        end else begin
-                            // Mask off fractional bits
-                            mant_res = mant_a;
-                            if (shift_amount > 0) begin
-                                // Zero out the fractional bits
-                                mant_res = (mant_a >> shift_amount) << shift_amount;
-                            end
-                            perform_fp80_operation = {sign_a, exp_a, mant_res};
-                        end
-                    end
-                end
-
-                default: begin
-                    perform_fp80_operation = 80'd0;
-                end
-            endcase
+            end
         end
     endfunction
 
