@@ -11,13 +11,14 @@
 // Used by microcode for extended precision range reduction.
 //
 // ROM Address Map:
-//   0: TWO_OVER_PI_CHUNK0 (bits 255:192)
-//   1: TWO_OVER_PI_CHUNK1 (bits 191:128)
-//   2: TWO_OVER_PI_CHUNK2 (bits 127:64)
-//   3: TWO_OVER_PI_CHUNK3 (bits 63:0)
-//   4: PI_OVER_2 (80-bit FP)
+//   0: TWO_OVER_PI_CHUNK0 (bits 255:192) - raw bits
+//   1: TWO_OVER_PI_CHUNK1 (bits 191:128) - raw bits
+//   2: TWO_OVER_PI_CHUNK2 (bits 127:64) - raw bits
+//   3: TWO_OVER_PI_CHUNK3 (bits 63:0) - raw bits
+//   4: PI_OVER_2 (80-bit FP80)
+//   5: TWO_OVER_PI_FP80 (80-bit FP80) - Phase 3
 //
-// Area: ~40-50 LUTs (~5-7 ALMs on Cyclone V)
+// Area: ~45-55 LUTs (~6-8 ALMs on Cyclone V)
 // Latency: 1 cycle (registered output)
 //=====================================================================
 
@@ -53,6 +54,16 @@ module FPU_Payne_Hanek_ROM(
     localparam [79:0] PI_OVER_2 = 80'h3FFF_C90FDAA22168C235;
 
     //=================================================================
+    // 2/π as FP80 Constant (80-bit IEEE 754 Extended Precision)
+    //
+    // 2/π = 0.6366197723675814...
+    // = 1.2732395447351627... × 2^(-1)
+    // FP80: sign=0, exponent=0x3FFE, mantissa=0xA2F9836E4E441529
+    //=================================================================
+
+    localparam [79:0] TWO_OVER_PI_FP80 = 80'h3FFE_A2F9836E4E441529;
+
+    //=================================================================
     // ROM Logic - Registered Output
     //=================================================================
 
@@ -63,6 +74,7 @@ module FPU_Payne_Hanek_ROM(
             3'd2: data_out <= {16'd0, TWO_OVER_PI_CHUNK2};
             3'd3: data_out <= {16'd0, TWO_OVER_PI_CHUNK3};
             3'd4: data_out <= PI_OVER_2;
+            3'd5: data_out <= TWO_OVER_PI_FP80;  // Phase 3: 2/π as FP80
             default: data_out <= 80'd0;
         endcase
     end
