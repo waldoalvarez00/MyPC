@@ -32,6 +32,7 @@ module MicroSequencer_Extended_BCD (
     output wire [79:0] debug_temp_result,
     output wire [79:0] debug_temp_fp_a,
     output wire [79:0] debug_temp_fp_b,
+    output wire [79:0] debug_temp_fp_c,
     output wire [63:0] debug_temp_uint64,
     output wire        debug_temp_sign,
 
@@ -106,7 +107,7 @@ module MicroSequencer_Extended_BCD (
     localparam MOP_LOAD_B         = 5'h06;  // Load data_in into temp_fp_b
     localparam MOP_MOVE_RES_TO_A  = 5'h07;  // Move temp_result to temp_fp_a
     localparam MOP_MOVE_RES_TO_B  = 5'h08;  // Move temp_result to temp_fp_b
-    localparam MOP_MOVE_RES_TO_C  = 5'h29;  // Move temp_result to temp_fp_c
+    localparam MOP_MOVE_RES_TO_C  = 5'd19;  // Move temp_result to temp_fp_c (avoid conflict with BCD ops)
     localparam MOP_MOVE_A_TO_C    = 5'h09;  // Move temp_fp_a to temp_fp_c
     localparam MOP_MOVE_A_TO_B    = 5'h0A;  // Move temp_fp_a to temp_fp_b
     localparam MOP_MOVE_C_TO_A    = 5'h0B;  // Move temp_fp_c to temp_fp_a
@@ -126,16 +127,16 @@ module MicroSequencer_Extended_BCD (
     localparam MOP_WAIT_BIN2BCD   = 5'h1E; // Wait for Binary → BCD completion
     localparam MOP_LOAD_BIN2BCD   = 5'h1F; // Load result from Binary → BCD
 
-    // Payne-Hanek specific operations (0x20-0x27)
-    localparam MOP_LOAD_ROM        = 5'h20;  // Load from Payne-Hanek ROM
-    localparam MOP_EXTRACT_MANT    = 5'h21;  // Extract 64-bit mantissa from FP80
-    localparam MOP_EXTRACT_EXP     = 5'h22;  // Extract 15-bit exponent from FP80
-    localparam MOP_MUL64           = 5'h23;  // 64×64 multiply → 128-bit result
-    localparam MOP_ADD128          = 5'h24;  // 128-bit addition with carry
-    localparam MOP_EXTRACT_BITS    = 5'h25;  // Extract bit range from register
-    localparam MOP_PACK_FP80       = 5'h26;  // Pack sign/exp/mant → FP80
-    localparam MOP_CLEAR_ACCUM     = 5'h27;  // Clear accumulators
-    localparam MOP_LOAD_ROM_DATA   = 5'h28;  // Load ROM data to temp_fp_b
+    // Payne-Hanek specific operations (using unused slots to avoid BCD conflicts)
+    localparam MOP_CLEAR_ACCUM     = 5'd20;  // Clear accumulators
+    localparam MOP_LOAD_ROM        = 5'd21;  // Load from Payne-Hanek ROM
+    localparam MOP_EXTRACT_MANT    = 5'd22;  // Extract 64-bit mantissa from FP80
+    localparam MOP_EXTRACT_EXP     = 5'd23;  // Extract 15-bit exponent from FP80
+    localparam MOP_MUL64           = 5'd24;  // 64×64 multiply → 128-bit result
+    localparam MOP_ADD128          = 5'd25;  // 128-bit addition with carry
+    localparam MOP_EXTRACT_BITS    = 5'd0;   // Extract bit range from register (was 26, conflicts with BCD)
+    localparam MOP_PACK_FP80       = 5'd14;  // Pack sign/exp/mant → FP80 (was 27, conflicts with BCD)
+    localparam MOP_LOAD_ROM_DATA   = 5'd15;  // Load ROM data to temp_fp_b (was 28, conflicts with BCD)
 
     //=================================================================
     // FSM States
@@ -247,6 +248,7 @@ module MicroSequencer_Extended_BCD (
     assign debug_temp_result = temp_result;
     assign debug_temp_fp_a = temp_fp_a;
     assign debug_temp_fp_b = temp_fp_b;
+    assign debug_temp_fp_c = temp_fp_c;
     assign debug_temp_uint64 = temp_uint64;
     assign debug_temp_sign = temp_sign;
 
@@ -577,72 +579,76 @@ module MicroSequencer_Extended_BCD (
 
         //-------------------------------------------------------------
         // Program 22: Payne-Hanek Range Reduction (Simplified - Phase 2A)
-        // Address: 0x0180-0x0195
-        // Input: temp_fp_a = large angle (FP80)
+        // Address: 0x0180-0x0196
+        // Input: data_in = large angle (FP80)
         // Output: temp_result = reduced angle in [0, π/2)
-        //         Quadrant information in temp_reg[1:0]
+        //         Quadrant information in temp_fp_c
         //
         // Algorithm:
-        //   1. Extract 64-bit mantissa from input angle
-        //   2. Multiply by 2/π (128-bit result)
-        //   3. Extract quadrant (bits 1:0) and fraction (bits 63:2)
-        //   4. Convert fraction to FP80
-        //   5. Multiply by π/2 to get final reduced angle
+        //   1. Load input angle from data_in to temp_fp_a
+        //   2. Extract 64-bit mantissa from input angle
+        //   3. Multiply by 2/π (128-bit result)
+        //   4. Extract quadrant (bits 1:0) and fraction (bits 63:2)
+        //   5. Convert fraction to FP80
+        //   6. Multiply by π/2 to get final reduced angle
         //-------------------------------------------------------------
 
+        // Load input angle from data_in
+        microcode_rom[16'h0180] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0181};
+
         // Clear accumulator
-        microcode_rom[16'h0180] = {OPCODE_EXEC, MOP_CLEAR_ACCUM, 8'd0, 15'h0181};
+        microcode_rom[16'h0181] = {OPCODE_EXEC, MOP_CLEAR_ACCUM, 8'd0, 15'h0182};
 
         // Extract mantissa from input angle (temp_fp_a)
-        microcode_rom[16'h0181] = {OPCODE_EXEC, MOP_EXTRACT_MANT, 8'd0, 15'h0182};
+        microcode_rom[16'h0182] = {OPCODE_EXEC, MOP_EXTRACT_MANT, 8'd0, 15'h0183};
 
         // Load 2/π chunk 0 (most significant) from ROM
-        microcode_rom[16'h0182] = {OPCODE_EXEC, MOP_LOAD_ROM, 8'd0, 15'h0183};
+        microcode_rom[16'h0183] = {OPCODE_EXEC, MOP_LOAD_ROM, 8'd0, 15'h0184};
 
         // Multiply mantissa by 2/π chunk 0 → 128-bit result in accumulator
-        microcode_rom[16'h0183] = {OPCODE_EXEC, MOP_MUL64, 8'd0, 15'h0184};
+        microcode_rom[16'h0184] = {OPCODE_EXEC, MOP_MUL64, 8'd0, 15'h0185};
 
         // Extract quadrant (bits 1:0 of upper accumulator)
-        microcode_rom[16'h0184] = {OPCODE_EXEC, MOP_EXTRACT_BITS, 8'd0, 15'h0185};
+        microcode_rom[16'h0185] = {OPCODE_EXEC, MOP_EXTRACT_BITS, 8'd0, 15'h0186};
 
         // Store quadrant in temp_fp_c for later
-        microcode_rom[16'h0185] = {OPCODE_EXEC, MOP_MOVE_RES_TO_C, 8'd0, 15'h0186};
+        microcode_rom[16'h0186] = {OPCODE_EXEC, MOP_MOVE_RES_TO_C, 8'd0, 15'h0187};
 
         // Extract fraction (bits 63:2 of upper accumulator)
-        microcode_rom[16'h0186] = {OPCODE_EXEC, MOP_EXTRACT_BITS, 8'd1, 15'h0187};
+        microcode_rom[16'h0187] = {OPCODE_EXEC, MOP_EXTRACT_BITS, 8'd1, 15'h0188};
 
         // Normalize fraction to [0, 1) by setting exponent
         // Exponent for [0.5, 1) range is 0x3FFE (bias=16383, exponent=-1)
         // Adjust to 0x3FFD for [0.25, 0.5) to account for bit 63 position
-        microcode_rom[16'h0187] = {OPCODE_EXEC, MOP_EXTRACT_EXP, 8'd0, 15'h0188};
+        microcode_rom[16'h0188] = {OPCODE_EXEC, MOP_EXTRACT_EXP, 8'd0, 15'h0189};
 
         // Use temp_reg as mantissa holder, set fixed exponent
         // Pack as FP80: sign=0, exp=0x3FFD, mantissa from temp_reg
-        microcode_rom[16'h0188] = {OPCODE_EXEC, MOP_PACK_FP80, 8'd0, 15'h0189};
+        microcode_rom[16'h0189] = {OPCODE_EXEC, MOP_PACK_FP80, 8'd0, 15'h018A};
 
         // Move normalized fraction to temp_fp_a for multiplication
-        microcode_rom[16'h0189] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h018A};
+        microcode_rom[16'h018A] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h018B};
 
         // Load π/2 from ROM (address 4)
-        microcode_rom[16'h018A] = {OPCODE_EXEC, MOP_LOAD_ROM, 8'd4, 15'h018B};
+        microcode_rom[16'h018B] = {OPCODE_EXEC, MOP_LOAD_ROM, 8'd4, 15'h018C};
 
         // Load ROM data (π/2) into temp_fp_b
-        microcode_rom[16'h018B] = {OPCODE_EXEC, MOP_LOAD_ROM_DATA, 8'd0, 15'h018C};
+        microcode_rom[16'h018C] = {OPCODE_EXEC, MOP_LOAD_ROM_DATA, 8'd0, 15'h018D};
 
         // Multiply fraction by π/2
-        microcode_rom[16'h018C] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h018D};
+        microcode_rom[16'h018D] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h018E};
 
         // Wait for multiplication to complete
-        microcode_rom[16'h018D] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h018E};
+        microcode_rom[16'h018E] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h018F};
 
         // Load result (reduced angle)
-        microcode_rom[16'h018E] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h018F};
+        microcode_rom[16'h018F] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0190};
 
         // Restore quadrant to temp_reg
-        microcode_rom[16'h018F] = {OPCODE_EXEC, MOP_MOVE_C_TO_B, 8'd0, 15'h0190};
+        microcode_rom[16'h0190] = {OPCODE_EXEC, MOP_MOVE_C_TO_B, 8'd0, 15'h0191};
 
         // Return with result in temp_result and quadrant in temp_fp_c
-        microcode_rom[16'h0190] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};
+        microcode_rom[16'h0191] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};
     end
 
     //=================================================================
