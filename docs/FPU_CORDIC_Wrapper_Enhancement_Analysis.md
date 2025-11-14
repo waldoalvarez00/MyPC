@@ -206,31 +206,27 @@ end
 
 ### Real 8087 Behavior
 
-The Intel 8087 **does NOT use CORDIC** for trigonometric functions!
+The Intel 8087 **DOES use CORDIC** for trigonometric functions!
 
-**8087 Transcendental Implementation:**
-- **Algorithm:** Polynomial approximation (not CORDIC)
-- **Method:** Range reduction + polynomial evaluation
-- **Precision:** Uses polynomial coefficients in ROM
-- **Performance:** Variable (30-90 cycles) based on angle
+**8087 Transcendental Implementation (per Ken Shirriff's analysis):**
+- **Algorithm:** CORDIC (Coordinate Rotation Digital Computer)
+- **Method:** Iterative rotation with shift-and-add operations
+- **Precision:** Uses 16 arctangent constants in ROM: atan(2^-n) for n=0 to 15
+- **Performance:** Variable cycles based on implementation
 - **Accuracy:** Guarantees <1 ULP error
+- **Supported:** TAN and ATAN directly (not SIN/COS - users apply trig identities)
 
-**8087 FSIN/FCOS Flow:**
-1. Range reduce to [0, π/4] (~15 cycles)
-2. Polynomial evaluation (8-15 terms) (~20-40 cycles)
-3. Quadrant correction (~5 cycles)
-4. Total: 40-60 cycles typical
+**8087 CORDIC Implementation:**
+- 16 arctangent constants stored in ROM
+- Efficient shifts and additions (no multiplications in iteration)
+- Microcode-driven CORDIC iterations
+- Hardware optimized for speed
 
-**8087 Does NOT:**
-- Use CORDIC iterations
-- Have early termination (fixed polynomial degree)
-- Iterate based on convergence
-
-**Why 8087 uses Polynomials, not CORDIC:**
-- Faster convergence (fewer cycles)
-- Deterministic performance
-- ROM-based coefficients save logic
-- Better suited for microcode
+**8087 CORDIC Characteristics:**
+- Fixed number of iterations (likely 16, matching ROM constants)
+- No early termination (deterministic timing)
+- ROM-based arctangent values for precision
+- Optimized for TAN/ATAN (SIN/COS via identities: sin=tan/√(1+tan²))
 
 ### CORDIC Early Termination Analysis
 
@@ -341,7 +337,7 @@ end
 - No accuracy loss
 - Easy to implement and test
 
-**Note:** Even with early termination, CORDIC is still slower than 8087's polynomial approach. For true 8087 compatibility, consider replacing CORDIC with polynomial evaluation (future enhancement).
+**Note:** Early termination provides flexibility. The real 8087 likely uses fixed iterations (matching its 16 arctangent constants), so this optimization goes beyond 8087 behavior for better average-case performance.
 
 **Implementation Effort:** 2-3 hours
 
@@ -379,16 +375,15 @@ end
 
 ### Real 8087 Behavior
 
-The Intel 8087 performs **microcode-driven quadrant correction**:
+The Intel 8087 performs **microcode-driven quadrant/identity correction**:
 
-**8087 Quadrant Correction:**
-1. **Range reduction** determines quadrant (0-3)
-2. **Polynomial evaluation** computes sin/cos in [0, π/4]
-3. **Correction applied based on quadrant:**
-   - Q0 (0 to π/2): sin=+result, cos=+complement
-   - Q1 (π/2 to π): sin=+complement, cos=-result
-   - Q2 (π to 3π/2): sin=-result, cos=-complement
-   - Q3 (3π/2 to 2π): sin=-complement, cos=+result
+**8087 Trigonometric Approach:**
+1. **Natively supports:** FPTAN (tangent) and FPATAN (arctangent) via CORDIC
+2. **For SIN/COS:** Users must apply trigonometric identities:
+   - sin(x) = tan(x) / √(1 + tan²(x))
+   - cos(x) = 1 / √(1 + tan²(x))
+3. **Range reduction** performed before CORDIC iterations
+4. **Quadrant correction** applied based on original angle range
 
 **8087 Uses:**
 - Proper FP negate operation (FNEG microcode)
@@ -762,12 +757,12 @@ end
 | # | Enhancement | Area | Cycles | Effort | 8087 Compliance | Priority |
 |---|-------------|------|--------|--------|-----------------|----------|
 | **1** | Proper FP80 Conversion | +40-50 ALMs | +1-2 | 4-6h | ✅ High | **HIGH** |
-| **2** | Early Termination | +10-15 ALMs | -10 avg | 2-3h | ⚠️ N/A* | **MEDIUM** |
+| **2** | Early Termination | +10-15 ALMs | -10 avg | 2-3h | ⚠️ Beyond* | **MEDIUM** |
 | **3** | Proper Quadrant Negate | +15-20 ALMs | +0 | 2-3h | ✅ High | **HIGH** |
 | **4** | Exception Handling | +40-50 ALMs | +1 | 4-6h | ✅ High | **HIGH** |
 | **TOTAL** | **+105-135 ALMs** | **-8 avg** | **12-18h** | **Full 8087** | |
 
-*8087 doesn't use CORDIC, so early termination is implementation-specific
+*Early termination goes beyond 8087 (which uses fixed iterations) for better average performance
 
 ### Recommended Implementation Plan
 
@@ -782,58 +777,77 @@ end
 **Total Effort:** 12-18 hours (1.5-2 days)
 **Total Area:** +105-135 ALMs (+0.25% FPGA)
 **Performance:** -8 cycles average
-**8087 Compliance:** Full (except polynomial vs CORDIC difference)
+**8087 Compliance:** Full exception handling and special value behavior (implementation uses SIN/COS CORDIC vs 8087's TAN/ATAN CORDIC)
 
 ---
 
-## Comparison: CORDIC vs 8087 Polynomial
+## Comparison: Current CORDIC vs 8087 CORDIC
 
-### Current Implementation (CORDIC)
+### Current Implementation (CORDIC - SIN/COS Direct)
 
-**Algorithm:** Iterative vector rotation
+**Algorithm:** Iterative vector rotation (rotation mode CORDIC)
 **Iterations:** 50 (or less with early termination)
 **Performance:** 45-55 cycles typical
 **Accuracy:** ~1 ULP with 50 iterations
 **Area:** ~300-350 ALMs (wrapper + CORDIC core)
+**Functions:** SIN, COS, ATAN directly computed
 **Advantages:**
 - ✅ Single algorithm for sin/cos/atan
 - ✅ Proven convergence
-- ✅ Simple to understand
+- ✅ Direct SIN/COS computation
+- ✅ Flexible iteration count
 
 **Disadvantages:**
-- ❌ Slower than polynomial (50 iterations vs 8-15 terms)
-- ❌ Not how real 8087 works
+- ❌ More iterations than 8087 (50 vs likely 16)
+- ❌ Different approach than 8087 (SIN/COS vs TAN/ATAN)
 - ❌ Fixed-point conversion overhead
 
-### Real 8087 (Polynomial Approximation)
+### Real 8087 (CORDIC - TAN/ATAN Optimized)
 
-**Algorithm:** Range reduction + polynomial evaluation
-**Terms:** 8-15 polynomial coefficients
-**Performance:** 40-60 cycles typical
+**Algorithm:** CORDIC with 16 arctangent constants
+**ROM Constants:** 16 values: atan(2^-n) for n=0 to 15
+**Iterations:** Fixed (likely 16, matching ROM size)
+**Performance:** Comparable to current implementation
 **Accuracy:** <1 ULP guaranteed
-**Area:** ~200-250 ALMs (smaller ROM, simpler datapath)
+**Functions:** TAN and ATAN natively (SIN/COS via identities)
 **Advantages:**
-- ✅ Faster convergence
-- ✅ Deterministic performance
-- ✅ ROM-based (saves logic)
-- ✅ True 8087 behavior
+- ✅ Fewer iterations (16 vs 50)
+- ✅ Deterministic performance (no early termination needed)
+- ✅ ROM-based arctangent constants (high precision)
+- ✅ Efficient shift-and-add operations
 
 **Disadvantages:**
-- ❌ Separate polynomials for sin/cos/tan/atan
-- ❌ More ROM space (coefficient storage)
-- ❌ Complex polynomial coefficient derivation
+- ❌ SIN/COS requires additional computation (identities)
+- ❌ More complex for users (must apply: sin = tan/√(1+tan²))
+- ❌ TAN can overflow for angles near π/2
+
+### Key Differences
+
+**Our Implementation:**
+- Computes SIN/COS directly (convenient for users)
+- Uses 50 iterations for high precision
+- Generic CORDIC approach
+
+**8087 Implementation:**
+- Computes TAN/ATAN only (users apply identities for SIN/COS)
+- Uses 16 iterations with precise ROM constants
+- Optimized specifically for TAN/ATAN operations
 
 ### Recommendation for Future
 
-**Long-term:** Consider replacing CORDIC with polynomial approximation to match real 8087:
-- Use Chebyshev or minimax polynomials
-- Store coefficients in ROM (already have FPU_Atan_Table pattern)
-- Reuse FPU multiplier/adder for polynomial evaluation
-- Performance: 40-60 cycles (similar to current CORDIC)
-- Accuracy: <0.5 ULP (better than CORDIC)
-- Area: -50 to -100 ALMs (simpler datapath)
+**Option A: Keep Current Approach (RECOMMENDED)**
+- Current CORDIC wrapper is functionally superior (direct SIN/COS)
+- Higher iteration count provides excellent precision
+- Simpler user interface
+- No need to change existing design
 
-**Effort:** 3-4 weeks (polynomial derivation + implementation + validation)
+**Option B: Match 8087 Exactly (Lower Priority)**
+- Reduce to 16 iterations with optimized arctangent ROM
+- Implement FPTAN/FPATAN instructions
+- Require users to compute SIN/COS via identities
+- Trade-off: Less convenient for more 8087 authenticity
+
+**Conclusion:** Current CORDIC approach is valid and effective. Both implementations use CORDIC; ours prioritizes convenience (direct SIN/COS) while 8087 prioritizes TAN/ATAN with fewer iterations.
 
 ---
 
@@ -944,9 +958,10 @@ The FPU_CORDIC_Wrapper can be significantly enhanced with **+105-135 ALMs and 12
 - Minimal area cost (+0.25% FPGA) ✅
 
 **Future Consideration:**
-- Replace CORDIC with polynomial approximation for true 8087 behavior
-- Estimated: -50 to -100 ALMs, similar performance, <0.5 ULP accuracy
-- Effort: 3-4 weeks
+- Optimize CORDIC to match 8087 approach (16 iterations with arctangent ROM, TAN/ATAN focus)
+- Alternative: Current SIN/COS direct approach is more convenient for users
+- 8087 uses CORDIC with TAN/ATAN; our implementation uses CORDIC with SIN/COS
+- Both approaches are valid CORDIC implementations with different trade-offs
 
 ---
 
