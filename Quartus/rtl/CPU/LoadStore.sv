@@ -14,7 +14,7 @@
 //  more details.
 //
 //  You should have received a copy of the GNU General Public License along
-//  with this program; if not, WRITE_ALIGNED to the Free Software Foundation, Inc.,
+//  with this program; if not, write to the Free Software Foundation, Inc.,
 //  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 //
 //============================================================================
@@ -76,11 +76,11 @@ logic [5:0] current_state;
 localparam [5:0]
   IDLE = 5'd0,
   READ_ALIGNED_UNALIGNED_8BIT_START = 5'd1,
-  READ_ALIGNED = 5'd2,
-  WRITE_ALIGNED = 5'd3,
+  // READ_ALIGNED = 5'd2,           // Removed - deprecated (Phase 2 optimization)
+  // WRITE_ALIGNED = 5'd3,          // Removed - deprecated (Phase 2 optimization)
   UNALIGNED_FIRST_BYTE = 5'd4,
   UNALIGNED_SECOND_BYTE = 5'd5,
-  READ_WRITE_COMPLETE = 5'd6,
+  // READ_WRITE_COMPLETE = 5'd6,    // Removed - deprecated (Phase 2 optimization)
   WAIT_ACK_READ_ALIGNED = 5'd7,
   WAIT_UNALIGNED_READ_ACK_END = 5'd8,
   WAIT_UNALIGNED_READ_ACK_START = 5'd9,
@@ -273,20 +273,8 @@ logic [19:1] physical_addr;
 					   end
 
 				    end
-					 
-					 
-					 
-                READ_ALIGNED: begin
-					 // Phase 2: This state is no longer used for aligned reads
-					 // Control signals are now set directly in IDLE state
-                    m_access <= 1'b1;
-                    m_wr_en <= 1'b0;
-                    m_bytesel <= is_8bit ? 2'b01 : 2'b11;
-						  current_state <= WAIT_ACK_READ_ALIGNED;
 
-                end
-					 
-					 
+
 					 READ_ALIGNED_UNALIGNED_8BIT_START: begin
 					 
                     m_wr_en <= 1'b0;
@@ -404,18 +392,7 @@ logic [19:1] physical_addr;
 						  current_state <= WAIT_ACK_WRITE_ALIGNED16;
                 end
 
-					 
-                WRITE_ALIGNED: begin
-					 // Phase 2: This state is no longer used for aligned writes
-					 // Control signals are now set directly in IDLE state
-                    m_access <= 1'b1;
-                    m_wr_en <= 1'b1;
-                    m_bytesel <= is_8bit ? 2'b01 : 2'b11;
-						  m_data_out <= mdr;
-						  current_state <= WAIT_ACK_WRITE_ALIGNED16;
-                end
-					 
-					 
+
 					 WAIT_ACK_WRITE_ALIGNED16: begin
 					   $display("[LoadStore DEBUG] WAIT_ACK_WRITE: m_ack=%b m_access=%b m_wr_en=%b", m_ack, m_access, m_wr_en);
 
@@ -518,23 +495,8 @@ logic [19:1] physical_addr;
 					   end
 
 				    end
-					 
-					 
-                READ_WRITE_COMPLETE: begin
-                    // Phase 1 Optimization: Merged FINALIZE_OPERATION into this state
-                    // Phase 2: This state is largely deprecated - most operations now go directly to IDLE
-                    // Kept for backward compatibility and legacy state transitions
-                    complete <= 1'b0;
-                    m_access <= 1'b0;
-                    m_wr_en  <= 1'b0;
-                    current_state <= IDLE;
 
-                    m_addr <= 19'd0;
-                    m_data_out <= 16'd0;
-                end
-					 
-					 
-					 
+
             endcase
         end
     end
