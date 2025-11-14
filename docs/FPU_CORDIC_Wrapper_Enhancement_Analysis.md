@@ -209,23 +209,28 @@ end
 The Intel 8087 **DOES use CORDIC** for trigonometric functions!
 
 **8087 Transcendental Implementation (per Ken Shirriff's analysis):**
-- **Algorithm:** CORDIC (Coordinate Rotation Digital Computer)
-- **Method:** Iterative rotation with shift-and-add operations
+- **Algorithm:** CORDIC + rational/polynomial correction (hybrid approach)
+- **Method:**
+  1. CORDIC iterations with shift-and-add operations (bulk reduction)
+  2. Small rational approximation on leftover angle (final precision)
 - **Precision:** Uses 16 arctangent constants in ROM: atan(2^-n) for n=0 to 15
 - **Performance:** Variable cycles based on implementation
-- **Accuracy:** Guarantees <1 ULP error
+- **Accuracy:** Guarantees <1 ULP error (correction step achieves this)
 - **Supported:** TAN and ATAN directly (not SIN/COS - users apply trig identities)
 
-**8087 CORDIC Implementation:**
-- 16 arctangent constants stored in ROM
-- Efficient shifts and additions (no multiplications in iteration)
-- Microcode-driven CORDIC iterations
+**8087 Hybrid CORDIC Implementation:**
+- 16 arctangent constants stored in ROM for CORDIC iterations
+- Efficient shifts and additions (no multiplications in CORDIC phase)
+- After CORDIC: applies small rational/polynomial correction to residual angle
+- This hybrid approach combines CORDIC speed with polynomial precision
+- Microcode-driven execution
 - Hardware optimized for speed
 
 **8087 CORDIC Characteristics:**
 - Fixed number of iterations (likely 16, matching ROM constants)
 - No early termination (deterministic timing)
-- ROM-based arctangent values for precision
+- ROM-based arctangent values for CORDIC precision
+- Correction phase handles remaining angle error
 - Optimized for TAN/ATAN (SIN/COS via identities: sin=tan/√(1+tan²))
 
 ### CORDIC Early Termination Analysis
@@ -802,52 +807,66 @@ end
 - ❌ Different approach than 8087 (SIN/COS vs TAN/ATAN)
 - ❌ Fixed-point conversion overhead
 
-### Real 8087 (CORDIC - TAN/ATAN Optimized)
+### Real 8087 (Hybrid CORDIC + Correction - TAN/ATAN Optimized)
 
-**Algorithm:** CORDIC with 16 arctangent constants
+**Algorithm:** CORDIC (16 iterations) + rational/polynomial correction
 **ROM Constants:** 16 values: atan(2^-n) for n=0 to 15
-**Iterations:** Fixed (likely 16, matching ROM size)
+**Iterations:** Fixed (16 CORDIC + correction phase)
 **Performance:** Comparable to current implementation
-**Accuracy:** <1 ULP guaranteed
+**Accuracy:** <1 ULP guaranteed (correction achieves final precision)
 **Functions:** TAN and ATAN natively (SIN/COS via identities)
 **Advantages:**
-- ✅ Fewer iterations (16 vs 50)
+- ✅ Fewer CORDIC iterations (16 vs 50)
+- ✅ Hybrid approach: CORDIC speed + polynomial precision
 - ✅ Deterministic performance (no early termination needed)
 - ✅ ROM-based arctangent constants (high precision)
-- ✅ Efficient shift-and-add operations
+- ✅ Efficient shift-and-add in CORDIC phase
+- ✅ Correction phase handles residual angle for <1 ULP
 
 **Disadvantages:**
 - ❌ SIN/COS requires additional computation (identities)
 - ❌ More complex for users (must apply: sin = tan/√(1+tan²))
 - ❌ TAN can overflow for angles near π/2
+- ❌ Requires correction logic (extra complexity)
 
 ### Key Differences
 
 **Our Implementation:**
+- Pure CORDIC with 50 iterations (no correction phase)
 - Computes SIN/COS directly (convenient for users)
-- Uses 50 iterations for high precision
+- Higher iteration count compensates for lack of correction
 - Generic CORDIC approach
 
 **8087 Implementation:**
+- Hybrid: CORDIC (16 iterations) + rational/polynomial correction
 - Computes TAN/ATAN only (users apply identities for SIN/COS)
-- Uses 16 iterations with precise ROM constants
+- Fewer iterations + correction achieves <1 ULP
 - Optimized specifically for TAN/ATAN operations
 
 ### Recommendation for Future
 
 **Option A: Keep Current Approach (RECOMMENDED)**
-- Current CORDIC wrapper is functionally superior (direct SIN/COS)
-- Higher iteration count provides excellent precision
-- Simpler user interface
+- Current pure CORDIC wrapper is functionally superior (direct SIN/COS)
+- 50 iterations achieve similar precision to 8087's hybrid approach
+- Simpler user interface (no identity conversions needed)
+- No need for correction phase logic
 - No need to change existing design
 
-**Option B: Match 8087 Exactly (Lower Priority)**
-- Reduce to 16 iterations with optimized arctangent ROM
+**Option B: Match 8087 Hybrid Approach (Lower Priority)**
+- Reduce to 16-20 CORDIC iterations
+- Add rational/polynomial correction phase for residual angle
 - Implement FPTAN/FPATAN instructions
 - Require users to compute SIN/COS via identities
-- Trade-off: Less convenient for more 8087 authenticity
+- Trade-off: More complex but closer to 8087 behavior
 
-**Conclusion:** Current CORDIC approach is valid and effective. Both implementations use CORDIC; ours prioritizes convenience (direct SIN/COS) while 8087 prioritizes TAN/ATAN with fewer iterations.
+**Option C: Hybrid Our Implementation (Interesting Alternative)**
+- Keep SIN/COS direct computation
+- Reduce CORDIC iterations to 20-30
+- Add small correction phase for final precision
+- Best of both: convenience + efficiency
+- Estimated: +30-40 ALMs, -15 to -25 cycles
+
+**Conclusion:** Current pure CORDIC approach is valid and effective. The 8087 uses a hybrid CORDIC+correction approach for efficiency; our pure CORDIC with more iterations achieves comparable accuracy. Both are valid engineering choices with different trade-offs (simplicity vs cycle count).
 
 ---
 
@@ -958,10 +977,14 @@ The FPU_CORDIC_Wrapper can be significantly enhanced with **+105-135 ALMs and 12
 - Minimal area cost (+0.25% FPGA) ✅
 
 **Future Consideration:**
-- Optimize CORDIC to match 8087 approach (16 iterations with arctangent ROM, TAN/ATAN focus)
-- Alternative: Current SIN/COS direct approach is more convenient for users
-- 8087 uses CORDIC with TAN/ATAN; our implementation uses CORDIC with SIN/COS
-- Both approaches are valid CORDIC implementations with different trade-offs
+- **8087 uses hybrid approach:** CORDIC (16 iterations) + rational/polynomial correction
+- **Our implementation:** Pure CORDIC (50 iterations, no correction)
+- **Possible optimization:** Reduce to 20-30 CORDIC iterations + add correction phase
+  - Saves ~20-30 cycles while maintaining accuracy
+  - Requires correction logic (+30-40 ALMs)
+  - Combines 8087's efficiency with our SIN/COS convenience
+- **Alternative:** Keep current approach (simpler, no correction logic needed)
+- Both pure CORDIC and hybrid CORDIC+correction are valid engineering choices
 
 ---
 
