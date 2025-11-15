@@ -82,6 +82,8 @@ CORE_TESTS=(
     "run_ALU_sim.sh"
     "run_RegisterFile_sim.sh"
     "run_JumpTest_sim.sh"
+    "run_modrm_decode_test.sh"
+    "run_divider_test.sh"
 )
 
 # Memory tests
