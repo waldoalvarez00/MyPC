@@ -225,10 +225,15 @@ always_comb begin
 end
 
 // Address latching
-always_ff @(posedge clk) begin
-    if (!busy && !flushing)
-        latched_address <= c_addr;
-    fetch_address <= c_addr;
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        latched_address <= 19'h0;
+        fetch_address <= 19'h0;
+    end else begin
+        if (!busy && !flushing)
+            latched_address <= c_addr;
+        fetch_address <= c_addr;
+    end
 end
 
 // Update state machine
@@ -238,7 +243,7 @@ always_ff @(posedge clk or posedge reset) begin
     end else begin
         if (enabled && !busy && !flushing && c_access)
             updating <= 1'b1;
-        else if (updating && !(do_flush || flushing))
+        else if (updating && !busy && !flushing)
             updating <= 1'b0;
     end
 end

@@ -167,7 +167,19 @@ begin
     data_m_wr_en = 1'b0;
     data_m_bytesel = 2'b11;
     data_m_access = 1'b1;
+    $display("  [DEBUG] data_read: addr=0x%05h, access=1", addr);
+    $display("  [DEBUG]   Before clk: ack=%b, data=0x%04h, busy=%b, line_valid=%b",
+             data_m_ack, data_m_data_in, dut.dcache.busy, dut.dcache.line_valid);
     @(posedge clk);
+    $display("  [DEBUG]   After 1st clk: ack=%b, data=0x%04h, busy=%b, line_valid=%b, valid=%b, hit=%b, accessing=%b",
+             data_m_ack, data_m_data_in, dut.dcache.busy, dut.dcache.line_valid,
+             dut.dcache.valid, dut.dcache.hit, dut.dcache.accessing);
+    $display("  [DEBUG]     fetch_addr=0x%05h [3:1]=%0d, line_valid[%0d]=%b, filling_current=%b, updating=%b, flushing=%b",
+             dut.dcache.fetch_address, dut.dcache.fetch_address[3:1],
+             dut.dcache.fetch_address[3:1], dut.dcache.line_valid[dut.dcache.fetch_address[3:1]],
+             dut.dcache.filling_current, dut.dcache.updating, dut.dcache.flushing);
+    $display("  [DEBUG]     do_fill=%b, do_flush=%b, dirty=%b",
+             dut.dcache.do_fill, dut.dcache.do_flush, dut.dcache.dirty);
 
     while (!data_m_ack && timeout < 200) begin
         @(posedge clk);
@@ -177,6 +189,7 @@ begin
     if (data_m_ack) begin
         data = data_m_data_in;
         success = 1'b1;
+        $display("  [DEBUG] data_read: GOT ACK after %0d cycles, data=0x%04h", timeout, data);
     end else begin
         data = 16'hXXXX;
         success = 1'b0;
@@ -198,15 +211,32 @@ begin
     data_m_wr_en = 1'b1;
     data_m_bytesel = bytesel;
     data_m_access = 1'b1;
+    $display("  [DEBUG] data_write: addr=0x%05h, data=0x%04h, bytesel=%b, wr_en=1", addr, data, bytesel);
+    $display("  [DEBUG]   Before clk: ack=%b, busy=%b, line_valid=%b",
+             data_m_ack, dut.dcache.busy, dut.dcache.line_valid);
     @(posedge clk);
+    $display("  [DEBUG]   After 1st clk: ack=%b, busy=%b, line_valid=%b, valid=%b, hit=%b",
+             data_m_ack, dut.dcache.busy, dut.dcache.line_valid,
+             dut.dcache.valid, dut.dcache.hit);
+    $display("  [DEBUG]     updating=%b, flushing=%b, accessing=%b, do_fill=%b, do_flush=%b, dirty=%b",
+             dut.dcache.updating, dut.dcache.flushing, dut.dcache.accessing,
+             dut.dcache.do_fill, dut.dcache.do_flush, dut.dcache.dirty);
 
     while (!data_m_ack && timeout < 200) begin
         @(posedge clk);
         timeout = timeout + 1;
+        if (timeout % 10 == 0) begin
+            $display("  [DEBUG]   Cycle %0d: ack=%b, busy=%b, dcache.m_access=%b, icache.m_access=%b, arb.state=%0d, arb.m_access=%b, m_ack=%b",
+                     timeout, data_m_ack, dut.dcache.busy,
+                     dut.dcache.m_access, dut.icache.m_access,
+                     dut.harvard_arbiter.state, dut.mem_m_access, dut.mem_m_ack);
+        end
     end
 
     success = data_m_ack;
-    if (!success)
+    if (success)
+        $display("  [DEBUG] data_write: GOT ACK after %0d cycles", timeout);
+    else
         $display("ERROR: Data write timeout at address %h", addr);
 
     data_m_access = 1'b0;
@@ -251,9 +281,13 @@ initial begin
     fail_count = 0;
     reset = 1;
     cache_enabled = 1;
+    instr_m_addr = 19'h0;
     instr_m_access = 0;
+    data_m_addr = 19'h0;
     data_m_access = 0;
     data_m_wr_en = 0;
+    data_m_bytesel = 2'b11;
+    data_m_data_out = 16'h0;
     mem_latency = 2;  // 2 cycle memory latency
 
     $display("========================================");
