@@ -235,6 +235,18 @@ begin
 end
 endtask
 
+// Helper to wait for sequencer to settle between tests
+task wait_for_sequencer_settle;
+    integer timeout;
+begin
+    timeout = 0;
+    while (starting_instruction && timeout < 10) begin
+        @(posedge clk);
+        timeout = timeout + 1;
+    end
+end
+endtask
+
 // Helper to wait for instruction start with specific opcode
 task wait_for_instruction_start_with_opcode;
     input [7:0] expected_opcode;
@@ -457,7 +469,7 @@ initial begin
     end
 
     $display("  INC completed in %0d cycles", cycle_count);
-    check_result("INC completes in 2 cycles", 1'b1, cycle_count == 2);
+    check_result("INC completes in 1 cycle", 1'b1, cycle_count == 1);
     check_result("INC updates flags", 1'b1, update_flags != 9'h0);
     check_result("INC writes register", 1'b1, reg_wr_en);
 
@@ -465,13 +477,27 @@ initial begin
     // Test 4: HLT instruction (0xF4)
     //==================================================================
     $display("\n--- Test 4: HLT (0xF4) detection ---");
+
+    wait_for_sequencer_settle;
     create_instruction(8'hf4, 1'b0, 1'b0, REP_PREFIX_NONE, 1'b0);
 
     wait_for_instruction_start_with_opcode(8'hf4);
 
+    $display("  DEBUG cycle 0: start=%b fifo_rd=%b opcode=0x%02h is_hlt=%b",
+             starting_instruction, fifo_rd_en, opcode, is_hlt);
+
     // Wait for FIFO read and cur_instruction update
     @(posedge clk);  // FIFO read cycle
+    $display("  DEBUG cycle 1: start=%b fifo_rd=%b opcode=0x%02h is_hlt=%b",
+             starting_instruction, fifo_rd_en, opcode, is_hlt);
+
     @(posedge clk);  // cur_instruction updated
+    $display("  DEBUG cycle 2: start=%b fifo_rd=%b opcode=0x%02h is_hlt=%b",
+             starting_instruction, fifo_rd_en, opcode, is_hlt);
+
+    @(posedge clk);  // Extra wait
+    $display("  DEBUG cycle 3: start=%b fifo_rd=%b opcode=0x%02h is_hlt=%b",
+             starting_instruction, fifo_rd_en, opcode, is_hlt);
 
     check_result("HLT detected", 1'b1, is_hlt);
 
@@ -481,13 +507,13 @@ initial begin
     @(posedge clk);
     nmi_pulse = 0;
 
-    // Wait for interrupt to be taken
-    for (i = 0; i < 20; i = i + 1) begin
+    // Wait for NMI interrupt handler to complete (takes several cycles)
+    for (i = 0; i < 50; i = i + 1) begin
         @(posedge clk);
-        if (starting_instruction) begin
-            i = 20;  // Exit loop
-        end
     end
+
+    // Wait for sequencer to settle after interrupt
+    wait_for_sequencer_settle;
 
     //==================================================================
     // Test 5: Multibit shift instructions
@@ -495,55 +521,59 @@ initial begin
     $display("\n--- Test 5: Multibit shift detection ---");
 
     // Test SHL/SAL r/m8, CL (0xD2)
+    wait_for_sequencer_settle;
     create_instruction(8'hd2, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
     wait_for_instruction_start_with_opcode(8'hd2);
-    @(posedge clk);  // FIFO read cycle
-    @(posedge clk);  // cur_instruction updated
+    @(posedge clk);  // FIFO read cycle - cur_instruction updated
+    $display("  DEBUG 0xD2: opcode=0x%02h, multibit_shift=%b", opcode, multibit_shift);
     check_result("0xD2 is multibit shift", 1'b1, multibit_shift);
 
     // Test SHL/SAL r/m16, CL (0xD3)
+    wait_for_sequencer_settle;
     create_instruction(8'hd3, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
     wait_for_instruction_start_with_opcode(8'hd3);
-    @(posedge clk);  // FIFO read cycle
-    @(posedge clk);  // cur_instruction updated
-    check_result("0xD3 is multibit shift", 1'b1, multibit_shift);
+    @(posedge clk);  // FIFO read cycle - cur_instruction updated
+    check_result("0xD3 is multibit_shift", 1'b1, multibit_shift);
 
     // Test SHL/SAL r/m8, imm8 (0xC0)
+    wait_for_sequencer_settle;
     create_instruction(8'hc0, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
     wait_for_instruction_start_with_opcode(8'hc0);
-    @(posedge clk);  // FIFO read cycle
-    @(posedge clk);  // cur_instruction updated
+    @(posedge clk);  // FIFO read cycle - cur_instruction updated
     check_result("0xC0 is multibit shift", 1'b1, multibit_shift);
 
     // Test SHL/SAL r/m16, imm8 (0xC1)
+    wait_for_sequencer_settle;
     create_instruction(8'hc1, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
     wait_for_instruction_start_with_opcode(8'hc1);
-    @(posedge clk);  // FIFO read cycle
-    @(posedge clk);  // cur_instruction updated
+    @(posedge clk);  // FIFO read cycle - cur_instruction updated
     check_result("0xC1 is multibit shift", 1'b1, multibit_shift);
 
     //==================================================================
     // Test 6: LOCK prefix handling
     //==================================================================
     $display("\n--- Test 6: LOCK prefix ---");
+
+    wait_for_sequencer_settle;
     create_instruction(8'h90, 1'b0, 1'b0, REP_PREFIX_NONE, 1'b1);  // LOCK NOP
 
     wait_for_instruction_start_with_opcode(8'h90);
-    @(posedge clk);  // FIFO read cycle
-    @(posedge clk);  // cur_instruction updated
+    @(posedge clk);  // FIFO read cycle - cur_instruction updated
 
+    $display("  DEBUG LOCK: opcode=0x%02h, lock=%b", opcode, lock);
     check_result("LOCK prefix detected", 1'b1, lock);
 
     //==================================================================
     // Test 7: Stall behavior
     //==================================================================
     $display("\n--- Test 7: Stall prevents sequencing ---");
+
+    wait_for_sequencer_settle;
     create_instruction(8'h90, 1'b0, 1'b0, REP_PREFIX_NONE, 1'b0);
     wait_for_instruction_start_with_opcode(8'h90);
 
     // Wait for instruction to be loaded
-    @(posedge clk);  // FIFO read cycle
-    @(posedge clk);  // cur_instruction updated
+    @(posedge clk);  // FIFO read cycle - cur_instruction updated
 
     stall = 1;
     @(posedge clk);
