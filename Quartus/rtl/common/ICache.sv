@@ -87,13 +87,15 @@ reg accessing;
 // Hit/miss logic
 wire tags_match = tag == fetch_address[19:tag_start];
 wire filling_current = fetch_address[19:index_start] == latched_address[19:index_start];
+// Use c_addr for line_valid check (no RAM latency), fetch_address for tag check (1-cycle RAM latency)
 wire hit = accessing && ((valid && tags_match) ||
-    (busy && filling_current && line_valid[fetch_address[3:1]]));
+    (busy && filling_current && line_valid[c_addr[3:1]]));
 
 // Output logic
 wire [15:0] c_q;
+reg c_ack_reg;
 assign c_data_in = enabled ? (c_ack ? c_q : 16'b0) : m_data_in;
-assign c_ack = enabled ? accessing & hit : m_ack;
+assign c_ack = enabled ? c_ack_reg : m_ack;
 
 // Memory interface - simplified for read-only
 assign m_addr = enabled ? c_m_addr : c_addr;
@@ -159,8 +161,15 @@ always_ff @(posedge clk or posedge reset) begin
     if (reset) begin
         busy <= 1'b0;
         accessing <= 1'b0;
+        c_ack_reg <= 1'b0;
     end else begin
         accessing <= c_access;
+        // Register ACK to align with BlockRam read latency
+        // Clear immediately when access goes low
+        if (!c_access)
+            c_ack_reg <= 1'b0;
+        else
+            c_ack_reg <= accessing & hit;
     end
 end
 
@@ -170,10 +179,15 @@ always_comb begin
 end
 
 // Address latching
-always_ff @(posedge clk) begin
-    if (!busy)
-        latched_address <= c_addr;
-    fetch_address <= c_addr;
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        latched_address <= 19'h0;
+        fetch_address <= 19'h0;
+    end else begin
+        if (!busy)
+            latched_address <= c_addr;
+        fetch_address <= c_addr;
+    end
 end
 
 // Update state machine
@@ -183,7 +197,7 @@ always_ff @(posedge clk or posedge reset) begin
     end else begin
         if (enabled && !busy && c_access)
             updating <= 1'b1;
-        if (updating && !busy)
+        else if (updating && !busy)
             updating <= 1'b0;
     end
 end

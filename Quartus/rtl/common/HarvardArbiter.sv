@@ -133,8 +133,15 @@ always_comb begin
         end
 
         SERVING_ICACHE: begin
-            // Stay until acknowledged, then check for pending requests
-            if (mem_m_ack) begin
+            // Release if I-cache drops request, or stay until acknowledged
+            if (!icache_m_access) begin
+                // I-cache finished - immediately check for other requests
+                if (dcache_m_access)
+                    next_state = SERVING_DCACHE;
+                else
+                    next_state = IDLE;
+            end else if (mem_m_ack) begin
+                // Completed current word - check for pending requests
                 if (dcache_m_access)
                     next_state = SERVING_DCACHE;
                 else if (icache_m_access)
@@ -145,8 +152,15 @@ always_comb begin
         end
 
         SERVING_DCACHE: begin
-            // Stay until acknowledged, then check for pending requests
-            if (mem_m_ack) begin
+            // Release if D-cache drops request, or stay until acknowledged
+            if (!dcache_m_access) begin
+                // D-cache finished - immediately check for other requests
+                if (icache_m_access)
+                    next_state = SERVING_ICACHE;
+                else
+                    next_state = IDLE;
+            end else if (mem_m_ack) begin
+                // Completed current word - check for pending requests
                 if (icache_m_access)
                     next_state = SERVING_ICACHE;
                 else if (dcache_m_access)

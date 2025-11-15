@@ -25,11 +25,29 @@ module BIOS #(parameter depth = 32)
               input logic data_m_wr_en,
               input logic [15:0] data_m_data_in,
               output logic [15:0] data_m_data_out,
-              input logic [1:0] data_m_bytesel);
+              input logic [1:0] data_m_bytesel,
 
-//wire wr_en = data_m_access & cs & data_m_wr_en;
+              // Upload interface for BIOS file loading from MiSTer OSD
+              input logic        upload_wr_req,
+              input logic [13:1] upload_addr,
+              input logic [15:0] upload_data,
+              input logic [1:0]  upload_bytesel);
+
+// Write enable: Only allow uploads (CPU writes disabled for protection)
+wire cpu_wr = 1'b0;  // CPU writes permanently disabled
+wire wr_en = cpu_wr | upload_wr_req;
+
+// Address mux: CPU address OR upload address
+wire [$clog2(depth):1] ram_addr = upload_wr_req ? upload_addr[$clog2(depth):1] : data_m_addr[$clog2(depth):1];
+
+// Data mux: CPU data OR upload data
+wire [15:0] ram_data = upload_wr_req ? upload_data : data_m_data_in;
+
+// Bytesel mux
+wire [1:0] ram_bytesel = upload_wr_req ? upload_bytesel : data_m_bytesel;
+
 wire [15:0] q;
-				  
+
 assign data_m_data_out = cs & data_m_access ? q : 16'b0;
 
 logic condition_met, condition_met_d; // Signals to detect rising edge of the condition
@@ -54,11 +72,11 @@ always_ff @(posedge clk)
     data_m_ack <= cs & data_m_access;
 	*/ 
 
-altsyncram	altsyncram_component(.address_a(data_m_addr[$clog2(depth):1]),
-                                     .byteena_a(data_m_bytesel),
+altsyncram	altsyncram_component(.address_a(ram_addr),
+                                     .byteena_a(ram_bytesel),
                                      .clock0(clk),
-                                     .data_a(data_m_data_in),
-                                     .wren_a(/*wr_en*/ 1'b0),
+                                     .data_a(ram_data),
+                                     .wren_a(wr_en),
                                      .q_a(q),
                                      .aclr0(1'b0),
                                      .aclr1(1'b0),

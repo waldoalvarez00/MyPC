@@ -4,6 +4,11 @@
 # Executes all test scripts and reports comprehensive results
 #================================================================
 
+# Add local iverilog to PATH if available
+if [ -d "/tmp/iverilog_extract/usr/bin" ]; then
+    export PATH="/tmp/iverilog_extract/usr/bin:$PATH"
+fi
+
 # Color codes for output
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -82,11 +87,14 @@ CORE_TESTS=(
     "run_ALU_sim.sh"
     "run_RegisterFile_sim.sh"
     "run_JumpTest_sim.sh"
+    "run_modrm_decode_test.sh"
+    "run_divider_test.sh"
 )
 
 # Memory tests
 MEMORY_TESTS=(
     "run_cache_test.sh"
+    "run_harvard_cache_test.sh"
     "run_sdram_test.sh"
     "run_sdram_config_test.sh"
 )
@@ -138,6 +146,12 @@ SERIAL_TESTS=(
     "run_uart_test.sh"
 )
 
+# BIOS tests
+BIOS_TESTS=(
+    "run_bios_upload_controller_test.sh"
+    "run_bios_upload_integration_test.sh"
+)
+
 # Run all test categories
 echo "Running Core Tests..."
 for test in "${CORE_TESTS[@]}"; do
@@ -176,6 +190,11 @@ done
 
 echo "Running Serial Tests..."
 for test in "${SERIAL_TESTS[@]}"; do
+    [ -f "$test" ] && run_test "$test"
+done
+
+echo "Running BIOS Tests..."
+for test in "${BIOS_TESTS[@]}"; do
     [ -f "$test" ] && run_test "$test"
 done
 
