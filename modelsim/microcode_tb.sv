@@ -235,7 +235,35 @@ begin
 end
 endtask
 
-// Helper to wait for instruction start
+// Helper to wait for instruction start with specific opcode
+task wait_for_instruction_start_with_opcode;
+    input [7:0] expected_opcode;
+    integer timeout;
+begin
+    timeout = 0;
+    $display("  [DEBUG] Waiting for opcode 0x%02h to start...", expected_opcode);
+
+    // Wait for next_instruction_value to have our opcode AND starting_instruction to be high
+    while (!(starting_instruction && next_instruction_value.opcode == expected_opcode) && timeout < 100) begin
+        @(posedge clk);
+        timeout = timeout + 1;
+
+        // Print status every 10 cycles
+        if (timeout % 10 == 0) begin
+            $display("  [DEBUG]   Cycle %3d: start=%b next_op=0x%02h (expect 0x%02h)",
+                     timeout, starting_instruction, next_instruction_value.opcode, expected_opcode);
+        end
+    end
+
+    if (starting_instruction && next_instruction_value.opcode == expected_opcode) begin
+        $display("  [DEBUG] Instruction 0x%02h starting after %0d cycles!", expected_opcode, timeout);
+    end else begin
+        $display("  [DEBUG] ERROR: Timeout waiting for opcode 0x%02h after %0d cycles", expected_opcode, timeout);
+    end
+end
+endtask
+
+// Helper to wait for instruction start (legacy)
 task wait_for_instruction_start;
     integer timeout;
 begin
@@ -272,6 +300,7 @@ initial begin
     integer cycle_count;
     integer i;
     integer boot_cycles;
+    integer irq_to_mdr_seen;
 
     // Initialize signals
     test_count = 0;
@@ -352,6 +381,9 @@ initial begin
 
     $display("  After instruction start: opcode=0x%02h fifo_rd=%b", opcode, fifo_rd_en);
     check_result("NOP instruction fetched", 1'b1, fifo_rd_en);
+
+    // Wait for cur_instruction to be updated
+    @(posedge clk);
     check_result("NOP opcode correct", 1'b1, opcode == 8'h90);
 
     // NOP completes in one microinstruction
@@ -369,8 +401,11 @@ initial begin
     $display("  Setting up MOV instruction...");
     create_instruction(8'hb8, 1'b0, 1'b0, REP_PREFIX_NONE, 1'b0);
 
-    wait_for_instruction_start;
+    wait_for_instruction_start_with_opcode(8'hb8);
 
+    // Wait for FIFO read and cur_instruction update
+    @(posedge clk);  // FIFO read cycle
+    @(posedge clk);  // cur_instruction updated
     $display("  After instruction start: opcode=0x%02h", opcode);
     check_result("MOV AX, imm opcode correct", 1'b1, opcode == 8'hb8);
 
@@ -400,8 +435,11 @@ initial begin
     $display("  Setting up INC instruction...");
     create_instruction(8'h40, 1'b0, 1'b0, REP_PREFIX_NONE, 1'b0);
 
-    wait_for_instruction_start;
+    wait_for_instruction_start_with_opcode(8'h40);
 
+    // Wait for FIFO read and cur_instruction update
+    @(posedge clk);  // FIFO read cycle
+    @(posedge clk);  // cur_instruction updated
     $display("  After instruction start: opcode=0x%02h", opcode);
     check_result("INC AX opcode correct", 1'b1, opcode == 8'h40);
 
@@ -429,10 +467,11 @@ initial begin
     $display("\n--- Test 4: HLT (0xF4) detection ---");
     create_instruction(8'hf4, 1'b0, 1'b0, REP_PREFIX_NONE, 1'b0);
 
-    wait_for_instruction_start;
+    wait_for_instruction_start_with_opcode(8'hf4);
 
-    @(posedge clk);
-    @(posedge clk);
+    // Wait for FIFO read and cur_instruction update
+    @(posedge clk);  // FIFO read cycle
+    @(posedge clk);  // cur_instruction updated
 
     check_result("HLT detected", 1'b1, is_hlt);
 
@@ -457,26 +496,30 @@ initial begin
 
     // Test SHL/SAL r/m8, CL (0xD2)
     create_instruction(8'hd2, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
-    wait_for_instruction_start;
-    @(posedge clk);
+    wait_for_instruction_start_with_opcode(8'hd2);
+    @(posedge clk);  // FIFO read cycle
+    @(posedge clk);  // cur_instruction updated
     check_result("0xD2 is multibit shift", 1'b1, multibit_shift);
 
     // Test SHL/SAL r/m16, CL (0xD3)
     create_instruction(8'hd3, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
-    wait_for_instruction_start;
-    @(posedge clk);
+    wait_for_instruction_start_with_opcode(8'hd3);
+    @(posedge clk);  // FIFO read cycle
+    @(posedge clk);  // cur_instruction updated
     check_result("0xD3 is multibit shift", 1'b1, multibit_shift);
 
     // Test SHL/SAL r/m8, imm8 (0xC0)
     create_instruction(8'hc0, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
-    wait_for_instruction_start;
-    @(posedge clk);
+    wait_for_instruction_start_with_opcode(8'hc0);
+    @(posedge clk);  // FIFO read cycle
+    @(posedge clk);  // cur_instruction updated
     check_result("0xC0 is multibit shift", 1'b1, multibit_shift);
 
     // Test SHL/SAL r/m16, imm8 (0xC1)
     create_instruction(8'hc1, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
-    wait_for_instruction_start;
-    @(posedge clk);
+    wait_for_instruction_start_with_opcode(8'hc1);
+    @(posedge clk);  // FIFO read cycle
+    @(posedge clk);  // cur_instruction updated
     check_result("0xC1 is multibit shift", 1'b1, multibit_shift);
 
     //==================================================================
@@ -485,8 +528,9 @@ initial begin
     $display("\n--- Test 6: LOCK prefix ---");
     create_instruction(8'h90, 1'b0, 1'b0, REP_PREFIX_NONE, 1'b1);  // LOCK NOP
 
-    wait_for_instruction_start;
-    @(posedge clk);
+    wait_for_instruction_start_with_opcode(8'h90);
+    @(posedge clk);  // FIFO read cycle
+    @(posedge clk);  // cur_instruction updated
 
     check_result("LOCK prefix detected", 1'b1, lock);
 
@@ -495,7 +539,11 @@ initial begin
     //==================================================================
     $display("\n--- Test 7: Stall prevents sequencing ---");
     create_instruction(8'h90, 1'b0, 1'b0, REP_PREFIX_NONE, 1'b0);
-    wait_for_instruction_start;
+    wait_for_instruction_start_with_opcode(8'h90);
+
+    // Wait for instruction to be loaded
+    @(posedge clk);  // FIFO read cycle
+    @(posedge clk);  // cur_instruction updated
 
     stall = 1;
     @(posedge clk);
@@ -506,7 +554,8 @@ initial begin
 
     stall = 0;
     @(posedge clk);
-    check_result("Stall release allows advance", 1'b1, next_microinstruction || next_instruction);
+    // After releasing stall, sequencer should advance (either next_micro or next_instr)
+    check_result("Stall release allows advance", 1'b1, next_instruction);
 
     //==================================================================
     // Test 8: NMI interrupt handling
@@ -536,15 +585,19 @@ initial begin
     int_enabled = 1;
     intr = 1;
 
-    // Wait for INTA
+    // Wait for IRQ to MDR (comes before INTA by 1 cycle)
     timeout = 0;
+    irq_to_mdr_seen = 0;
     while (!inta && timeout < 100) begin
+        if (irq_to_mdr) begin
+            irq_to_mdr_seen = 1;
+        end
         @(posedge clk);
         timeout = timeout + 1;
     end
 
     check_result("IRQ generates INTA", 1'b1, inta);
-    check_result("IRQ to MDR asserted", 1'b1, irq_to_mdr);
+    check_result("IRQ to MDR asserted", 1'b1, irq_to_mdr_seen);
 
     intr = 0;
     int_enabled = 0;
