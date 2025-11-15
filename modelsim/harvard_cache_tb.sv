@@ -126,7 +126,17 @@ begin
     timeout = 0;
     instr_m_addr = addr;
     instr_m_access = 1'b1;
+    $display("  [DEBUG] instr_fetch: addr=0x%05h, access=1", addr);
+    $display("  [DEBUG]   Before clk: ack=%b, data=0x%04h, busy=%b, line_valid=%b",
+             instr_m_ack, instr_m_data_in, dut.icache.busy, dut.icache.line_valid);
     @(posedge clk);
+    $display("  [DEBUG]   After 1st clk: ack=%b, data=0x%04h, busy=%b, line_valid=%b, valid=%b, hit=%b",
+             instr_m_ack, instr_m_data_in, dut.icache.busy, dut.icache.line_valid,
+             dut.icache.valid, dut.icache.hit);
+    $display("  [DEBUG]     fetch_addr=0x%05h [3:1]=%0d, line_valid[%0d]=%b, filling_current=%b",
+             dut.icache.fetch_address, dut.icache.fetch_address[3:1],
+             dut.icache.fetch_address[3:1], dut.icache.line_valid[dut.icache.fetch_address[3:1]],
+             dut.icache.filling_current);
 
     while (!instr_m_ack && timeout < 200) begin
         @(posedge clk);
@@ -136,6 +146,7 @@ begin
     if (instr_m_ack) begin
         data = instr_m_data_in;
         success = 1'b1;
+        $display("  [DEBUG]   GOT ACK after %0d cycles, data=0x%04h", timeout, data);
     end else begin
         data = 16'hXXXX;
         success = 1'b0;

@@ -100,8 +100,9 @@ reg accessing;
 // Hit/miss logic
 wire tags_match = tag == fetch_address[19:tag_start];
 wire filling_current = fetch_address[19:index_start] == latched_address[19:index_start];
+// Use c_addr for line_valid check (no RAM latency), fetch_address for tag check (1-cycle RAM latency)
 wire hit = accessing && ((valid && tags_match) ||
-    (busy && filling_current && line_valid[fetch_address[3:1]]));
+    (busy && filling_current && line_valid[c_addr[3:1]]));
 
 // Output logic
 wire [15:0] c_q;
