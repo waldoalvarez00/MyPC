@@ -1,0 +1,64 @@
+#============================================================================
+#
+#  Makefile for KF8255 Verilator Testbench
+#  Builds C++ testbench for 8255 Programmable Peripheral Interface
+#
+#============================================================================
+
+# Verilator configuration
+VERILATOR = verilator
+VERILATOR_FLAGS = -Wall -Wno-fatal --cc --exe --build
+
+# Paths
+RTL_DIR = ../Quartus/rtl/KF8255
+INC_DIRS = -I$(RTL_DIR) -I../Quartus/rtl
+
+# Source files
+RTL_SOURCES = \
+	$(RTL_DIR)/KF8255.sv \
+	$(RTL_DIR)/KF8255_Control_Logic.sv \
+	$(RTL_DIR)/KF8255_Group.sv \
+	$(RTL_DIR)/KF8255_Port.sv \
+	$(RTL_DIR)/KF8255_Port_C.sv
+
+TB_SOURCE = kf8255_tb.cpp
+
+# Output
+TARGET = obj_dir/VKF8255
+
+.PHONY: all clean run
+
+all: $(TARGET)
+
+$(TARGET): $(RTL_SOURCES) $(TB_SOURCE)
+	@echo "================================================================"
+	@echo "Building KF8255 Verilator Testbench"
+	@echo "================================================================"
+	$(VERILATOR) $(VERILATOR_FLAGS) $(INC_DIRS) \
+		--top-module KF8255 \
+		$(RTL_SOURCES) $(TB_SOURCE)
+	@echo ""
+	@echo "Build complete!"
+	@echo ""
+
+run: $(TARGET)
+	@echo "================================================================"
+	@echo "Running KF8255 Verilator Testbench"
+	@echo "================================================================"
+	@./$(TARGET)
+
+clean:
+	@echo "Cleaning build artifacts..."
+	@rm -rf obj_dir
+	@echo "Clean complete!"
+
+help:
+	@echo "KF8255 Verilator Testbench Makefile"
+	@echo "===================================="
+	@echo ""
+	@echo "Targets:"
+	@echo "  make          - Build the testbench"
+	@echo "  make run      - Build and run the testbench"
+	@echo "  make clean    - Remove build artifacts"
+	@echo "  make help     - Show this help message"
+	@echo ""
