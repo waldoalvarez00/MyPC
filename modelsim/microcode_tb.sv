@@ -784,9 +784,194 @@ initial begin
     check_result("ESC 0xDF (FILD) detected", 1'b1, opcode == 8'hdf);
 
     //==================================================================
-    // Test 12: Jump taken conditional
+    // Test 12: FPU Transcendental Instructions (FSIN, FCOS, FPTAN, FPATAN, etc.)
     //==================================================================
-    $display("\n--- Test 12: Jump condition ---");
+    $display("\n--- Test 12: FPU Transcendental Instructions ---");
+
+    // FPTAN (Partial Tangent) - 0xD9 0xF2
+    wait_for_sequencer_settle;
+    create_instruction(8'hd9, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
+    next_instruction_value.mod_rm = 8'hf2;  // FPTAN encoding
+    rm_is_reg = 1;  // Register form
+    wait_for_instruction_start_with_opcode(8'hd9);
+    @(posedge clk);
+    $display("  Testing FPTAN (0xD9 0xF2)");
+    check_result("FPTAN instruction detected", 1'b1, opcode == 8'hd9);
+
+    // FPATAN (Partial Arctangent) - 0xD9 0xF3
+    wait_for_sequencer_settle;
+    create_instruction(8'hd9, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
+    next_instruction_value.mod_rm = 8'hf3;  // FPATAN encoding
+    rm_is_reg = 1;
+    wait_for_instruction_start_with_opcode(8'hd9);
+    @(posedge clk);
+    $display("  Testing FPATAN (0xD9 0xF3)");
+    check_result("FPATAN instruction detected", 1'b1, opcode == 8'hd9);
+
+    // FSQRT (Square Root) - 0xD9 0xFA
+    wait_for_sequencer_settle;
+    create_instruction(8'hd9, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
+    next_instruction_value.mod_rm = 8'hfa;  // FSQRT encoding
+    rm_is_reg = 1;
+    wait_for_instruction_start_with_opcode(8'hd9);
+    @(posedge clk);
+    $display("  Testing FSQRT (0xD9 0xFA)");
+    check_result("FSQRT instruction detected", 1'b1, opcode == 8'hd9);
+
+    // FSIN (Sine) - 0xD9 0xFE
+    wait_for_sequencer_settle;
+    create_instruction(8'hd9, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
+    next_instruction_value.mod_rm = 8'hfe;  // FSIN encoding
+    rm_is_reg = 1;
+    wait_for_instruction_start_with_opcode(8'hd9);
+    @(posedge clk);
+    $display("  Testing FSIN (0xD9 0xFE)");
+    check_result("FSIN instruction detected", 1'b1, opcode == 8'hd9);
+
+    // FCOS (Cosine) - 0xD9 0xFF
+    wait_for_sequencer_settle;
+    create_instruction(8'hd9, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
+    next_instruction_value.mod_rm = 8'hff;  // FCOS encoding
+    rm_is_reg = 1;
+    wait_for_instruction_start_with_opcode(8'hd9);
+    @(posedge clk);
+    $display("  Testing FCOS (0xD9 0xFF)");
+    check_result("FCOS instruction detected", 1'b1, opcode == 8'hd9);
+
+    // FSINCOS (Sine and Cosine) - 0xD9 0xFB
+    wait_for_sequencer_settle;
+    create_instruction(8'hd9, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
+    next_instruction_value.mod_rm = 8'hfb;  // FSINCOS encoding
+    rm_is_reg = 1;
+    wait_for_instruction_start_with_opcode(8'hd9);
+    @(posedge clk);
+    $display("  Testing FSINCOS (0xD9 0xFB)");
+    check_result("FSINCOS instruction detected", 1'b1, opcode == 8'hd9);
+
+    //==================================================================
+    // Test 13: FPU Mathematical Instructions (FABS, FCHS, FRNDINT, FSCALE)
+    //==================================================================
+    $display("\n--- Test 13: FPU Mathematical Instructions ---");
+
+    // FABS (Absolute Value) - 0xD9 0xE1
+    wait_for_sequencer_settle;
+    create_instruction(8'hd9, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
+    next_instruction_value.mod_rm = 8'he1;  // FABS encoding
+    rm_is_reg = 1;
+    wait_for_instruction_start_with_opcode(8'hd9);
+    @(posedge clk);
+    $display("  Testing FABS (0xD9 0xE1)");
+    check_result("FABS instruction detected", 1'b1, opcode == 8'hd9);
+
+    // FCHS (Change Sign) - 0xD9 0xE0
+    wait_for_sequencer_settle;
+    create_instruction(8'hd9, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
+    next_instruction_value.mod_rm = 8'he0;  // FCHS encoding
+    rm_is_reg = 1;
+    wait_for_instruction_start_with_opcode(8'hd9);
+    @(posedge clk);
+    $display("  Testing FCHS (0xD9 0xE0)");
+    check_result("FCHS instruction detected", 1'b1, opcode == 8'hd9);
+
+    // FRNDINT (Round to Integer) - 0xD9 0xFC
+    wait_for_sequencer_settle;
+    create_instruction(8'hd9, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
+    next_instruction_value.mod_rm = 8'hfc;  // FRNDINT encoding
+    rm_is_reg = 1;
+    wait_for_instruction_start_with_opcode(8'hd9);
+    @(posedge clk);
+    $display("  Testing FRNDINT (0xD9 0xFC)");
+    check_result("FRNDINT instruction detected", 1'b1, opcode == 8'hd9);
+
+    // FSCALE (Scale) - 0xD9 0xFD
+    wait_for_sequencer_settle;
+    create_instruction(8'hd9, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
+    next_instruction_value.mod_rm = 8'hfd;  // FSCALE encoding
+    rm_is_reg = 1;
+    wait_for_instruction_start_with_opcode(8'hd9);
+    @(posedge clk);
+    $display("  Testing FSCALE (0xD9 0xFD)");
+    check_result("FSCALE instruction detected", 1'b1, opcode == 8'hd9);
+
+    //==================================================================
+    // Test 14: FPU Constant Load Instructions (FLD1, FLDZ, FLDPI, etc.)
+    //==================================================================
+    $display("\n--- Test 14: FPU Constant Load Instructions ---");
+
+    // FLD1 (Load +1.0) - 0xD9 0xE8
+    wait_for_sequencer_settle;
+    create_instruction(8'hd9, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
+    next_instruction_value.mod_rm = 8'he8;  // FLD1 encoding
+    rm_is_reg = 1;
+    wait_for_instruction_start_with_opcode(8'hd9);
+    @(posedge clk);
+    $display("  Testing FLD1 (0xD9 0xE8)");
+    check_result("FLD1 instruction detected", 1'b1, opcode == 8'hd9);
+
+    // FLDZ (Load +0.0) - 0xD9 0xEE
+    wait_for_sequencer_settle;
+    create_instruction(8'hd9, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
+    next_instruction_value.mod_rm = 8'hee;  // FLDZ encoding
+    rm_is_reg = 1;
+    wait_for_instruction_start_with_opcode(8'hd9);
+    @(posedge clk);
+    $display("  Testing FLDZ (0xD9 0xEE)");
+    check_result("FLDZ instruction detected", 1'b1, opcode == 8'hd9);
+
+    // FLDPI (Load PI) - 0xD9 0xEB
+    wait_for_sequencer_settle;
+    create_instruction(8'hd9, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
+    next_instruction_value.mod_rm = 8'heb;  // FLDPI encoding
+    rm_is_reg = 1;
+    wait_for_instruction_start_with_opcode(8'hd9);
+    @(posedge clk);
+    $display("  Testing FLDPI (0xD9 0xEB)");
+    check_result("FLDPI instruction detected", 1'b1, opcode == 8'hd9);
+
+    // FLDL2E (Load log2(e)) - 0xD9 0xEA
+    wait_for_sequencer_settle;
+    create_instruction(8'hd9, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
+    next_instruction_value.mod_rm = 8'hea;  // FLDL2E encoding
+    rm_is_reg = 1;
+    wait_for_instruction_start_with_opcode(8'hd9);
+    @(posedge clk);
+    $display("  Testing FLDL2E (0xD9 0xEA)");
+    check_result("FLDL2E instruction detected", 1'b1, opcode == 8'hd9);
+
+    // FLDL2T (Load log2(10)) - 0xD9 0xE9
+    wait_for_sequencer_settle;
+    create_instruction(8'hd9, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
+    next_instruction_value.mod_rm = 8'he9;  // FLDL2T encoding
+    rm_is_reg = 1;
+    wait_for_instruction_start_with_opcode(8'hd9);
+    @(posedge clk);
+    $display("  Testing FLDL2T (0xD9 0xE9)");
+    check_result("FLDL2T instruction detected", 1'b1, opcode == 8'hd9);
+
+    // FLDLG2 (Load log10(2)) - 0xD9 0xEC
+    wait_for_sequencer_settle;
+    create_instruction(8'hd9, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
+    next_instruction_value.mod_rm = 8'hec;  // FLDLG2 encoding
+    rm_is_reg = 1;
+    wait_for_instruction_start_with_opcode(8'hd9);
+    @(posedge clk);
+    $display("  Testing FLDLG2 (0xD9 0xEC)");
+    check_result("FLDLG2 instruction detected", 1'b1, opcode == 8'hd9);
+
+    // FLDLN2 (Load ln(2)) - 0xD9 0xED
+    wait_for_sequencer_settle;
+    create_instruction(8'hd9, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);
+    next_instruction_value.mod_rm = 8'hed;  // FLDLN2 encoding
+    rm_is_reg = 1;
+    wait_for_instruction_start_with_opcode(8'hd9);
+    @(posedge clk);
+    $display("  Testing FLDLN2 (0xD9 0xED)");
+    check_result("FLDLN2 instruction detected", 1'b1, opcode == 8'hd9);
+
+    //==================================================================
+    // Test 15: Jump taken conditional
+    //==================================================================
+    $display("\n--- Test 15: Jump condition ---");
 
     // Set jump_taken to test conditional jump in microcode
     jump_taken = 1;
@@ -797,9 +982,9 @@ initial begin
     check_result("Jump taken processed", 1'b1, 1'b1);
 
     //==================================================================
-    // Test 13: Zero flag conditional
+    // Test 16: Zero flag conditional
     //==================================================================
-    $display("\n--- Test 13: Zero flag ---");
+    $display("\n--- Test 16: Zero flag ---");
 
     zf = 1;
     @(posedge clk);
@@ -809,9 +994,9 @@ initial begin
     check_result("Zero flag processed", 1'b1, 1'b1);
 
     //==================================================================
-    // Test 14: Divide error
+    // Test 17: Divide error
     //==================================================================
-    $display("\n--- Test 14: Divide error ---");
+    $display("\n--- Test 17: Divide error ---");
 
     divide_error = 1;
     @(posedge clk);
@@ -821,10 +1006,10 @@ initial begin
     check_result("Divide error processed", 1'b1, 1'b1);
 
     //==================================================================
-    // Test 15: HLT instruction (0xF4) with NMI wake-up
+    // Test 18: HLT instruction (0xF4) with NMI wake-up
     // NOTE: These final tests may break the sequencer state
     //==================================================================
-    $display("\n--- Test 15: HLT (0xF4) with NMI wake-up ---");
+    $display("\n--- Test 18: HLT (0xF4) with NMI wake-up ---");
 
     wait_for_sequencer_settle;
     create_instruction(8'hf4, 1'b0, 1'b0, REP_PREFIX_NONE, 1'b0);
