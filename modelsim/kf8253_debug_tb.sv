@@ -217,10 +217,13 @@ initial begin
         @(posedge clock);
         if (!reset) begin
             // Note: These signals may not be visible depending on hierarchy
-            $display("[%0t] Internal: start_counting=%b, count_edge=%b",
+            $display("[%0t] Internal: start_counting=%b, count_edge=%b, write_counter=%b, write_count_step=%b, update_counter_config=%b",
                      $time,
                      dut.u_KF8253_Counter_0.start_counting,
-                     dut.u_KF8253_Counter_0.count_edge);
+                     dut.u_KF8253_Counter_0.count_edge,
+                     dut.u_KF8253_Counter_0.write_counter,
+                     dut.u_KF8253_Counter_0.write_count_step,
+                     dut.u_KF8253_Counter_0.update_counter_config);
         end
     end
 end
