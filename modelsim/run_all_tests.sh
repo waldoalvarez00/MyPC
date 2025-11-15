@@ -87,6 +87,7 @@ CORE_TESTS=(
 # Memory tests
 MEMORY_TESTS=(
     "run_cache_test.sh"
+    "run_harvard_cache_test.sh"
     "run_sdram_test.sh"
     "run_sdram_config_test.sh"
 )
@@ -138,6 +139,12 @@ SERIAL_TESTS=(
     "run_uart_test.sh"
 )
 
+# BIOS tests
+BIOS_TESTS=(
+    "run_bios_upload_controller_test.sh"
+    "run_bios_upload_integration_test.sh"
+)
+
 # Run all test categories
 echo "Running Core Tests..."
 for test in "${CORE_TESTS[@]}"; do
@@ -176,6 +183,11 @@ done
 
 echo "Running Serial Tests..."
 for test in "${SERIAL_TESTS[@]}"; do
+    [ -f "$test" ] && run_test "$test"
+done
+
+echo "Running BIOS Tests..."
+for test in "${BIOS_TESTS[@]}"; do
     [ -f "$test" ] && run_test "$test"
 done
 
