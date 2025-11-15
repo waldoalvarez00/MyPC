@@ -38,6 +38,8 @@ __pycache__/
 
 # KF8253 and modelsim test outputs
 modelsim/*_output.txt
+modelsim/*_test_*.txt
+modelsim/fpu_conv_*.txt
 verilog_files.txt
 Quartus/rtl/FPU8087/tb_microcode
 Quartus/rtl/FPU8087/tb_fpu_integration_simple
