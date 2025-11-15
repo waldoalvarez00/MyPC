@@ -382,9 +382,9 @@ hps_io #(.CONF_STR(CONF_STR), .PS2DIV(10), .PS2WE(1), .WIDE(1)) hps_io
 	// ps2 keyboard emulation
 	.ps2_kbd_clk_out(wps2_kbd_clk_2),
 	.ps2_kbd_data_out(wps2_kbd_data_2),
-	
-	.ps2_kbd_clk_in(/*wps2_kbd_clk_1*/ 1'b1),
-	.ps2_kbd_data_in(/*wps2_kbd_data_1*/ 1'b1),
+
+	.ps2_kbd_clk_in(wps2_kbd_clk_1),
+	.ps2_kbd_data_in(wps2_kbd_data_1),
 
 	//input       [2:0] ps2_kbd_led_status,
 	//input       [2:0] ps2_kbd_led_use,
@@ -2117,9 +2117,9 @@ KFPS2KB u_KFPS2KB
     end
 	 
 	 
-	 
+
     // Sends Keyboard reset to PS2
-	 // Still needs proper connection
+	 // Bidirectional connection to HPS now properly wired (lines 386-387)
     KFPS2KB_Send_Data u_KFPS2KB_Send_Data 
     (
         // Bus
