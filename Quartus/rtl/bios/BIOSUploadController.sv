@@ -63,7 +63,7 @@ module BIOSUploadController(
             // Default: no write request
             bios_wr_req <= 1'b0;
 
-            case (state)
+            case (next_state)  // Use next_state to avoid 1-cycle latency
                 IDLE: begin
                     word_count <= 14'd0;
                     upload_complete <= 1'b0;

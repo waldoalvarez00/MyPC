@@ -210,12 +210,13 @@ Already present in CONF_STR (no changes needed):
 
 ## Known Issues
 
-### Minor Issues
+### Resolved Issues
 
-1. **Test 5 Timing:** Unit test detects 9/10 write requests instead of 10
-   - **Cause:** Clock edge timing artifact in testbench
-   - **Impact:** None (actual hardware behavior unaffected)
-   - **Priority:** Low
+1. **Test 5 Timing (FIXED):** Unit test was detecting 9/10 write requests
+   - **Root Cause:** State machine used `case (state)` instead of `case (next_state)`, causing 1-cycle latency
+   - **Symptom:** First write request missed when transitioning from IDLE to UPLOADING state
+   - **Fix:** Changed line 66 to `case (next_state)` to eliminate latency
+   - **Status:** ✅ Resolved - all tests now pass (6/6, 100%)
 
 2. **MIF File Warning:** Simulation shows "Unable to open bios.mif"
    - **Cause:** MIF file not present in modelsim directory
@@ -261,9 +262,10 @@ Already present in CONF_STR (no changes needed):
 
 ### Pre-Commit Verification
 
-- [x] Unit tests pass (5/6 tests, 1 minor timing issue)
+- [x] Unit tests pass (6/6 tests, 100%)
 - [x] Integration tests pass (4/4 tests, 100%)
 - [x] Compilation successful (Icarus Verilog)
+- [x] Bug fix: State machine timing issue resolved
 - [ ] FPGA synthesis (Quartus) - **Pending**
 - [ ] Timing closure at 50 MHz - **Pending**
 - [ ] Hardware validation on real MiSTer - **Pending**
