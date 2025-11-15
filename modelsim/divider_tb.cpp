@@ -43,7 +43,8 @@ void reset() {
 }
 
 // Perform division and wait for completion
-void do_divide(uint32_t dividend, uint16_t divisor, bool is_8bit, bool is_signed) {
+// Returns true if there was an immediate error (div by zero, overflow)
+bool do_divide(uint32_t dividend, uint16_t divisor, bool is_8bit, bool is_signed) {
     dut->dividend = dividend;
     dut->divisor = divisor;
     dut->is_8_bit = is_8bit ? 1 : 0;
@@ -53,28 +54,30 @@ void do_divide(uint32_t dividend, uint16_t divisor, bool is_8bit, bool is_signed
     dut->eval();  // Evaluate combinational logic again
     tick();
 
-    // Check for immediate error (division by zero, overflow)
-    // Error/complete are set on this clock edge if raise_error is true
+    // CRITICAL: Check for immediate error (division by zero, overflow)
+    // The error/complete signals are ONLY valid while start is asserted!
+    // Once start is deasserted, the module returns to INIT and clears these flags.
     bool immediate_error = (dut->error != 0);
+    bool immediate_complete = (dut->complete != 0);
 
-    tick();  // Extra tick to let error/complete propagate
-    dut->start = 0;
+    dut->start = 0;  // Deassert start
+    tick();
 
-    // If immediate error, we're done
-    if (immediate_error) {
-        tick();
-        return;
+    // If immediate error, we're done (error was already sampled)
+    if (immediate_error || immediate_complete) {
+        return true;
     }
 
-    // Wait for completion or error (max 50 cycles)
+    // Wait for completion (max 50 cycles)
     for (int i = 0; i < 50; i++) {
         tick();
-        if (dut->complete || dut->error)
+        if (dut->complete)
             break;
     }
 
     // Extra cycle for stability
     tick();
+    return false;
 }
 
 // Test 1: 8-bit unsigned: 100 / 5 = 20, rem 0
@@ -82,17 +85,17 @@ void test_1_8bit_unsigned_simple() {
     test_num++;
     cout << "\nTest " << test_num << ": 8-bit unsigned division (100 / 5)" << endl;
 
-    do_divide(100, 5, true, false);
+    bool had_error = do_divide(100, 5, true, false);
 
     uint8_t quotient_8 = dut->quotient & 0xFF;
     uint8_t remainder_8 = dut->remainder & 0xFF;
 
-    if (!dut->error && quotient_8 == 20 && remainder_8 == 0) {
+    if (!had_error && quotient_8 == 20 && remainder_8 == 0) {
         cout << "  ✓ Result correct: Q=" << (int)quotient_8 << ", R=" << (int)remainder_8 << endl;
         passed_tests++;
     } else {
         cout << "  ✗ FAILED: Expected Q=20, R=0; Got Q=" << (int)quotient_8
-             << ", R=" << (int)remainder_8 << ", error=" << (int)dut->error << endl;
+             << ", R=" << (int)remainder_8 << ", error=" << had_error << endl;
         errors++;
     }
 }
@@ -272,15 +275,13 @@ void test_11_divide_by_zero() {
     test_num++;
     cout << "\nTest " << test_num << ": Division by zero (100 / 0)" << endl;
 
-    do_divide(100, 0, false, false);
+    bool had_error = do_divide(100, 0, false, false);
 
-    cout << "  DEBUG: error=" << (int)dut->error << ", complete=" << (int)dut->complete << endl;
-
-    if (dut->error) {
+    if (had_error) {
         cout << "  ✓ Error correctly raised for division by zero" << endl;
         passed_tests++;
     } else {
-        cout << "  ✗ FAILED: Expected error flag, got error=" << (int)dut->error << endl;
+        cout << "  ✗ FAILED: Expected error flag, got error=0" << endl;
         errors++;
     }
 }
@@ -290,15 +291,13 @@ void test_12_overflow() {
     test_num++;
     cout << "\nTest " << test_num << ": Overflow condition (65535 / 1)" << endl;
 
-    do_divide(0x0000FF00, 1, true, false);
+    bool had_error = do_divide(0x0000FF00, 1, true, false);
 
-    cout << "  DEBUG: error=" << (int)dut->error << ", complete=" << (int)dut->complete << endl;
-
-    if (dut->error) {
+    if (had_error) {
         cout << "  ✓ Overflow correctly detected" << endl;
         passed_tests++;
     } else {
-        cout << "  ✗ FAILED: Expected overflow error, got error=" << (int)dut->error << endl;
+        cout << "  ✗ FAILED: Expected overflow error, got error=0" << endl;
         errors++;
     }
 }
