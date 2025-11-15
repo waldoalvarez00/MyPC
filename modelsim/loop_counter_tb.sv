@@ -1,0 +1,262 @@
+// ================================================================
+// Unit Test for LoopCounter
+// Tests microcode loop counter functionality
+// ================================================================
+
+`timescale 1ns/1ps
+
+module loop_counter_tb;
+
+    // DUT signals
+    logic clk;
+    logic [4:0] count_in;
+    logic load;
+    logic next;
+    logic done;
+
+    // Test counters
+    int test_count = 0;
+    int pass_count = 0;
+    int fail_count = 0;
+
+    // Instantiate DUT
+    LoopCounter dut (
+        .clk(clk),
+        .count_in(count_in),
+        .load(load),
+        .next(next),
+        .done(done)
+    );
+
+    // Clock generation: 50 MHz
+    initial begin
+        clk = 0;
+        forever #10 clk = ~clk;
+    end
+
+    task check_result(input string test_name, input logic condition);
+        test_count++;
+        if (condition) begin
+            $display("[PASS] Test %0d: %s", test_count, test_name);
+            pass_count++;
+        end else begin
+            $display("[FAIL] Test %0d: %s (done=%b)", test_count, test_name, done);
+            fail_count++;
+        end
+    endtask
+
+    // Main test sequence
+    initial begin
+        $display("================================================================");
+        $display("LoopCounter Unit Test");
+        $display("================================================================\n");
+
+        // Initialize
+        count_in = 0;
+        load = 0;
+        next = 0;
+
+        repeat(3) @(posedge clk);
+
+        // ================================================================
+        // TEST 1: Initial State (done should be true for count=0)
+        // ================================================================
+        $display("--- Test 1: Initial State ---");
+
+        check_result("Done true when count=0", done == 1);
+
+        // ================================================================
+        // TEST 2: Load Count
+        // ================================================================
+        $display("\n--- Test 2: Load Count ---");
+
+        count_in = 5'd5;
+        load = 1;
+        @(posedge clk);
+        load = 0;
+        @(posedge clk);
+
+        check_result("Done false after loading 5", done == 0);
+
+        // ================================================================
+        // TEST 3: Decrement Counter
+        // ================================================================
+        $display("\n--- Test 3: Decrement ---");
+
+        next = 1;
+        @(posedge clk);  // count = 4
+        check_result("After 1st decrement, done=0", done == 0);
+
+        @(posedge clk);  // count = 3
+        check_result("After 2nd decrement, done=0", done == 0);
+
+        @(posedge clk);  // count = 2
+        check_result("After 3rd decrement, done=0", done == 0);
+
+        @(posedge clk);  // count = 1
+        check_result("After 4th decrement, done=0", done == 0);
+
+        @(posedge clk);  // count = 0
+        next = 0;
+        @(posedge clk);
+        check_result("After 5th decrement, done=1", done == 1);
+
+        // ================================================================
+        // TEST 4: Load While Counting
+        // ================================================================
+        $display("\n--- Test 4: Reload During Count ---");
+
+        count_in = 5'd3;
+        load = 1;
+        @(posedge clk);
+        load = 0;
+        @(posedge clk);
+
+        next = 1;
+        @(posedge clk);  // count = 2
+
+        // Reload with new value
+        count_in = 5'd10;
+        load = 1;
+        @(posedge clk);
+        load = 0;
+        next = 0;
+        @(posedge clk);
+
+        check_result("Reloaded count, done=0", done == 0);
+
+        // ================================================================
+        // TEST 5: Count Down to Zero
+        // ================================================================
+        $display("\n--- Test 5: Full Countdown ---");
+
+        count_in = 5'd3;
+        load = 1;
+        @(posedge clk);
+        load = 0;
+        next = 1;
+
+        @(posedge clk);  // 2
+        @(posedge clk);  // 1
+        @(posedge clk);  // 0
+        next = 0;
+        @(posedge clk);
+
+        check_result("Full countdown complete", done == 1);
+
+        // ================================================================
+        // TEST 6: Load Zero
+        // ================================================================
+        $display("\n--- Test 6: Load Zero ---");
+
+        count_in = 5'd0;
+        load = 1;
+        @(posedge clk);
+        load = 0;
+        @(posedge clk);
+
+        check_result("Loaded zero, done=1", done == 1);
+
+        // ================================================================
+        // TEST 7: Load Maximum Value
+        // ================================================================
+        $display("\n--- Test 7: Load Maximum ---");
+
+        count_in = 5'd31;  // Maximum 5-bit value
+        load = 1;
+        @(posedge clk);
+        load = 0;
+        @(posedge clk);
+
+        check_result("Loaded max value, done=0", done == 0);
+
+        // Decrement a few times
+        next = 1;
+        for (int i = 0; i < 5; i++) begin
+            @(posedge clk);
+        end
+        next = 0;
+        @(posedge clk);
+
+        check_result("After partial countdown, done=0", done == 0);
+
+        // ================================================================
+        // TEST 8: Next Without Load
+        // ================================================================
+        $display("\n--- Test 8: Next Without Load ---");
+
+        // Ensure counter is at zero
+        count_in = 5'd0;
+        load = 1;
+        @(posedge clk);
+        load = 0;
+        @(posedge clk);
+
+        // Try to decrement when already at zero
+        next = 1;
+        @(posedge clk);
+        @(posedge clk);
+        next = 0;
+        @(posedge clk);
+
+        check_result("Next at zero doesn't underflow", done == 1);
+
+        // ================================================================
+        // TEST 9: Rapid Load/Next
+        // ================================================================
+        $display("\n--- Test 9: Rapid Operations ---");
+
+        count_in = 5'd2;
+        load = 1;
+        next = 1;  // Both signals high
+        @(posedge clk);
+        load = 0;
+        @(posedge clk);  // Decrement
+        @(posedge clk);  // Decrement to 0
+        next = 0;
+        @(posedge clk);
+
+        check_result("Rapid load/next operations", done == 1);
+
+        // ================================================================
+        // TEST 10: Single Count
+        // ================================================================
+        $display("\n--- Test 10: Single Count ---");
+
+        count_in = 5'd1;
+        load = 1;
+        @(posedge clk);
+        load = 0;
+        @(posedge clk);
+
+        check_result("Loaded 1, done=0", done == 0);
+
+        next = 1;
+        @(posedge clk);  // Decrement to 0
+        next = 0;
+        @(posedge clk);
+
+        check_result("After single decrement, done=1", done == 1);
+
+        // ================================================================
+        // Summary
+        // ================================================================
+        $display("\n================================================================");
+        $display("TEST SUMMARY");
+        $display("================================================================");
+        $display("Total Tests: %0d", test_count);
+        $display("Passed:      %0d", pass_count);
+        $display("Failed:      %0d", fail_count);
+        $display("Pass Rate:   %0d%%", (pass_count * 100) / test_count);
+        $display("================================================================");
+
+        if (fail_count == 0) begin
+            $display("✓✓✓ ALL TESTS PASSED ✓✓✓\n");
+            $finish(0);
+        end else begin
+            $display("✗✗✗ SOME TESTS FAILED ✗✗✗\n");
+            $finish(1);
+        end
+    end
+
+endmodule
