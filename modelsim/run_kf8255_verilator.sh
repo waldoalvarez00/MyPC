@@ -17,6 +17,7 @@ rm -rf obj_dir
 
 echo "Running Verilator..."
 verilator --cc --exe --build -Wall \
+    -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-UNUSEDSIGNAL \
     -I../Quartus/rtl/KF8255 \
     -I../Quartus/rtl \
     --top-module KF8255 \
