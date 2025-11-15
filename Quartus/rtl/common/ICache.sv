@@ -183,7 +183,7 @@ always_ff @(posedge clk or posedge reset) begin
     end else begin
         if (enabled && !busy && c_access)
             updating <= 1'b1;
-        if (updating && !busy)
+        else if (updating && !busy)
             updating <= 1'b0;
     end
 end
