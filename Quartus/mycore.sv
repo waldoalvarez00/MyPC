@@ -345,6 +345,22 @@ wire [15:0] sd_buff_din[1];   // Data to SD card array (16-bit for WIDE=1)
 assign sd_lba[0] = sd_lba_single;
 assign sd_buff_din[0] = {8'h00, sd_buff_din_single}; // Pad 8-bit to 16-bit
 
+// IOCTL interface for BIOS upload
+wire        ioctl_download;
+wire [15:0] ioctl_index;
+wire        ioctl_wr;
+wire [26:0] ioctl_addr;
+wire [15:0] ioctl_dout;
+
+// BIOS upload controller signals
+wire        bios_upload_wr_req;
+wire [13:1] bios_upload_addr;
+wire [15:0] bios_upload_data;
+wire [1:0]  bios_upload_bytesel;
+wire        bios_upload_active;
+wire        bios_upload_complete;
+wire [13:0] bios_upload_word_count;
+
 hps_io #(.CONF_STR(CONF_STR), .PS2DIV(10), .PS2WE(1), .WIDE(1)) hps_io
 (
 	.clk_sys(sys_clk),
@@ -392,7 +408,38 @@ hps_io #(.CONF_STR(CONF_STR), .PS2DIV(10), .PS2WE(1), .WIDE(1)) hps_io
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),
 	.sd_buff_din(sd_buff_din),
-	.sd_buff_wr(sd_buff_wr)
+	.sd_buff_wr(sd_buff_wr),
+
+	// IOCTL interface for BIOS upload
+	.ioctl_download(ioctl_download),
+	.ioctl_index(ioctl_index),
+	.ioctl_wr(ioctl_wr),
+	.ioctl_addr(ioctl_addr),
+	.ioctl_dout(ioctl_dout)
+);
+
+// BIOS Upload Controller - handles loading BIOS files from MiSTer OSD
+BIOSUploadController bios_uploader(
+	.clk(sys_clk),
+	.reset(xreset),
+
+	// IOCTL interface from hps_io
+	.ioctl_download(ioctl_download),
+	.ioctl_index(ioctl_index),
+	.ioctl_wr(ioctl_wr),
+	.ioctl_addr(ioctl_addr),
+	.ioctl_dout(ioctl_dout),
+
+	// BIOS RAM write interface
+	.bios_wr_req(bios_upload_wr_req),
+	.bios_addr(bios_upload_addr),
+	.bios_data(bios_upload_data),
+	.bios_bytesel(bios_upload_bytesel),
+
+	// Status outputs
+	.upload_active(bios_upload_active),
+	.upload_complete(bios_upload_complete),
+	.upload_word_count(bios_upload_word_count)
 );
 
 ///////////////////////   CLOCKS   ///////////////////////////////
@@ -1380,7 +1427,13 @@ BIOS #(.depth(8192))
           .data_m_data_out(bios_data),
           .data_m_bytesel(q_m_bytesel),
           .data_m_data_in(q_m_data_out),
-          .data_m_wr_en(q_m_wr_en));
+          .data_m_wr_en(q_m_wr_en),
+
+          // Upload interface from BIOSUploadController
+          .upload_wr_req(bios_upload_wr_req),
+          .upload_addr(bios_upload_addr),
+          .upload_data(bios_upload_data),
+          .upload_bytesel(bios_upload_bytesel));
 
 
 
