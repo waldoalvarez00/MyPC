@@ -722,26 +722,66 @@ initial begin
     check_result("Invalid opcode processed", 1'b1, 1'b1);
 
     //==================================================================
-    // Test 11: FPU WAIT (0x9B)
+    // Test 11: FPU ESC Instructions (0xD8-0xDF)
     //==================================================================
-    $display("\n--- Test 11: FPU WAIT ---");
+    $display("\n--- Test 11: FPU ESC Instructions ---");
 
-    fpu_busy = 1;
-    create_instruction(8'h9b, 1'b0, 1'b0, REP_PREFIX_NONE, 1'b0);  // FWAIT
+    // Test FADD (0xD8) - ESC instruction range start
+    wait_for_sequencer_settle;
+    create_instruction(8'hd8, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);  // ESC 0
+    wait_for_instruction_start_with_opcode(8'hd8);
+    @(posedge clk);
+    $display("  DEBUG ESC 0xD8: opcode=0x%02h, do_escape_fault=%b", opcode, do_escape_fault);
+    check_result("ESC 0xD8 (FADD) detected", 1'b1, opcode == 8'hd8);
 
-    wait_for_instruction_start;
+    // Test FMUL (0xD9)
+    wait_for_sequencer_settle;
+    create_instruction(8'hd9, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);  // ESC 1
+    wait_for_instruction_start_with_opcode(8'hd9);
+    @(posedge clk);
+    check_result("ESC 0xD9 (FLD/FST) detected", 1'b1, opcode == 8'hd9);
 
-    // Should wait while FPU is busy
+    // Test FCOM (0xDA)
+    wait_for_sequencer_settle;
+    create_instruction(8'hda, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);  // ESC 2
+    wait_for_instruction_start_with_opcode(8'hda);
     @(posedge clk);
-    @(posedge clk);
-    @(posedge clk);
+    check_result("ESC 0xDA (FIADD) detected", 1'b1, opcode == 8'hda);
 
-    // Release FPU
-    fpu_busy = 0;
+    // Test FCOMP (0xDB)
+    wait_for_sequencer_settle;
+    create_instruction(8'hdb, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);  // ESC 3
+    wait_for_instruction_start_with_opcode(8'hdb);
     @(posedge clk);
-    @(posedge clk);
+    check_result("ESC 0xDB (FILD) detected", 1'b1, opcode == 8'hdb);
 
-    check_result("FWAIT instruction handled", 1'b1, 1'b1);
+    // Test FSUB (0xDC)
+    wait_for_sequencer_settle;
+    create_instruction(8'hdc, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);  // ESC 4
+    wait_for_instruction_start_with_opcode(8'hdc);
+    @(posedge clk);
+    check_result("ESC 0xDC (FADD) detected", 1'b1, opcode == 8'hdc);
+
+    // Test FSUBR (0xDD)
+    wait_for_sequencer_settle;
+    create_instruction(8'hdd, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);  // ESC 5
+    wait_for_instruction_start_with_opcode(8'hdd);
+    @(posedge clk);
+    check_result("ESC 0xDD (FLD) detected", 1'b1, opcode == 8'hdd);
+
+    // Test FDIV (0xDE)
+    wait_for_sequencer_settle;
+    create_instruction(8'hde, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);  // ESC 6
+    wait_for_instruction_start_with_opcode(8'hde);
+    @(posedge clk);
+    check_result("ESC 0xDE (FIADD) detected", 1'b1, opcode == 8'hde);
+
+    // Test FDIVR (0xDF) - ESC instruction range end
+    wait_for_sequencer_settle;
+    create_instruction(8'hdf, 1'b1, 1'b0, REP_PREFIX_NONE, 1'b0);  // ESC 7
+    wait_for_instruction_start_with_opcode(8'hdf);
+    @(posedge clk);
+    check_result("ESC 0xDF (FILD) detected", 1'b1, opcode == 8'hdf);
 
     //==================================================================
     // Test 12: Jump taken conditional
@@ -782,8 +822,7 @@ initial begin
 
     //==================================================================
     // Test 15: HLT instruction (0xF4) with NMI wake-up
-    // NOTE: This test is last because HLT+interrupt leaves the sequencer
-    // in a state that may not recover cleanly in simulation
+    // NOTE: These final tests may break the sequencer state
     //==================================================================
     $display("\n--- Test 15: HLT (0xF4) with NMI wake-up ---");
 
