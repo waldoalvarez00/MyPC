@@ -1,0 +1,53 @@
+# Makefile for Divider testbench with Verilator
+
+# Paths
+VERILATOR_ROOT = /tmp/verilator_extract/usr
+CPU_DIR = ../Quartus/rtl/CPU
+TB_DIR = .
+
+# Verilator flags
+VERILATOR = $(VERILATOR_ROOT)/bin/verilator
+VFLAGS = -Wall -Wno-fatal --cc --exe --build
+VFLAGS += -I$(CPU_DIR)
+VFLAGS += -I$(VERILATOR_ROOT)/share/verilator/include
+VFLAGS += --top-module Divider
+VFLAGS += -CFLAGS "-I$(VERILATOR_ROOT)/share/verilator/include -std=c++14"
+
+# Export VERILATOR_ROOT for Verilator to find its includes
+export VERILATOR_ROOT
+
+# Source files
+RTL_SOURCES = $(CPU_DIR)/Divider.sv
+TB_SOURCE = divider_tb.cpp
+
+# Output directory
+OBJ_DIR = obj_dir
+
+# Target executable
+TARGET = $(OBJ_DIR)/VDivider
+
+.PHONY: all clean run
+
+all: $(TARGET)
+
+$(TARGET): $(RTL_SOURCES) $(TB_SOURCE)
+	@echo "Verilating Divider module..."
+	$(VERILATOR) $(VFLAGS) $(RTL_SOURCES) $(TB_SOURCE)
+	@echo "Build complete!"
+
+run: $(TARGET)
+	@echo "Running Divider tests..."
+	@$(TARGET)
+
+clean:
+	rm -rf $(OBJ_DIR)
+	rm -f *.vcd
+
+help:
+	@echo "Divider Verilator Makefile"
+	@echo ""
+	@echo "Targets:"
+	@echo "  all   - Build the testbench (default)"
+	@echo "  run   - Build and run the tests"
+	@echo "  clean - Remove build artifacts"
+	@echo "  help  - Show this help"
