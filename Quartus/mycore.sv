@@ -202,10 +202,25 @@ assign VGA_SL = 0;
 assign VGA_F1 = 0;
 assign VGA_SCALER = 0;
 
-assign AUDIO_S = 0;
-assign AUDIO_L = 0;
-assign AUDIO_R = 0;
-assign AUDIO_MIX = 0;
+// PC Speaker Audio
+wire [15:0] speaker_audio_l;
+wire [15:0] speaker_audio_r;
+wire [1:0] speaker_volume = status[1:0];  // OSD menu: Speaker Volume (1-4)
+
+SpeakerAudioConverter speaker_converter (
+    .clk_sys(sys_clk),
+    .clk_audio(CLK_AUDIO),
+    .reset(post_sdram_reset),
+    .speaker_in(speaker_out),
+    .volume(speaker_volume),
+    .audio_out_l(speaker_audio_l),
+    .audio_out_r(speaker_audio_r)
+);
+
+assign AUDIO_S = 1;            // Signed PCM samples
+assign AUDIO_L = speaker_audio_l;
+assign AUDIO_R = speaker_audio_r;
+assign AUDIO_MIX = 0;          // No mixing (mono source)
 
 assign LED_DISK = 0;
 assign LED_POWER = 0;
@@ -506,26 +521,26 @@ wire VGA_DE_AUX2;
 
 
 
-/*`ifdef CONFIG_SPEAKER
-
+// PC Speaker configuration
+// Using traditional PC architecture: PPI Port B bits 0-1 for speaker control
 wire speaker_gate_en;
 wire speaker_timer_out;
 wire speaker_data;
-assign speaker_out = speaker_timer_out & speaker_data;
+wire speaker_out;
+
+// IBM PC/XT compatible speaker control:
+// PPI Port B bit 0: Timer 2 gate enable
+// PPI Port B bit 1: Speaker data (direct control)
+assign speaker_gate_en = port_b_out[0];  // Timer gate enable
+assign speaker_data = port_b_out[1];     // Direct speaker data
+
+// Speaker output: Timer output AND'd with speaker data (when gate enabled)
+assign speaker_out = (speaker_timer_out & speaker_gate_en) | speaker_data;
+
 `define SPEAKER_TIMER_OUT speaker_timer_out
 `define SPEAKER_DATA speaker_data
 `define SPEAKER_GATE_EN_OUT speaker_gate_en
 `define SPEAKER_GATE_EN_IN speaker_gate_en
-
-`else // CONFIG_SPEAKER*/
-
-`define SPEAKER_TIMER_OUT
-`define SPEAKER_DATA_OUT
-`define SPEAKER_DATA
-`define SPEAKER_GATE_EN_OUT
-`define SPEAKER_GATE_EN_IN 1'b0
-
-/*`endif*/
 
 //wire poweron_reset;
 wire sys_clk;
