@@ -158,10 +158,12 @@ module vgasync_tb;
         hsync_active = 0;
         vsync_active = 0;
 
-        // Monitor for sync pulses over one frame
+        // Monitor for sync pulses over multiple scanlines
+        // Need enough time to reach vsync (occurs around scanline 490)
+        // At 800 clocks/line, need ~400,000 clocks minimum
         fork
             begin
-                repeat(1000) begin
+                for (int i = 0; i < 500000 && !(hsync_active && vsync_active); i++) begin
                     @(posedge clk);
                     if (!hsync) hsync_active = 1;
                     if (!vsync) vsync_active = 1;
@@ -286,8 +288,10 @@ module vgasync_tb;
         vsync_count = 0;
         clk_count = 0;
 
-        repeat(10) @(negedge vsync);  // Skip initial sync
+        // Wait for first vsync (skip initial reset transients)
+        @(negedge vsync);
 
+        // Now measure time between two consecutive vsyncs
         @(negedge vsync);
         clk_count = 0;
 
@@ -307,7 +311,9 @@ module vgasync_tb;
         join
 
         check_result("Vsync occurs periodically", vsync_count == 2);
-        check_result("Frame timing is reasonable", clk_count > 1000 && clk_count < 1000000);
+        // Counting 2 frame periods: Frame should be ~420,000 clocks for Mode 03H (800*525)
+        // So 2 frames = ~840,000 clocks
+        check_result("Frame timing is reasonable", clk_count > 800000 && clk_count < 900000);
 
         // ================================================================
         // TEST 10: Active Area Bounds
@@ -317,7 +323,10 @@ module vgasync_tb;
         mode_num = MODE_03H;
         mode_params = get_mode_params(MODE_03H);
 
-        // Sample multiple points in frame
+        // Wait for active region to start
+        while (is_blank) @(posedge clk);
+
+        // Sample multiple points in frame (spanning active and blank regions)
         active_samples = 0;
         blank_samples = 0;
 
@@ -394,7 +403,7 @@ module vgasync_tb;
 
     // Timeout
     initial begin
-        #50000000;  // 50ms timeout
+        #100000000;  // 100ms timeout (increased for frame timing tests)
         $display("\n[ERROR] Testbench timeout!");
         $finish(1);
     end
