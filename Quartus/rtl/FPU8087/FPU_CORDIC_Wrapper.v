@@ -27,10 +27,10 @@ module FPU_CORDIC_Wrapper(
 
     // Control
     input wire enable,
-    input wire mode,            // 0=rotation (sin/cos), 1=vectoring (atan)
+    input wire [1:0] mode,      // 00=rotation (sin/cos), 01=vectoring (atan), 10=tan, 11=reserved
 
     // Inputs (80-bit FP)
-    input wire [79:0] angle_in,     // For rotation mode
+    input wire [79:0] angle_in,     // For rotation and tan modes
     input wire [79:0] x_in,         // For vectoring mode
     input wire [79:0] y_in,         // For vectoring mode
 
@@ -39,45 +39,103 @@ module FPU_CORDIC_Wrapper(
     output reg [79:0] cos_out,      // Rotation mode: cos result
     output reg [79:0] atan_out,     // Vectoring mode: atan result
     output reg [79:0] magnitude_out,// Vectoring mode: magnitude result
+    output reg [79:0] tan_out,      // Tan mode: tan result
 
     output reg done,
-    output reg error
+    output reg error,
+
+    // External arithmetic unit interface (shared AddSub/MulDiv)
+    output reg        ext_addsub_req,
+    output reg [79:0] ext_addsub_a,
+    output reg [79:0] ext_addsub_b,
+    output reg        ext_addsub_sub,  // 0=add, 1=sub
+    input wire [79:0] ext_addsub_result,
+    input wire        ext_addsub_done,
+    input wire        ext_addsub_invalid,
+
+    output reg        ext_muldiv_req,
+    output reg        ext_muldiv_op,   // 0=mul, 1=div
+    output reg [79:0] ext_muldiv_a,
+    output reg [79:0] ext_muldiv_b,
+    input wire [79:0] ext_muldiv_result,
+    input wire        ext_muldiv_done,
+    input wire        ext_muldiv_invalid
 );
 
     //=================================================================
     // Parameters
     //=================================================================
 
-    localparam NUM_ITERATIONS = 50;  // 50 iterations for high precision
+    localparam NUM_ITERATIONS_SINCOS = 50;  // 50 iterations for high precision sin/cos
+    localparam NUM_ITERATIONS_TANATAN = 16; // 16 iterations for tan/atan + correction
 
-    // CORDIC modes
-    localparam MODE_ROTATION  = 1'b0;
-    localparam MODE_VECTORING = 1'b1;
+    // CORDIC operation modes
+    localparam MODE_ROTATION  = 2'b00;  // SIN/COS
+    localparam MODE_VECTORING = 2'b01;  // ATAN
+    localparam MODE_TAN       = 2'b10;  // TAN (rotation + correction)
 
     // CORDIC gain K ≈ 1.646760258121 (accumulated from iterations)
     // To get direct sin/cos output, start with x = 1/K ≈ 0.6072529350088812
     // In FP80 format: sign=0, exp=0x3FFE, mant=0x9B74EDA81F6EB000
     localparam FP80_CORDIC_SCALE = 80'h3FFE_9B74EDA81F6EB000;  // 1/K for pre-scaling
 
+    // CORDIC gain for 16 iterations: K16 ≈ 1.207497
+    // 1/K16 ≈ 0.828159 = FP80: 0x3FFE, 0xD413CCCFE779921B
+    localparam FP80_CORDIC_SCALE_16 = 80'h3FFE_D413CCCFE779921B;  // 1/K16 for TAN/ATAN
+
     // Constants
     localparam FP80_ZERO = 80'h0000_0000000000000000;
     localparam FP80_ONE  = 80'h3FFF_8000000000000000;
 
     //=================================================================
+    // Correction Constants for TAN/ATAN (Plan 2)
+    //
+    // For ATAN: correction = ε × (1 - ε²/3)
+    // For TAN:  correction = ε × (1 + ε²/3)
+    // where ε = residual angle after 16 iterations
+    //=================================================================
+
+    // Correction polynomial coefficients
+    reg [79:0] correction_c1_atan;  // C1 for ATAN: 1.0
+    reg [79:0] correction_c3_atan;  // C3 for ATAN: -0.333333...
+    reg [79:0] correction_c1_tan;   // C1 for TAN: 1.0
+    reg [79:0] correction_c3_tan;   // C3 for TAN: +0.333333...
+
+    initial begin
+        correction_c1_atan = 80'h3FFF_8000000000000000;  // 1.0
+        correction_c3_atan = 80'hBFFD_AAAAAAAAAAAAAAAB;  // -1/3 ≈ -0.333333333...
+        correction_c1_tan  = 80'h3FFF_8000000000000000;  // 1.0
+        correction_c3_tan  = 80'h3FFD_AAAAAAAAAAAAAAAB;  // +1/3 ≈ +0.333333333...
+    end
+
+    //=================================================================
     // State Machine
     //=================================================================
 
-    localparam STATE_IDLE          = 4'd0;
-    localparam STATE_RANGE_REDUCE  = 4'd1;
-    localparam STATE_CONVERT_INPUT = 4'd2;
-    localparam STATE_CORDIC_INIT   = 4'd3;
-    localparam STATE_CORDIC_ITER   = 4'd4;
-    localparam STATE_CONVERT_OUTPUT= 4'd5;
-    localparam STATE_QUAD_CORRECT  = 4'd6;
-    localparam STATE_DONE          = 4'd7;
+    localparam STATE_IDLE           = 5'd0;
+    localparam STATE_RANGE_REDUCE   = 5'd1;
+    localparam STATE_CONVERT_INPUT  = 5'd2;
+    localparam STATE_CORDIC_INIT    = 5'd3;
+    localparam STATE_CORDIC_ITER    = 5'd4;
+    localparam STATE_CONVERT_OUTPUT = 5'd5;
+    localparam STATE_QUAD_CORRECT   = 5'd6;
+    localparam STATE_DONE           = 5'd7;
 
-    reg [3:0] state;
+    // Correction states for TAN/ATAN (Plan 2)
+    localparam STATE_CORR_MUL_E2      = 5'd8;   // Multiply ε × ε
+    localparam STATE_CORR_WAIT_MUL_E2 = 5'd9;   // Wait for ε²
+    localparam STATE_CORR_MUL_C3      = 5'd10;  // Multiply ε² × coeff
+    localparam STATE_CORR_WAIT_MUL_C3 = 5'd11;  // Wait for ε² × C3
+    localparam STATE_CORR_ADD_C1      = 5'd12;  // Add/sub 1 ± ε²·C3
+    localparam STATE_CORR_WAIT_ADD    = 5'd13;  // Wait for 1 ± ε²·C3
+    localparam STATE_CORR_MUL_E       = 5'd14;  // Multiply ε × (...)
+    localparam STATE_CORR_WAIT_MUL_E  = 5'd15;  // Wait for ε × (1±ε²/3)
+    localparam STATE_CORR_COMBINE     = 5'd16;  // Combine with CORDIC result
+    localparam STATE_CORR_WAIT_COMBINE= 5'd17;  // Wait for final result
+
+    reg [4:0] state;
     reg [5:0] iteration_count;
+    reg [5:0] max_iterations;  // Dynamic iteration count (50 or 16)
 
     //=================================================================
     // Range Reduction (for rotation mode)
@@ -134,9 +192,20 @@ module FPU_CORDIC_Wrapper(
     // Mode and quadrant registers
     //=================================================================
 
-    reg cordic_mode;
+    reg [1:0] cordic_mode;
     reg [1:0] result_quadrant;
     reg result_swap, result_negate_sin, result_negate_cos;
+
+    //=================================================================
+    // Correction Working Registers (for TAN/ATAN modes)
+    //=================================================================
+
+    reg [79:0] residual_angle;      // ε - residual after 16 CORDIC iterations
+    reg [79:0] epsilon_squared;     // ε²
+    reg [79:0] epsilon_sq_times_c3; // ε² × C3
+    reg [79:0] one_plus_epsilon_term; // 1 ± ε²·C3
+    reg [79:0] correction_value;    // Final correction: ε × (1 ± ε²/3)
+    reg [79:0] cordic_partial_result; // Partial CORDIC result before correction
 
     //=================================================================
     // FP80 to Fixed-Point Conversion
@@ -313,26 +382,57 @@ module FPU_CORDIC_Wrapper(
             cos_out <= FP80_ZERO;
             atan_out <= FP80_ZERO;
             magnitude_out <= FP80_ZERO;
+            tan_out <= FP80_ZERO;
             range_reduce_enable <= 1'b0;
             iteration_count <= 6'd0;
+            max_iterations <= 6'd50;
             cordic_mode <= MODE_ROTATION;
             x_cordic <= 64'd0;
             y_cordic <= 64'd0;
             z_cordic <= 64'd0;
+            // Shared unit interface
+            ext_addsub_req <= 1'b0;
+            ext_addsub_a <= 80'd0;
+            ext_addsub_b <= 80'd0;
+            ext_addsub_sub <= 1'b0;
+            ext_muldiv_req <= 1'b0;
+            ext_muldiv_op <= 1'b0;
+            ext_muldiv_a <= 80'd0;
+            ext_muldiv_b <= 80'd0;
+            // Correction registers
+            residual_angle <= 80'd0;
+            epsilon_squared <= 80'd0;
+            epsilon_sq_times_c3 <= 80'd0;
+            one_plus_epsilon_term <= 80'd0;
+            correction_value <= 80'd0;
+            cordic_partial_result <= 80'd0;
         end else begin
             case (state)
                 STATE_IDLE: begin
                     done <= 1'b0;
                     error <= 1'b0;
+                    ext_addsub_req <= 1'b0;  // Clear request signals
+                    ext_muldiv_req <= 1'b0;
                     if (enable) begin
                         cordic_mode <= mode;
                         if (mode == MODE_ROTATION) begin
-                            // Rotation mode: reduce angle first
+                            // SIN/COS mode: 50 iterations, reduce angle first
+                            max_iterations <= NUM_ITERATIONS_SINCOS;
                             range_reduce_enable <= 1'b1;
                             state <= STATE_RANGE_REDUCE;
-                        end else begin
-                            // Vectoring mode: skip range reduction
+                        end else if (mode == MODE_TAN) begin
+                            // TAN mode: 16 iterations + correction, reduce angle first
+                            max_iterations <= NUM_ITERATIONS_TANATAN;
+                            range_reduce_enable <= 1'b1;
+                            state <= STATE_RANGE_REDUCE;
+                        end else if (mode == MODE_VECTORING) begin
+                            // ATAN mode: 16 iterations + correction, skip range reduction
+                            max_iterations <= NUM_ITERATIONS_TANATAN;
                             state <= STATE_CONVERT_INPUT;
+                        end else begin
+                            // Invalid mode
+                            error <= 1'b1;
+                            state <= STATE_DONE;
                         end
                     end
                 end
@@ -356,13 +456,18 @@ module FPU_CORDIC_Wrapper(
 
                 STATE_CONVERT_INPUT: begin
                     if (cordic_mode == MODE_ROTATION) begin
-                        // Rotation mode: x = 1/K, y = 0, z = angle
+                        // SIN/COS mode: x = 1/K, y = 0, z = angle (50 iterations)
                         // Pre-scaling by 1/K gives direct cos(θ), sin(θ) output
                         x_cordic <= fp80_to_fixed(FP80_CORDIC_SCALE);
                         y_cordic <= 64'd0;
                         z_cordic <= fp80_to_fixed(angle_reduced);
+                    end else if (cordic_mode == MODE_TAN) begin
+                        // TAN mode: x = 1/K16, y = 0, z = angle (16 iterations + correction)
+                        x_cordic <= fp80_to_fixed(FP80_CORDIC_SCALE_16);
+                        y_cordic <= 64'd0;
+                        z_cordic <= fp80_to_fixed(angle_reduced);
                     end else begin
-                        // Vectoring mode: x = x_in, y = y_in, z = 0
+                        // ATAN mode: x = x_in, y = y_in, z = 0 (16 iterations + correction)
                         x_cordic <= fp80_to_fixed(x_in);
                         y_cordic <= fp80_to_fixed(y_in);
                         z_cordic <= 64'd0;
@@ -385,7 +490,7 @@ module FPU_CORDIC_Wrapper(
                     atan_fixed = fp80_to_fixed(atan_value);
 
                     // CORDIC micro-rotation
-                    if (cordic_mode == MODE_ROTATION) begin
+                    if (cordic_mode == MODE_ROTATION || cordic_mode == MODE_TAN) begin
                         // Rotation mode: rotate by z
                         if (z_cordic >= 0) begin
                             x_next = x_cordic - y_shifted;
@@ -397,7 +502,7 @@ module FPU_CORDIC_Wrapper(
                             z_next = z_cordic + atan_fixed;
                         end
                     end else begin
-                        // Vectoring mode: rotate to zero y
+                        // Vectoring mode (ATAN): rotate to zero y
                         if (y_cordic < 0) begin
                             x_next = x_cordic - y_shifted;
                             y_next = y_cordic + x_shifted;
@@ -415,8 +520,26 @@ module FPU_CORDIC_Wrapper(
                     z_cordic <= z_next;
 
                     // Check iteration count
-                    if (iteration_count >= NUM_ITERATIONS - 1) begin
-                        state <= STATE_CONVERT_OUTPUT;
+                    if (iteration_count >= max_iterations - 1) begin
+                        // Finished iterations - decide next state
+                        if (cordic_mode == MODE_TAN || cordic_mode == MODE_VECTORING) begin
+                            // TAN/ATAN modes: save residual and proceed to correction
+                            if (cordic_mode == MODE_TAN) begin
+                                // For TAN: residual is z (angle residual)
+                                // Result = y/x, need to compute and correct
+                                residual_angle <= fixed_to_fp80(z_next);
+                                cordic_partial_result <= fixed_to_fp80(y_next);  // sin component
+                                // Will divide y/x and apply correction
+                            end else begin
+                                // For ATAN: residual is z (accumulated angle - should be close to atan)
+                                residual_angle <= fixed_to_fp80(z_next);
+                                cordic_partial_result <= fixed_to_fp80(z_next);
+                            end
+                            state <= STATE_CORR_MUL_E2;  // Start correction sequence
+                        end else begin
+                            // SIN/COS mode: convert output directly
+                            state <= STATE_CONVERT_OUTPUT;
+                        end
                     end else begin
                         iteration_count <= iteration_count + 1;
                     end
@@ -450,6 +573,136 @@ module FPU_CORDIC_Wrapper(
                         cos_out <= sin_out;
                     end
                     state <= STATE_DONE;
+                end
+
+                //=================================================================
+                // Correction States for TAN/ATAN (Plan 2)
+                //
+                // Polynomial evaluation: correction = ε × (1 ± ε²/3)
+                // Sequence: ε² → ε²×C3 → 1±ε²×C3 → ε×(1±ε²/3) → CORDIC+correction
+                //=================================================================
+
+                STATE_CORR_MUL_E2: begin
+                    // Step 1: Compute ε² = ε × ε
+                    ext_muldiv_req <= 1'b1;
+                    ext_muldiv_op <= 1'b0;  // Multiply
+                    ext_muldiv_a <= residual_angle;
+                    ext_muldiv_b <= residual_angle;
+                    state <= STATE_CORR_WAIT_MUL_E2;
+                end
+
+                STATE_CORR_WAIT_MUL_E2: begin
+                    ext_muldiv_req <= 1'b0;  // Clear request
+                    if (ext_muldiv_done) begin
+                        if (ext_muldiv_invalid) begin
+                            error <= 1'b1;
+                            state <= STATE_DONE;
+                        end else begin
+                            epsilon_squared <= ext_muldiv_result;
+                            state <= STATE_CORR_MUL_C3;
+                        end
+                    end
+                end
+
+                STATE_CORR_MUL_C3: begin
+                    // Step 2: Compute ε² × C3 (C3 = ±1/3 depending on TAN/ATAN)
+                    ext_muldiv_req <= 1'b1;
+                    ext_muldiv_op <= 1'b0;  // Multiply
+                    ext_muldiv_a <= epsilon_squared;
+                    if (cordic_mode == MODE_VECTORING) begin
+                        ext_muldiv_b <= correction_c3_atan;  // -1/3 for ATAN
+                    end else begin
+                        ext_muldiv_b <= correction_c3_tan;   // +1/3 for TAN
+                    end
+                    state <= STATE_CORR_WAIT_MUL_C3;
+                end
+
+                STATE_CORR_WAIT_MUL_C3: begin
+                    ext_muldiv_req <= 1'b0;
+                    if (ext_muldiv_done) begin
+                        if (ext_muldiv_invalid) begin
+                            error <= 1'b1;
+                            state <= STATE_DONE;
+                        end else begin
+                            epsilon_sq_times_c3 <= ext_muldiv_result;
+                            state <= STATE_CORR_ADD_C1;
+                        end
+                    end
+                end
+
+                STATE_CORR_ADD_C1: begin
+                    // Step 3: Compute 1 + ε²×C3 (which is 1 ± ε²/3)
+                    ext_addsub_req <= 1'b1;
+                    ext_addsub_sub <= 1'b0;  // Add
+                    if (cordic_mode == MODE_VECTORING) begin
+                        ext_addsub_a <= correction_c1_atan;  // 1.0
+                    end else begin
+                        ext_addsub_a <= correction_c1_tan;   // 1.0
+                    end
+                    ext_addsub_b <= epsilon_sq_times_c3;
+                    state <= STATE_CORR_WAIT_ADD;
+                end
+
+                STATE_CORR_WAIT_ADD: begin
+                    ext_addsub_req <= 1'b0;
+                    if (ext_addsub_done) begin
+                        if (ext_addsub_invalid) begin
+                            error <= 1'b1;
+                            state <= STATE_DONE;
+                        end else begin
+                            one_plus_epsilon_term <= ext_addsub_result;
+                            state <= STATE_CORR_MUL_E;
+                        end
+                    end
+                end
+
+                STATE_CORR_MUL_E: begin
+                    // Step 4: Compute ε × (1 ± ε²/3) = correction term
+                    ext_muldiv_req <= 1'b1;
+                    ext_muldiv_op <= 1'b0;  // Multiply
+                    ext_muldiv_a <= residual_angle;
+                    ext_muldiv_b <= one_plus_epsilon_term;
+                    state <= STATE_CORR_WAIT_MUL_E;
+                end
+
+                STATE_CORR_WAIT_MUL_E: begin
+                    ext_muldiv_req <= 1'b0;
+                    if (ext_muldiv_done) begin
+                        if (ext_muldiv_invalid) begin
+                            error <= 1'b1;
+                            state <= STATE_DONE;
+                        end else begin
+                            correction_value <= ext_muldiv_result;
+                            state <= STATE_CORR_COMBINE;
+                        end
+                    end
+                end
+
+                STATE_CORR_COMBINE: begin
+                    // Step 5: Add correction to CORDIC result
+                    ext_addsub_req <= 1'b1;
+                    ext_addsub_sub <= 1'b0;  // Add
+                    ext_addsub_a <= cordic_partial_result;
+                    ext_addsub_b <= correction_value;
+                    state <= STATE_CORR_WAIT_COMBINE;
+                end
+
+                STATE_CORR_WAIT_COMBINE: begin
+                    ext_addsub_req <= 1'b0;
+                    if (ext_addsub_done) begin
+                        if (ext_addsub_invalid) begin
+                            error <= 1'b1;
+                            state <= STATE_DONE;
+                        end else begin
+                            // Store final corrected result
+                            if (cordic_mode == MODE_VECTORING) begin
+                                atan_out <= ext_addsub_result;
+                            end else begin
+                                tan_out <= ext_addsub_result;
+                            end
+                            state <= STATE_DONE;
+                        end
+                    end
                 end
 
                 STATE_DONE: begin

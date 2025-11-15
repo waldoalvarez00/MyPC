@@ -37,6 +37,7 @@ module FPU_Format_Converter_Unified(
     input wire [63:0] uint64_in,    // UInt64 input
     input wire [31:0] int32_in,     // Int32 input (sign-extended)
     input wire [15:0] int16_in,     // Int16 input (sign-extended)
+    input wire [63:0] fixed64_in,   // Q2.62 fixed-point input (signed)
     input wire        uint64_sign,  // Sign for UInt64→FP80 (BCD)
 
     // Rounding mode (for FP80→narrower conversions)
@@ -49,6 +50,7 @@ module FPU_Format_Converter_Unified(
     output reg [63:0] uint64_out,   // UInt64 output
     output reg [31:0] int32_out,    // Int32 output
     output reg [15:0] int16_out,    // Int16 output
+    output reg [63:0] fixed64_out,  // Q2.62 fixed-point output (signed)
     output reg        uint64_sign_out, // Sign output for FP80→UInt64 (BCD)
 
     // Status
@@ -75,7 +77,9 @@ module FPU_Format_Converter_Unified(
     localparam MODE_FP80_TO_INT32 = 4'd7;
     localparam MODE_UINT64_TO_FP80 = 4'd8;
     localparam MODE_FP80_TO_UINT64 = 4'd9;
-    // Modes 10-15 reserved for future use (BCD, FP16, etc.)
+    localparam MODE_FP80_TO_FIXED64 = 4'd10;  // FP80 → Q2.62 fixed-point for CORDIC
+    localparam MODE_FIXED64_TO_FP80 = 4'd11;  // Q2.62 fixed-point → FP80 for CORDIC
+    // Modes 12-15 reserved for future use (BCD, FP16, etc.)
 
     //=================================================================
     // Unpacked Components (shared across all formats)
@@ -118,6 +122,7 @@ module FPU_Format_Converter_Unified(
             uint64_out <= 64'd0;
             int32_out <= 32'd0;
             int16_out <= 16'd0;
+            fixed64_out <= 64'd0;
             uint64_sign_out <= 1'b0;
             done <= 1'b0;
             flag_invalid <= 1'b0;
@@ -613,6 +618,113 @@ module FPU_Format_Converter_Unified(
 
                                 uint64_out = abs_int_value;
                             end
+                        end
+                        done = 1'b1;
+                    end
+
+                    //=============================================
+                    // FP80 → Q2.62 Fixed-Point
+                    //=============================================
+                    MODE_FP80_TO_FIXED64: begin
+                        // Unpack FP80
+                        src_sign = fp80_in[79];
+                        src_exp = fp80_in[78:64];
+                        src_mant = fp80_in[63:0];
+
+                        // Q2.62 format: 2 integer bits, 62 fractional bits
+                        // Value = fixed_val / 2^62
+                        // FP80: value = mantissa * 2^(exp - 16383 - 63)
+                        // We want: fixed_val = value * 2^62
+                        //        = mantissa * 2^(exp - 16383 - 63 + 62)
+                        //        = mantissa * 2^(exp - 16384)
+
+                        // Handle special values
+                        if (src_exp == 15'd0) begin
+                            // Zero or denormal
+                            fixed64_out = 64'd0;
+                        end else if (src_exp == 15'h7FFF) begin
+                            // ±∞ or NaN
+                            flag_invalid = 1'b1;
+                            fixed64_out = 64'd0;
+                        end else begin
+                            // Normalized value
+                            src_exp_unbiased = {2'b0, src_exp} - 17'd16384;
+
+                            // Check for overflow (value >= 2 or <= -2)
+                            if (src_exp_unbiased >= 17'sd1) begin
+                                flag_overflow = 1'b1;
+                                // Saturate to max/min Q2.62 value
+                                if (src_sign)
+                                    fixed64_out = 64'h8000000000000000;  // Most negative
+                                else
+                                    fixed64_out = 64'h7FFFFFFFFFFFFFFF;  // Most positive
+                            end else if (src_exp_unbiased < -17'sd62) begin
+                                // Underflow to zero
+                                flag_underflow = 1'b1;
+                                fixed64_out = 64'd0;
+                            end else begin
+                                // Normal conversion
+                                if (src_exp_unbiased >= 0) begin
+                                    // Left shift
+                                    shifted_mant = src_mant << src_exp_unbiased[5:0];
+                                    flag_inexact = 1'b0;
+                                end else begin
+                                    // Right shift
+                                    shift_amount = -src_exp_unbiased[6:0];
+                                    shifted_mant = src_mant >> shift_amount;
+                                    // Check if bits were lost
+                                    if ((src_mant & ((64'd1 << shift_amount) - 64'd1)) != 64'd0)
+                                        flag_inexact = 1'b1;
+                                end
+
+                                // Apply sign
+                                if (src_sign)
+                                    fixed64_out = -$signed(shifted_mant);
+                                else
+                                    fixed64_out = shifted_mant;
+                            end
+                        end
+                        done = 1'b1;
+                    end
+
+                    //=============================================
+                    // Q2.62 Fixed-Point → FP80
+                    //=============================================
+                    MODE_FIXED64_TO_FP80: begin
+                        // Q2.62 format: value = fixed_val / 2^62
+                        // FP80: value = mantissa * 2^(exp - 16383 - 63)
+
+                        signed_int_value = $signed(fixed64_in);
+
+                        if (signed_int_value == 64'sd0) begin
+                            // Zero
+                            fp80_out = 80'd0;
+                        end else begin
+                            // Extract sign
+                            dst_sign = signed_int_value[63];
+                            abs_int_value = dst_sign ? -signed_int_value : signed_int_value;
+
+                            // Find leading one (normalization)
+                            shift_amount = 7'd0;
+                            for (i = 63; i >= 0; i = i - 1) begin
+                                if (abs_int_value[i] && shift_amount == 7'd0)
+                                    shift_amount = 7'd63 - i[6:0];
+                            end
+
+                            // Normalize mantissa (shift so MSB is 1)
+                            dst_mant = abs_int_value << shift_amount;
+
+                            // Compute exponent
+                            // After normalization: dst_mant[63] = 1
+                            // FP80 value = dst_mant * 2^(exp - 16383 - 63)
+                            // We want: dst_mant * 2^(exp - 16446) = abs_int_value / 2^62
+                            // => dst_mant << shift_amount = abs_int_value
+                            // => (abs_int_value >> shift_amount) * 2^(exp - 16446) = abs_int_value / 2^62
+                            // => 2^(exp - 16446) = 2^(-62 - shift_amount)
+                            // => exp = 16384 - shift_amount
+                            dst_exp = 15'd16384 - {8'd0, shift_amount};
+
+                            fp80_out = {dst_sign, dst_exp, dst_mant};
                         end
                         done = 1'b1;
                     end
