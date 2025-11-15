@@ -1,20 +1,20 @@
 # Makefile for Divider testbench with Verilator
 
 # Paths
-VERILATOR_ROOT = /tmp/verilator_extract/usr
 CPU_DIR = ../Quartus/rtl/CPU
 TB_DIR = .
 
-# Verilator flags
-VERILATOR = $(VERILATOR_ROOT)/bin/verilator
-VFLAGS = -Wall -Wno-fatal --cc --exe --build
-VFLAGS += -I$(CPU_DIR)
-VFLAGS += -I$(VERILATOR_ROOT)/share/verilator/include
-VFLAGS += --top-module Divider
-VFLAGS += -CFLAGS "-I$(VERILATOR_ROOT)/share/verilator/include -std=c++14"
+# Verilator configuration
+VERILATOR_BIN = /tmp/verilator_extract/usr/bin/verilator
+VERILATOR_ROOT = /tmp/verilator_extract/usr/share/verilator
 
-# Export VERILATOR_ROOT for Verilator to find its includes
-export VERILATOR_ROOT
+# Verilator flags
+VFLAGS = -Wall -Wno-fatal -Wno-UNUSEDSIGNAL --cc --exe --build
+VFLAGS += -I$(CPU_DIR)
+VFLAGS += -y $(VERILATOR_ROOT)/include
+VFLAGS += --top-module Divider
+VFLAGS += --trace
+VFLAGS += -CFLAGS "-std=c++14"
 
 # Source files
 RTL_SOURCES = $(CPU_DIR)/Divider.sv
@@ -32,7 +32,7 @@ all: $(TARGET)
 
 $(TARGET): $(RTL_SOURCES) $(TB_SOURCE)
 	@echo "Verilating Divider module..."
-	$(VERILATOR) $(VFLAGS) $(RTL_SOURCES) $(TB_SOURCE)
+	VERILATOR_ROOT=$(VERILATOR_ROOT) $(VERILATOR_BIN) $(VFLAGS) $(RTL_SOURCES) $(TB_SOURCE)
 	@echo "Build complete!"
 
 run: $(TARGET)
