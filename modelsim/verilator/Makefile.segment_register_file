@@ -1,0 +1,36 @@
+# Verilator Makefile for SegmentRegisterFile Test
+
+# Paths
+RTL_DIR = ../../Quartus/rtl/CPU
+VERILATOR = /tmp/verilator_extract/usr/bin/verilator
+VERILATOR_ROOT = /tmp/verilator_extract/usr/share/verilator
+
+# Files
+TB_CPP = segment_register_file_tb.cpp
+DUT_SV = $(RTL_DIR)/SegmentRegisterFile.sv
+DUT_ENUM = $(RTL_DIR)/RegisterEnum.sv
+
+# Verilator flags
+VFLAGS = --cc --exe --build -Wall
+VFLAGS += -Wno-fatal  # Don't treat warnings as errors
+VFLAGS += -Wno-UNUSEDSIGNAL  # Suppress unused signal warnings
+VFLAGS += -I$(RTL_DIR)
+VFLAGS += --trace  # Enable VCD tracing
+VFLAGS += -CFLAGS "-std=c++14"
+
+# Target
+TARGET = obj_dir/VSegmentRegisterFile
+
+all: $(TARGET)
+	@echo "========================================"
+	@echo "Running SegmentRegisterFile Test (Verilator)"
+	@echo "========================================"
+	@./$(TARGET)
+
+$(TARGET): $(DUT_SV) $(DUT_ENUM) $(TB_CPP)
+	$(VERILATOR) $(VFLAGS) $(DUT_SV) $(DUT_ENUM) $(TB_CPP)
+
+clean:
+	rm -rf obj_dir
+
+.PHONY: all clean
