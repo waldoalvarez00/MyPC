@@ -178,6 +178,11 @@ Microcode dut (
     .debug_run(debug_run)
 );
 
+// Load microcode ROM for simulation
+initial begin
+    $readmemb("microcode.bin", dut.mem);
+end
+
 // Helper task to check test result
 task check_result(input string test_name, input logic expected, input logic actual);
 begin
@@ -235,12 +240,28 @@ task wait_for_instruction_start;
     integer timeout;
 begin
     timeout = 0;
+    $display("  [DEBUG] Waiting for starting_instruction...");
+    $display("  [DEBUG]   Initial: start=%b next=%b fifo_rd=%b empty=%b opcode=0x%02h",
+             starting_instruction, next_instruction, fifo_rd_en, fifo_empty, opcode);
+
     while (!starting_instruction && timeout < 100) begin
         @(posedge clk);
         timeout = timeout + 1;
+
+        // Print status every 10 cycles
+        if (timeout % 10 == 0) begin
+            $display("  [DEBUG]   Cycle %3d: start=%b next=%b fifo_rd=%b empty=%b cur_op=0x%02h next_op=0x%02h",
+                     timeout, starting_instruction, next_instruction, fifo_rd_en, fifo_empty,
+                     cur_instruction.opcode, next_instruction_value.opcode);
+        end
     end
-    if (!starting_instruction) begin
-        $display("ERROR: Timeout waiting for starting_instruction");
+
+    if (starting_instruction) begin
+        $display("  [DEBUG] Starting instruction after %0d cycles!", timeout);
+    end else begin
+        $display("  [DEBUG] ERROR: Timeout waiting for starting_instruction after %0d cycles", timeout);
+        $display("  [DEBUG]   Final state: start=%b next=%b fifo_rd=%b empty=%b",
+                 starting_instruction, next_instruction, fifo_rd_en, fifo_empty);
     end
 end
 endtask
@@ -250,6 +271,7 @@ initial begin
     integer timeout;  // Timeout counter for wait loops
     integer cycle_count;
     integer i;
+    integer boot_cycles;
 
     // Initialize signals
     test_count = 0;
@@ -285,25 +307,58 @@ initial begin
     $display("========================================");
 
     // Release reset
+    $display("\n--- Reset Sequence ---");
     #100;
     reset = 0;
+    $display("Reset released at time %0t", $time);
+
+    // Monitor boot sequence
+    boot_cycles = 0;
+    for (i = 0; i < 200; i = i + 1) begin
+        @(posedge clk);
+        boot_cycles = boot_cycles + 1;
+
+        // Print debug info every 10 cycles during boot
+        if (i % 10 == 0 || next_instruction || starting_instruction) begin
+            $display("  Cycle %3d: next_instr=%b start_instr=%b fifo_rd=%b next_micro=%b",
+                     boot_cycles, next_instruction, starting_instruction, fifo_rd_en, next_microinstruction);
+        end
+
+        // Break if we see starting_instruction
+        if (starting_instruction) begin
+            $display("  Boot complete after %0d cycles!", boot_cycles);
+            i = 200; // Exit loop
+        end
+    end
+
+    if (!starting_instruction) begin
+        $display("  WARNING: No starting_instruction seen after %0d cycles", boot_cycles);
+        $display("  Current state: next_instr=%b fifo_empty=%b fifo_reset=%b",
+                 next_instruction, fifo_empty, fifo_resetting);
+    end
+
     #40;
 
     //==================================================================
     // Test 1: NOP instruction (0x90 - XCHG AX,AX)
     //==================================================================
     $display("\n--- Test 1: NOP (0x90) instruction ---");
+    $display("  Setting up NOP instruction...");
     fifo_empty = 0;
     create_instruction(8'h90, 1'b0, 1'b0, REP_PREFIX_NONE, 1'b0);
+    $display("  FIFO: empty=%b opcode=0x%02h", fifo_empty, next_instruction_value.opcode);
 
     wait_for_instruction_start;
 
+    $display("  After instruction start: opcode=0x%02h fifo_rd=%b", opcode, fifo_rd_en);
     check_result("NOP instruction fetched", 1'b1, fifo_rd_en);
     check_result("NOP opcode correct", 1'b1, opcode == 8'h90);
 
     // NOP completes in one microinstruction
     @(posedge clk);
+    $display("  After 1 cycle: next_instr=%b next_micro=%b", next_instruction, next_microinstruction);
     @(posedge clk);
+    $display("  After 2 cycles: next_instr=%b next_micro=%b", next_instruction, next_microinstruction);
 
     check_result("NOP signals next_instruction", 1'b1, next_instruction);
 
@@ -311,20 +366,28 @@ initial begin
     // Test 2: MOV reg, imm16 (0xB8 - MOV AX, imm16)
     //==================================================================
     $display("\n--- Test 2: MOV AX, imm16 (0xB8) ---");
+    $display("  Setting up MOV instruction...");
     create_instruction(8'hb8, 1'b0, 1'b0, REP_PREFIX_NONE, 1'b0);
 
     wait_for_instruction_start;
 
+    $display("  After instruction start: opcode=0x%02h", opcode);
     check_result("MOV AX, imm opcode correct", 1'b1, opcode == 8'hb8);
 
     // Wait for microcode to execute
     @(posedge clk);
+    $display("  Cycle 1: b_sel=%0d alu_op=%0d reg_wr=%b next=%b",
+             b_sel, alu_op, reg_wr_en, next_instruction);
     @(posedge clk);
+    $display("  Cycle 2: b_sel=%0d alu_op=%0d reg_wr=%b next=%b",
+             b_sel, alu_op, reg_wr_en, next_instruction);
 
     // MOV AX, imm16 should:
-    // - Select immediate as B source
-    // - Use SELB ALU operation
+    // - Select immediate as B source (BDriver_IMMEDIATE = 1)
+    // - Use SELB ALU operation (ALUOp_SELB = 1)
     // - Write to AX register
+    $display("  Expected: b_sel=%0d (IMMEDIATE), alu_op=%0d (SELB), reg_wr=1",
+             BDriver_IMMEDIATE, ALUOp_SELB);
     check_result("MOV uses immediate", 1'b1, b_sel == BDriver_IMMEDIATE);
     check_result("MOV uses SELB", 1'b1, alu_op == ALUOp_SELB);
     check_result("MOV writes register", 1'b1, reg_wr_en);
@@ -334,22 +397,28 @@ initial begin
     // Test 3: INC AX (0x40)
     //==================================================================
     $display("\n--- Test 3: INC AX (0x40) ---");
+    $display("  Setting up INC instruction...");
     create_instruction(8'h40, 1'b0, 1'b0, REP_PREFIX_NONE, 1'b0);
 
     wait_for_instruction_start;
 
+    $display("  After instruction start: opcode=0x%02h", opcode);
     check_result("INC AX opcode correct", 1'b1, opcode == 8'h40);
 
     // INC takes 2 microinstructions
+    $display("  Tracing INC execution:");
     cycle_count = 0;
     for (i = 0; i < 10; i = i + 1) begin
         @(posedge clk);
+        cycle_count = cycle_count + 1;
+        $display("    Cycle %0d: alu_op=%0d flags=0x%03h reg_wr=%b next=%b",
+                 cycle_count, alu_op, update_flags, reg_wr_en, next_instruction);
         if (next_instruction) begin
-            cycle_count = i + 1;
             i = 10;  // Break
         end
     end
 
+    $display("  INC completed in %0d cycles", cycle_count);
     check_result("INC completes in 2 cycles", 1'b1, cycle_count == 2);
     check_result("INC updates flags", 1'b1, update_flags != 9'h0);
     check_result("INC writes register", 1'b1, reg_wr_en);
@@ -366,6 +435,20 @@ initial begin
     @(posedge clk);
 
     check_result("HLT detected", 1'b1, is_hlt);
+
+    // Wake CPU from HLT with NMI interrupt
+    $display("  Waking CPU from HLT with NMI...");
+    nmi_pulse = 1;
+    @(posedge clk);
+    nmi_pulse = 0;
+
+    // Wait for interrupt to be taken
+    for (i = 0; i < 20; i = i + 1) begin
+        @(posedge clk);
+        if (starting_instruction) begin
+            i = 20;  // Exit loop
+        end
+    end
 
     //==================================================================
     // Test 5: Multibit shift instructions
