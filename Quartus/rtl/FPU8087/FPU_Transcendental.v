@@ -115,10 +115,23 @@ module FPU_Transcendental(
 
     // CORDIC Wrapper (for sin/cos/tan/atan)
     reg cordic_enable;
-    reg cordic_mode;  // 0=rotation, 1=vectoring
+    reg [1:0] cordic_mode;  // 00=rotation (sin/cos), 01=vectoring (atan), 10=tan
     wire [79:0] cordic_sin_out, cordic_cos_out;
-    wire [79:0] cordic_atan_out, cordic_magnitude_out;
+    wire [79:0] cordic_atan_out, cordic_magnitude_out, cordic_tan_out;
     wire cordic_done, cordic_error;
+
+    // CORDIC shared arithmetic unit interface
+    wire        cordic_addsub_req;
+    wire [79:0] cordic_addsub_a, cordic_addsub_b;
+    wire        cordic_addsub_sub;
+    wire [79:0] cordic_addsub_result;
+    wire        cordic_addsub_done, cordic_addsub_invalid;
+
+    wire        cordic_muldiv_req;
+    wire        cordic_muldiv_op;
+    wire [79:0] cordic_muldiv_a, cordic_muldiv_b;
+    wire [79:0] cordic_muldiv_result;
+    wire        cordic_muldiv_done, cordic_muldiv_invalid;
 
     FPU_CORDIC_Wrapper cordic_wrapper (
         .clk(clk),
@@ -132,8 +145,26 @@ module FPU_Transcendental(
         .cos_out(cordic_cos_out),
         .atan_out(cordic_atan_out),
         .magnitude_out(cordic_magnitude_out),
+        .tan_out(cordic_tan_out),
         .done(cordic_done),
-        .error(cordic_error)
+        .error(cordic_error),
+
+        // Plan 2: Shared arithmetic unit interface
+        .ext_addsub_req(cordic_addsub_req),
+        .ext_addsub_a(cordic_addsub_a),
+        .ext_addsub_b(cordic_addsub_b),
+        .ext_addsub_sub(cordic_addsub_sub),
+        .ext_addsub_result(cordic_addsub_result),
+        .ext_addsub_done(cordic_addsub_done),
+        .ext_addsub_invalid(cordic_addsub_invalid),
+
+        .ext_muldiv_req(cordic_muldiv_req),
+        .ext_muldiv_op(cordic_muldiv_op),
+        .ext_muldiv_a(cordic_muldiv_a),
+        .ext_muldiv_b(cordic_muldiv_b),
+        .ext_muldiv_result(cordic_muldiv_result),
+        .ext_muldiv_done(cordic_muldiv_done),
+        .ext_muldiv_invalid(cordic_muldiv_invalid)
     );
 
     // Polynomial Evaluator (for F2XM1/LOG2)
@@ -224,6 +255,109 @@ module FPU_Transcendental(
     // These operations now route through ext_addsub_req and ext_muldiv_req interfaces
 
     //=================================================================
+    // Arithmetic Unit Arbiter (Plan 2 CORDIC Integration)
+    //
+    // Priority (highest to lowest):
+    // 1. Direct FPU_Transcendental requests (state machine driven)
+    // 2. CORDIC correction requests
+    // 3. Polynomial evaluator requests
+    //
+    // This ensures FPTAN division and FYL2X multiply have priority
+    //=================================================================
+
+    // Internal request signals from state machine
+    reg        local_addsub_req;
+    reg [79:0] local_addsub_a, local_addsub_b;
+    reg        local_addsub_sub;
+
+    reg        local_muldiv_req;
+    reg        local_muldiv_op;
+    reg [79:0] local_muldiv_a, local_muldiv_b;
+
+    // Arbitrated result routing
+    reg [1:0]  addsub_grant;  // 00=none, 01=local, 10=cordic, 11=poly
+    reg [1:0]  muldiv_grant;  // 00=none, 01=local, 10=cordic, 11=poly
+
+    // AddSub Arbiter
+    always @(*) begin
+        if (local_addsub_req) begin
+            // Priority 1: Local state machine requests
+            ext_addsub_req = 1'b1;
+            ext_addsub_a = local_addsub_a;
+            ext_addsub_b = local_addsub_b;
+            ext_addsub_sub = local_addsub_sub;
+            addsub_grant = 2'd1;
+        end else if (cordic_addsub_req) begin
+            // Priority 2: CORDIC correction
+            ext_addsub_req = 1'b1;
+            ext_addsub_a = cordic_addsub_a;
+            ext_addsub_b = cordic_addsub_b;
+            ext_addsub_sub = cordic_addsub_sub;
+            addsub_grant = 2'd2;
+        end else if (ext_poly_addsub_req) begin
+            // Priority 3: Polynomial evaluator
+            ext_addsub_req = 1'b1;
+            ext_addsub_a = ext_poly_addsub_a;
+            ext_addsub_b = ext_poly_addsub_b;
+            ext_addsub_sub = 1'b0;  // Polynomial only does additions
+            addsub_grant = 2'd3;
+        end else begin
+            // No requests
+            ext_addsub_req = 1'b0;
+            ext_addsub_a = FP80_ZERO;
+            ext_addsub_b = FP80_ZERO;
+            ext_addsub_sub = 1'b0;
+            addsub_grant = 2'd0;
+        end
+    end
+
+    // MulDiv Arbiter
+    always @(*) begin
+        if (local_muldiv_req) begin
+            // Priority 1: Local state machine requests
+            ext_muldiv_req = 1'b1;
+            ext_muldiv_op = local_muldiv_op;
+            ext_muldiv_a = local_muldiv_a;
+            ext_muldiv_b = local_muldiv_b;
+            muldiv_grant = 2'd1;
+        end else if (cordic_muldiv_req) begin
+            // Priority 2: CORDIC correction
+            ext_muldiv_req = 1'b1;
+            ext_muldiv_op = cordic_muldiv_op;
+            ext_muldiv_a = cordic_muldiv_a;
+            ext_muldiv_b = cordic_muldiv_b;
+            muldiv_grant = 2'd2;
+        end else if (ext_poly_muldiv_req) begin
+            // Priority 3: Polynomial evaluator
+            ext_muldiv_req = 1'b1;
+            ext_muldiv_op = 1'b0;  // Polynomial only multiplies
+            ext_muldiv_a = ext_poly_muldiv_a;
+            ext_muldiv_b = ext_poly_muldiv_b;
+            muldiv_grant = 2'd3;
+        end else begin
+            // No requests
+            ext_muldiv_req = 1'b0;
+            ext_muldiv_op = 1'b0;
+            ext_muldiv_a = FP80_ZERO;
+            ext_muldiv_b = FP80_ZERO;
+            muldiv_grant = 2'd0;
+        end
+    end
+
+    // Result Routing (combinational)
+    // Route results back to the appropriate requestor based on grant
+    assign cordic_addsub_result = (addsub_grant == 2'd2) ? ext_addsub_result : FP80_ZERO;
+    assign cordic_addsub_done   = (addsub_grant == 2'd2) ? ext_addsub_done : 1'b0;
+    assign cordic_addsub_invalid = (addsub_grant == 2'd2) ? ext_addsub_invalid : 1'b0;
+
+    assign cordic_muldiv_result = (muldiv_grant == 2'd2) ? ext_muldiv_result : FP80_ZERO;
+    assign cordic_muldiv_done   = (muldiv_grant == 2'd2) ? ext_muldiv_done : 1'b0;
+    assign cordic_muldiv_invalid = (muldiv_grant == 2'd2) ? ext_muldiv_invalid : 1'b0;
+
+    // Polynomial results are passed directly through module ports (ext_poly_*)
+    // Local results are captured in state machine
+
+    //=================================================================
     // State Machine
     //=================================================================
 
@@ -254,21 +388,21 @@ module FPU_Transcendental(
             result_secondary <= FP80_ZERO;
             has_secondary <= 1'b0;
             cordic_enable <= 1'b0;
-            cordic_mode <= 1'b0;
+            cordic_mode <= 2'b00;
             poly_enable <= 1'b0;
             poly_select <= 4'd0;
             poly_input <= FP80_ZERO;
             sqrt_enable <= 1'b0;
 
-            // Strategy 1: External shared unit requests
-            ext_addsub_req <= 1'b0;
-            ext_addsub_a <= FP80_ZERO;
-            ext_addsub_b <= FP80_ZERO;
-            ext_addsub_sub <= 1'b0;
-            ext_muldiv_req <= 1'b0;
-            ext_muldiv_op <= 1'b0;
-            ext_muldiv_a <= FP80_ZERO;
-            ext_muldiv_b <= FP80_ZERO;
+            // Local arbiter request signals
+            local_addsub_req <= 1'b0;
+            local_addsub_a <= FP80_ZERO;
+            local_addsub_b <= FP80_ZERO;
+            local_addsub_sub <= 1'b0;
+            local_muldiv_req <= 1'b0;
+            local_muldiv_op <= 1'b0;
+            local_muldiv_a <= FP80_ZERO;
+            local_muldiv_b <= FP80_ZERO;
 
             current_operation <= 4'd0;
         end else begin
@@ -281,9 +415,9 @@ module FPU_Transcendental(
                     poly_enable <= 1'b0;
                     sqrt_enable <= 1'b0;
 
-                    // Strategy 1: Clear external requests
-                    ext_addsub_req <= 1'b0;
-                    ext_muldiv_req <= 1'b0;
+                    // Clear local arbiter requests
+                    local_addsub_req <= 1'b0;
+                    local_muldiv_req <= 1'b0;
 
                     if (enable) begin
                         current_operation <= operation;
@@ -305,37 +439,36 @@ module FPU_Transcendental(
                         OP_SIN: begin
                             // Sine via CORDIC rotation mode
                             cordic_enable <= 1'b1;
-                            cordic_mode <= 1'b0;  // Rotation mode
+                            cordic_mode <= 2'b00;  // Rotation mode (SIN/COS)
                             state <= STATE_WAIT_CORDIC;
                         end
 
                         OP_COS: begin
                             // Cosine via CORDIC rotation mode
                             cordic_enable <= 1'b1;
-                            cordic_mode <= 1'b0;  // Rotation mode
+                            cordic_mode <= 2'b00;  // Rotation mode (SIN/COS)
                             state <= STATE_WAIT_CORDIC;
                         end
 
                         OP_SINCOS: begin
                             // Both sin and cos via CORDIC rotation mode
                             cordic_enable <= 1'b1;
-                            cordic_mode <= 1'b0;  // Rotation mode
+                            cordic_mode <= 2'b00;  // Rotation mode (SIN/COS)
                             has_secondary <= 1'b1;  // Will return both results
                             state <= STATE_WAIT_CORDIC;
                         end
 
                         OP_TAN: begin
-                            // Tangent: compute sin/cos, then need to divide
-                            // For now, just compute sin and cos
+                            // Tangent via CORDIC Plan 2: 16 iterations + correction
                             cordic_enable <= 1'b1;
-                            cordic_mode <= 1'b0;  // Rotation mode
+                            cordic_mode <= 2'b10;  // TAN mode (16-iter with polynomial correction)
                             state <= STATE_WAIT_CORDIC;
                         end
 
                         OP_ATAN: begin
-                            // Arctangent via CORDIC vectoring mode
+                            // Arctangent via CORDIC vectoring mode + correction
                             cordic_enable <= 1'b1;
-                            cordic_mode <= 1'b1;  // Vectoring mode
+                            cordic_mode <= 2'b01;  // Vectoring mode (ATAN with correction)
                             state <= STATE_WAIT_CORDIC;
                         end
 
@@ -357,10 +490,10 @@ module FPU_Transcendental(
 
                         OP_FYL2XP1: begin
                             // y × log₂(x+1): First add 1 to x using shared AddSub unit
-                            ext_addsub_req <= 1'b1;
-                            ext_addsub_a <= operand_a;  // x
-                            ext_addsub_b <= FP80_ONE;   // 1.0
-                            ext_addsub_sub <= 1'b0;     // Add (not subtract)
+                            local_addsub_req <= 1'b1;
+                            local_addsub_a <= operand_a;  // x
+                            local_addsub_b <= FP80_ONE;   // 1.0
+                            local_addsub_sub <= 1'b0;     // Add (not subtract)
                             state <= STATE_WAIT_ADD;
                         end
 
@@ -398,15 +531,12 @@ module FPU_Transcendental(
                                 end
 
                                 OP_TAN: begin
-                                    // Have sin and cos, now divide: tan = sin/cos using shared MulDiv unit
-                                    ext_muldiv_req <= 1'b1;
-                                    ext_muldiv_op <= 1'b1;  // 1 = divide
-                                    ext_muldiv_a <= cordic_sin_out;  // sin(θ)
-                                    ext_muldiv_b <= cordic_cos_out;  // cos(θ)
-                                    // Note: Also push 1.0 per Intel spec (for compatibility)
+                                    // Direct TAN output from CORDIC Plan 2 (16-iter + correction)
+                                    result_primary <= cordic_tan_out;
+                                    // Note: Also push 1.0 per Intel 8087 spec (for FPTAN compatibility)
                                     result_secondary <= FP80_ONE;
                                     has_secondary <= 1'b1;
-                                    state <= STATE_WAIT_DIV;
+                                    state <= STATE_DONE;
                                 end
 
                                 OP_ATAN: begin
@@ -431,10 +561,10 @@ module FPU_Transcendental(
                             if (current_operation == OP_FYL2X ||
                                 current_operation == OP_FYL2XP1) begin
                                 // Multiply log result by operand_b (y)
-                                ext_muldiv_req <= 1'b1;
-                                ext_muldiv_op <= 1'b0;  // 0 = multiply
-                                ext_muldiv_a <= poly_result;  // log₂(x) or log₂(x+1)
-                                ext_muldiv_b <= operand_b;    // y
+                                local_muldiv_req <= 1'b1;
+                                local_muldiv_op <= 1'b0;  // 0 = multiply
+                                local_muldiv_a <= poly_result;  // log₂(x) or log₂(x+1)
+                                local_muldiv_b <= operand_b;    // y
                                 state <= STATE_WAIT_MUL;
                             end else begin
                                 // F2XM1 just returns result directly
@@ -464,8 +594,8 @@ module FPU_Transcendental(
 
                 STATE_WAIT_ADD: begin
                     // Wait for addition to complete (FYL2XP1: x+1) using shared AddSub unit
-                    ext_addsub_req <= 1'b0;  // Clear request after it's accepted
-                    if (ext_addsub_done) begin
+                    local_addsub_req <= 1'b0;  // Clear request after it's accepted
+                    if (ext_addsub_done && addsub_grant == 2'd1) begin  // Check we got the grant
                         if (ext_addsub_invalid) begin
                             error <= 1'b1;
                             state <= STATE_DONE;
@@ -480,15 +610,15 @@ module FPU_Transcendental(
                 end
 
                 STATE_WAIT_DIV: begin
-                    // Wait for division to complete (FPTAN: sin/cos) using shared MulDiv unit
-                    ext_muldiv_req <= 1'b0;  // Clear request after it's accepted
-                    if (ext_muldiv_done) begin
+                    // Wait for division to complete (UNUSED after Plan 2 - TAN now direct)
+                    // Kept for compatibility with potential future uses
+                    local_muldiv_req <= 1'b0;  // Clear request after it's accepted
+                    if (ext_muldiv_done && muldiv_grant == 2'd1) begin  // Check we got the grant
                         if (ext_muldiv_invalid || ext_muldiv_div_by_zero) begin
                             error <= 1'b1;
                             state <= STATE_DONE;
                         end else begin
-                            result_primary <= ext_muldiv_result;  // tan(θ)
-                            // result_secondary already set to 1.0
+                            result_primary <= ext_muldiv_result;
                             state <= STATE_DONE;
                         end
                     end
@@ -496,8 +626,8 @@ module FPU_Transcendental(
 
                 STATE_WAIT_MUL: begin
                     // Wait for multiplication to complete (FYL2X, FYL2XP1: log*y) using shared MulDiv unit
-                    ext_muldiv_req <= 1'b0;  // Clear request after it's accepted
-                    if (ext_muldiv_done) begin
+                    local_muldiv_req <= 1'b0;  // Clear request after it's accepted
+                    if (ext_muldiv_done && muldiv_grant == 2'd1) begin  // Check we got the grant
                         if (ext_muldiv_invalid) begin
                             error <= 1'b1;
                             state <= STATE_DONE;
