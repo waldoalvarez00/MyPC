@@ -22,6 +22,7 @@ modelsim/*_tb
 modelsim/tb_*
 modelsim/*_test
 modelsim/*_sim
+modelsim/*_debug
 modelsim/simple_uart_test
 # Icarus Verilog simulation files
 *.vvp
