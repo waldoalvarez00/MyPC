@@ -1,6 +1,6 @@
 # MyPC - Complete 80186 + 8087 PC Emulation for MiSTer
 
-This project is a comprehensive port of Jamie Iles' computer to the MiSTer platform, featuring a complete **80186 CPU** with **8087 Floating Point Unit** and full **VGA/MCGA/CGA/EGA** graphics support. Is is still under developement. Central to its design is the incorporation of a **microassembler** for both CPU and FPU microcode, significantly enhancing the system's modifiability and maintainability. The project's primary objective is to emulate the architecture and functionality of a traditional PC, emphasizing binary compatibility over cycle-accurate replication.
+This project is a comprehensive port of Jamie Iles' computer to the MiSTer platform, featuring a complete **80186 CPU** with **8087 Floating Point Unit** and full **VGA/MCGA/CGA/EGA** graphics support. It is still under developement. Central to its design is the incorporation of a **microassembler** for both CPU and FPU microcode, significantly enhancing the system's modifiability and maintainability. The project's primary objective is to emulate the architecture and functionality of a traditional PC, emphasizing binary compatibility over cycle-accurate replication.
 
 ## Key Features
 
