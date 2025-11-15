@@ -90,14 +90,14 @@ end
 // Memory model with configurable latency
 always @(posedge clk) begin
     if (reset) begin
-        mem_ack <= 1'b0;
+        mem_m_ack <= 1'b0;
         mem_delay_counter <= 0;
     end else if (mem_m_access && !mem_m_ack) begin
         if (mem_delay_counter < mem_latency) begin
             mem_delay_counter <= mem_delay_counter + 1;
-            mem_ack <= 1'b0;
+            mem_m_ack <= 1'b0;
         end else begin
-            mem_ack <= 1'b1;
+            mem_m_ack <= 1'b1;
             if (mem_m_wr_en) begin
                 // Write to memory
                 if (mem_m_bytesel[0])
@@ -106,11 +106,11 @@ always @(posedge clk) begin
                     memory[mem_m_addr][15:8] <= mem_m_data_out[15:8];
             end else begin
                 // Read from memory
-                mem_data_in <= memory[mem_m_addr];
+                mem_m_data_in <= memory[mem_m_addr];
             end
         end
     end else begin
-        mem_ack <= 1'b0;
+        mem_m_ack <= 1'b0;
         mem_delay_counter <= 0;
     end
 end

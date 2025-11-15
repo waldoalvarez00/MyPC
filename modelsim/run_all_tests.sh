@@ -4,6 +4,11 @@
 # Executes all test scripts and reports comprehensive results
 #================================================================
 
+# Add local iverilog to PATH if available
+if [ -d "/tmp/iverilog_extract/usr/bin" ]; then
+    export PATH="/tmp/iverilog_extract/usr/bin:$PATH"
+fi
+
 # Color codes for output
 GREEN='\033[0;32m'
 RED='\033[0;31m'
