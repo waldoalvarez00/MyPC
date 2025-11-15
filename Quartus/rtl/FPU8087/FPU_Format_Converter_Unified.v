@@ -677,11 +677,22 @@ module FPU_Format_Converter_Unified(
                                         flag_inexact = 1'b1;
                                 end
 
-                                // Apply sign
-                                if (src_sign)
-                                    fixed64_out = -$signed(shifted_mant);
-                                else
-                                    fixed64_out = shifted_mant;
+                                // Check for overflow after shift (value exceeds signed 64-bit range)
+                                if (!src_sign && shifted_mant >= 64'h8000000000000000) begin
+                                    // Positive value >= 2.0 (MSB set means >= 2^63)
+                                    flag_overflow = 1'b1;
+                                    fixed64_out = 64'h7FFFFFFFFFFFFFFF;  // Saturate to max
+                                end else if (src_sign && shifted_mant > 64'h8000000000000000) begin
+                                    // Negative value < -2.0 (magnitude > 2^63)
+                                    flag_overflow = 1'b1;
+                                    fixed64_out = 64'h8000000000000000;  // Saturate to min
+                                end else begin
+                                    // Apply sign
+                                    if (src_sign)
+                                        fixed64_out = -$signed(shifted_mant);
+                                    else
+                                        fixed64_out = $signed(shifted_mant);
+                                end
                             end
                         end
                         done = 1'b1;
