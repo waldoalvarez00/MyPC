@@ -122,16 +122,18 @@ module FPU_CORDIC_Wrapper(
     localparam STATE_DONE           = 5'd7;
 
     // Correction states for TAN/ATAN (Plan 2)
-    localparam STATE_CORR_MUL_E2      = 5'd8;   // Multiply ε × ε
-    localparam STATE_CORR_WAIT_MUL_E2 = 5'd9;   // Wait for ε²
-    localparam STATE_CORR_MUL_C3      = 5'd10;  // Multiply ε² × coeff
-    localparam STATE_CORR_WAIT_MUL_C3 = 5'd11;  // Wait for ε² × C3
-    localparam STATE_CORR_ADD_C1      = 5'd12;  // Add/sub 1 ± ε²·C3
-    localparam STATE_CORR_WAIT_ADD    = 5'd13;  // Wait for 1 ± ε²·C3
-    localparam STATE_CORR_MUL_E       = 5'd14;  // Multiply ε × (...)
-    localparam STATE_CORR_WAIT_MUL_E  = 5'd15;  // Wait for ε × (1±ε²/3)
-    localparam STATE_CORR_COMBINE     = 5'd16;  // Combine with CORDIC result
-    localparam STATE_CORR_WAIT_COMBINE= 5'd17;  // Wait for final result
+    localparam STATE_CORR_CALC_RESIDUAL  = 5'd8;   // Compute y/x for ATAN residual
+    localparam STATE_CORR_WAIT_RESIDUAL  = 5'd9;   // Wait for residual division
+    localparam STATE_CORR_MUL_E2         = 5'd10;  // Multiply ε × ε
+    localparam STATE_CORR_WAIT_MUL_E2    = 5'd11;  // Wait for ε²
+    localparam STATE_CORR_MUL_C3         = 5'd12;  // Multiply ε² × coeff
+    localparam STATE_CORR_WAIT_MUL_C3    = 5'd13;  // Wait for ε² × C3
+    localparam STATE_CORR_ADD_C1         = 5'd14;  // Add/sub 1 ± ε²·C3
+    localparam STATE_CORR_WAIT_ADD       = 5'd15;  // Wait for 1 ± ε²·C3
+    localparam STATE_CORR_MUL_E          = 5'd16;  // Multiply ε × (...)
+    localparam STATE_CORR_WAIT_MUL_E     = 5'd17;  // Wait for ε × (1±ε²/3)
+    localparam STATE_CORR_COMBINE        = 5'd18;  // Combine with CORDIC result
+    localparam STATE_CORR_WAIT_COMBINE   = 5'd19;  // Wait for final result
 
     reg [4:0] state;
     reg [5:0] iteration_count;
@@ -467,9 +469,11 @@ module FPU_CORDIC_Wrapper(
                         y_cordic <= 64'd0;
                         z_cordic <= fp80_to_fixed(angle_reduced);
                     end else begin
-                        // ATAN mode: x = x_in, y = y_in, z = 0 (16 iterations + correction)
-                        x_cordic <= fp80_to_fixed(x_in);
-                        y_cordic <= fp80_to_fixed(y_in);
+                        // ATAN mode: x = x_in/2, y = y_in/2, z = 0 (16 iterations + correction)
+                        // Pre-scale by 1/2 to prevent overflow during CORDIC iterations
+                        // (First iteration can produce x+y which may exceed Q2.62 range)
+                        x_cordic <= fp80_to_fixed(x_in) >>> 1;  // Divide by 2
+                        y_cordic <= fp80_to_fixed(y_in) >>> 1;  // Divide by 2
                         z_cordic <= 64'd0;
                     end
                     state <= STATE_CORDIC_INIT;
@@ -523,19 +527,19 @@ module FPU_CORDIC_Wrapper(
                     if (iteration_count >= max_iterations - 1) begin
                         // Finished iterations - decide next state
                         if (cordic_mode == MODE_TAN || cordic_mode == MODE_VECTORING) begin
-                            // TAN/ATAN modes: save residual and proceed to correction
+                            // TAN/ATAN modes: save results and proceed to correction
                             if (cordic_mode == MODE_TAN) begin
-                                // For TAN: residual is z (angle residual)
-                                // Result = y/x, need to compute and correct
+                                // For TAN: residual is z (unconsumed angle)
+                                // Partial result is y (numerator of tan)
                                 residual_angle <= fixed_to_fp80(z_next);
-                                cordic_partial_result <= fixed_to_fp80(y_next);  // sin component
-                                // Will divide y/x and apply correction
+                                cordic_partial_result <= fixed_to_fp80(y_next);
+                                state <= STATE_CORR_MUL_E2;  // Start correction sequence
                             end else begin
-                                // For ATAN: residual is z (accumulated angle - should be close to atan)
-                                residual_angle <= fixed_to_fp80(z_next);
+                                // For ATAN: partial result is z (accumulated angle)
+                                // Residual needs to be computed as y/x (small remaining angle)
                                 cordic_partial_result <= fixed_to_fp80(z_next);
+                                state <= STATE_CORR_CALC_RESIDUAL;  // Compute y/x first
                             end
-                            state <= STATE_CORR_MUL_E2;  // Start correction sequence
                         end else begin
                             // SIN/COS mode: convert output directly
                             state <= STATE_CONVERT_OUTPUT;
@@ -578,9 +582,34 @@ module FPU_CORDIC_Wrapper(
                 //=================================================================
                 // Correction States for TAN/ATAN (Plan 2)
                 //
-                // Polynomial evaluation: correction = ε × (1 ± ε²/3)
-                // Sequence: ε² → ε²×C3 → 1±ε²×C3 → ε×(1±ε²/3) → CORDIC+correction
+                // For ATAN: First compute residual ε = y_final / x_final
+                // For TAN: Residual ε already set to z_final
+                // Then: correction = ε × (1 ± ε²/3)
+                // Sequence: [y/x] → ε² → ε²×C3 → 1±ε²×C3 → ε×(1±ε²/3) → CORDIC+correction
                 //=================================================================
+
+                STATE_CORR_CALC_RESIDUAL: begin
+                    // ATAN mode only: Compute residual ε = y_final / x_final
+                    // For small y after 16 iterations, ε ≈ atan(y/x) ≈ y/x
+                    ext_muldiv_req <= 1'b1;
+                    ext_muldiv_op <= 1'b1;  // Divide
+                    ext_muldiv_a <= fixed_to_fp80(y_cordic);
+                    ext_muldiv_b <= fixed_to_fp80(x_cordic);
+                    state <= STATE_CORR_WAIT_RESIDUAL;
+                end
+
+                STATE_CORR_WAIT_RESIDUAL: begin
+                    ext_muldiv_req <= 1'b0;  // Clear request
+                    if (ext_muldiv_done) begin
+                        if (ext_muldiv_invalid) begin
+                            error <= 1'b1;
+                            state <= STATE_DONE;
+                        end else begin
+                            residual_angle <= ext_muldiv_result;  // ε = y/x
+                            state <= STATE_CORR_MUL_E2;
+                        end
+                    end
+                end
 
                 STATE_CORR_MUL_E2: begin
                     // Step 1: Compute ε² = ε × ε
