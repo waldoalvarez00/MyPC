@@ -15,6 +15,30 @@
 // You should have received a copy of the GNU General Public License
 // along with s80x86.  If not, see <http://www.gnu.org/licenses/>.
 
+//==============================================================================
+// NOTE: THIS MODULE IS NOT USED IN THE MISTER BUILD
+//==============================================================================
+// The MiSTer build (mycore.sv) uses MSMouseWrapper instead of PS2MouseController
+// for mouse handling. MSMouseWrapper converts PS/2 mouse data to Microsoft Serial
+// Mouse format for UART output - a fundamentally different architecture.
+//
+// This module is only compiled when CONFIG_PS2 is defined in Top.sv, which is
+// NOT the case for MiSTer.
+//
+// This module remains in the codebase as:
+// - Reference implementation with comprehensive test coverage (14/14 tests)
+// - Alternative configuration for non-MiSTer builds
+// - Educational value for PS/2 mouse protocol implementation
+//
+// For MiSTer-specific testing, see: modelsim/msmouse_wrapper_tb.sv
+// For this module's tests, see: modelsim/ps2_mouse_tb.sv
+//
+// Key differences from MSMouseWrapper:
+// - CPU register interface (not serial UART output)
+// - Standard PS/2 mouse data format (not Microsoft Serial Mouse)
+// - No movement accumulation or serial format conversion
+//==============================================================================
+
 `default_nettype none
 module PS2MouseController #(parameter clkf=50000000)
                           (input logic clk,
