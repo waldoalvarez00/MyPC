@@ -14,6 +14,7 @@ Quartus/verilator_lint.log
 # Simulation results
 modelsim/sim_results_*/
 modelsim/master_test_results_*/
+modelsim/test_output/
 *.vcd
 
 # Compiled test binaries
