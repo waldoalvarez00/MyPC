@@ -118,7 +118,7 @@ module fontcolorlut_tb;
         graphics_enabled = 0;
         glyph = 8'h41;  // 'A'
         glyph_row = 3'd0;
-        glyph_col = 3'd0;
+        glyph_col = 3'd3;  // Position with foreground pixel in 'A' glyph
         foreground = 4'hF;  // White
         background = 4'h0;  // Black
 
