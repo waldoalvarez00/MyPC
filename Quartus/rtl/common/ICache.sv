@@ -92,8 +92,9 @@ wire hit = accessing && ((valid && tags_match) ||
 
 // Output logic
 wire [15:0] c_q;
+reg c_ack_reg;
 assign c_data_in = enabled ? (c_ack ? c_q : 16'b0) : m_data_in;
-assign c_ack = enabled ? accessing & hit : m_ack;
+assign c_ack = enabled ? c_ack_reg : m_ack;
 
 // Memory interface - simplified for read-only
 assign m_addr = enabled ? c_m_addr : c_addr;
@@ -159,8 +160,15 @@ always_ff @(posedge clk or posedge reset) begin
     if (reset) begin
         busy <= 1'b0;
         accessing <= 1'b0;
+        c_ack_reg <= 1'b0;
     end else begin
         accessing <= c_access;
+        // Register ACK to align with BlockRam read latency
+        // Clear immediately when access goes low
+        if (!c_access)
+            c_ack_reg <= 1'b0;
+        else
+            c_ack_reg <= accessing & hit;
     end
 end
 
