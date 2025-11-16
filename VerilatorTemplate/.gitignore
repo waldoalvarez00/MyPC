@@ -1,0 +1,8 @@
+
+verilator/.vs/*
+verilator/x64/*
+verilator/Release/*
+verilator/Debug/*
+verilator/obj_dir/*
+verilator/audio.wav
+*.vcd
