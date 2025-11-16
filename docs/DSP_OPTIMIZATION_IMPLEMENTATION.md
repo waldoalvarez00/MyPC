@@ -22,15 +22,14 @@ Phase 1 DSP block optimization has been successfully implemented and tested. The
 **Changes:**
 ```tcl
 # DSP Block Optimization Settings
-# Enable aggressive DSP block inference for multipliers
-set_global_assignment -name AUTO_DSP_BLOCK_REPLACEMENT ON
+# Prioritize DSP blocks for multipliers over logic fabric
 set_global_assignment -name DSP_BLOCK_BALANCING "DSP Blocks"
 ```
 
 **Impact:**
-- Instructs Quartus to aggressively infer DSP blocks for all multiplication operations
-- Prioritizes DSP block usage over logic fabric for multipliers
-- Applies globally to all modules in the design
+- Prioritizes DSP block usage over logic fabric when inferring multipliers
+- Works in conjunction with explicit (* multstyle = "dsp" *) attributes
+- Applies globally to all multiplication operations in the design
 
 ---
 
@@ -258,7 +257,7 @@ git push
 
 **1. Remove DSP settings from mycore.qsf:**
 ```bash
-# Delete lines 53-56 in Quartus/mycore.qsf
+# Delete line 55 (DSP_BLOCK_BALANCING) in Quartus/mycore.qsf
 ```
 
 **2. Remove FPU multiplier attribute:**

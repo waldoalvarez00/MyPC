@@ -19,7 +19,6 @@ This analysis identifies arithmetic operations in the MyPC codebase that can be 
 
 **Quartus Settings Analysis:**
 - Synthesis mode: `OPTIMIZATION_TECHNIQUE SPEED`
-- No `AUTO_DSP_BLOCK_REPLACEMENT` setting found
 - No `DSP_BLOCK_BALANCING` configuration
 - Relying on **default automatic inference** (conservative)
 
@@ -288,12 +287,12 @@ Division is inherently iterative and does NOT benefit from DSP blocks on Cyclone
 Edit `Quartus/mycore.qsf`:
 
 ```tcl
-# Enable aggressive DSP block inference
-set_global_assignment -name AUTO_DSP_BLOCK_REPLACEMENT ON
+# DSP Block Optimization Settings
+# Prioritize DSP blocks for multipliers over logic fabric
 set_global_assignment -name DSP_BLOCK_BALANCING "DSP Blocks"
 ```
 
-**Impact:** Quartus will automatically infer DSP blocks for all suitable multiplications.
+**Impact:** Quartus will prioritize DSP blocks over logic fabric for multiplication operations.
 
 **2. Add Explicit Attributes to FPU Multiplier**
 
