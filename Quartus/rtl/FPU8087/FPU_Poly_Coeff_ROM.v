@@ -20,68 +20,51 @@ module FPU_Poly_Coeff_ROM(
     output reg [79:0] coefficient  // Coefficient value (FP80)
 );
 
-    // Polynomial selectors
-    localparam POLY_F2XM1 = 4'd0;  // 2^x - 1
-    localparam POLY_LOG2  = 4'd1;  // log₂(1+x)
+    // Store coefficients in a tiny ROM so Quartus can map into MLABs instead of logic
+    (* ramstyle = "MLAB" *) reg [79:0] coeff_rom [0:31];
+
+    initial begin
+        // F2XM1 coefficients (degree 6) at indices 0x00-0x0F
+        coeff_rom[ 0] = 80'h3FFE_B17217F7D1CF79AC;  // c0
+        coeff_rom[ 1] = 80'h3FFD_EC709DC3A03FD45B;  // c1
+        coeff_rom[ 2] = 80'h3FFB_E3D96B0E8B0B3A0F;  // c2
+        coeff_rom[ 3] = 80'h3FF9_9D955B7DD273B948;  // c3
+        coeff_rom[ 4] = 80'h3FF6_AE64567F544E3897;  // c4
+        coeff_rom[ 5] = 80'h3FF3_A27912F3B25C65D8;  // c5
+        coeff_rom[ 6] = 80'h0;
+        coeff_rom[ 7] = 80'h0;
+        coeff_rom[ 8] = 80'h0;
+        coeff_rom[ 9] = 80'h0;
+        coeff_rom[10] = 80'h0;
+        coeff_rom[11] = 80'h0;
+        coeff_rom[12] = 80'h0;
+        coeff_rom[13] = 80'h0;
+        coeff_rom[14] = 80'h0;
+        coeff_rom[15] = 80'h0;
+
+        // LOG2 coefficients (degree 7) at indices 0x10-0x1F
+        coeff_rom[16] = 80'h3FFF_B8AA3B295C17F0BC;  // c0
+        coeff_rom[17] = 80'hBFFE_B8AA3B295C17F0BC;  // c1
+        coeff_rom[18] = 80'h3FFE_F5C28F5C28F5C28F;  // c2
+        coeff_rom[19] = 80'hBFFE_B8AA3B295C17F0BC;  // c3
+        coeff_rom[20] = 80'h3FFD_93E5939A08CEA7B7;  // c4
+        coeff_rom[21] = 80'hBFFD_F5C28F5C28F5C28F;  // c5
+        coeff_rom[22] = 80'h3FFD_A3D70A3D70A3D70A;  // c6
+        coeff_rom[23] = 80'hBFFD_B8AA3B295C17F0BC;  // c7
+        coeff_rom[24] = 80'h0;
+        coeff_rom[25] = 80'h0;
+        coeff_rom[26] = 80'h0;
+        coeff_rom[27] = 80'h0;
+        coeff_rom[28] = 80'h0;
+        coeff_rom[29] = 80'h0;
+        coeff_rom[30] = 80'h0;
+        coeff_rom[31] = 80'h0;
+    end
+
+    wire [4:0] rom_addr = {poly_select[0], coeff_index};  // only two polynomials used
 
     always @(*) begin
-        case (poly_select)
-            POLY_F2XM1: begin
-                // F2XM1: 2^x - 1 ≈ c₀x + c₁x² + c₂x³ + c₃x⁴ + c₄x⁵ + c₅x⁶
-                //
-                // Coefficients from minimax approximation for x ∈ [-1, 1]:
-                // c₀ = ln(2) ≈ 0.693147180559945
-                // c₁ = (ln(2))²/2! ≈ 0.240226506959101
-                // c₂ = (ln(2))³/3! ≈ 0.055504108664821
-                // c₃ = (ln(2))⁴/4! ≈ 0.009618129107628
-                // c₄ = (ln(2))⁵/5! ≈ 0.001333355814670
-                // c₅ = (ln(2))⁶/6! ≈ 0.000154034660088
-                //
-                case (coeff_index)
-                    4'd0: coefficient = 80'h3FFE_B17217F7D1CF79AC;  // c₀ = ln(2)
-                    4'd1: coefficient = 80'h3FFD_EC709DC3A03FD45B;  // c₁ = 0.240226506959101
-                    4'd2: coefficient = 80'h3FFB_E3D96B0E8B0B3A0F;  // c₂ = 0.055504108664821
-                    4'd3: coefficient = 80'h3FF9_9D955B7DD273B948;  // c₃ = 0.009618129107628
-                    4'd4: coefficient = 80'h3FF6_AE64567F544E3897;  // c₄ = 0.001333355814670
-                    4'd5: coefficient = 80'h3FF3_A27912F3B25C65D8;  // c₅ = 0.000154034660088
-                    default: coefficient = 80'h0;  // Unused coefficients
-                endcase
-            end
-
-            POLY_LOG2: begin
-                // LOG2: log₂(1+x) ≈ c₀x + c₁x² + c₂x³ + ... + c₇x⁸
-                //
-                // Coefficients from minimax approximation for x ∈ [0, 1]:
-                // Using change of base: log₂(1+x) = ln(1+x) / ln(2)
-                //
-                // Taylor series: ln(1+x) = x - x²/2 + x³/3 - x⁴/4 + ...
-                // Divided by ln(2):
-                // c₀ = 1/ln(2) ≈ 1.442695040888963
-                // c₁ = -1/(2*ln(2)) ≈ -0.721347520444482
-                // c₂ = 1/(3*ln(2)) ≈ 0.480898346962988
-                // c₃ = -1/(4*ln(2)) ≈ -0.360673760222241
-                // c₄ = 1/(5*ln(2)) ≈ 0.288539008177793
-                // c₅ = -1/(6*ln(2)) ≈ -0.240449173481494
-                // c₆ = 1/(7*ln(2)) ≈ 0.206099291555566
-                // c₇ = -1/(8*ln(2)) ≈ -0.180336880111120
-                //
-                case (coeff_index)
-                    4'd0: coefficient = 80'h3FFF_B8AA3B295C17F0BC;  // c₀ = 1.442695040888963
-                    4'd1: coefficient = 80'hBFFE_B8AA3B295C17F0BC;  // c₁ = -0.721347520444482
-                    4'd2: coefficient = 80'h3FFE_F5C28F5C28F5C28F;  // c₂ = 0.480898346962988
-                    4'd3: coefficient = 80'hBFFE_B8AA3B295C17F0BC;  // c₃ = -0.360673760222241
-                    4'd4: coefficient = 80'h3FFD_93E5939A08CEA7B7;  // c₄ = 0.288539008177793
-                    4'd5: coefficient = 80'hBFFD_F5C28F5C28F5C28F;  // c₅ = -0.240449173481494
-                    4'd6: coefficient = 80'h3FFD_A3D70A3D70A3D70A;  // c₆ = 0.206099291555566
-                    4'd7: coefficient = 80'hBFFD_B8AA3B295C17F0BC;  // c₇ = -0.180336880111120
-                    default: coefficient = 80'h0;  // Unused coefficients
-                endcase
-            end
-
-            default: begin
-                coefficient = 80'h0;
-            end
-        endcase
+        coefficient = coeff_rom[rom_addr];
     end
 
 endmodule

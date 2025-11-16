@@ -15,6 +15,10 @@
 // You should have received a copy of the GNU General Public License
 // along with s80x86.  If not, see <http://www.gnu.org/licenses/>.
 
+// Hint Quartus to map these tiny multiplies into DSPs; hide from simulators if needed.
+`ifdef SYNTHESIS
+(* multstyle = "dsp" *)
+`endif
 task do_mul;
     output [31:0] out;
     input is_8_bit;
