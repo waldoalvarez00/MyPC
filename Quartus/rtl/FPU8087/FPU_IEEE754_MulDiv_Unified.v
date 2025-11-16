@@ -82,7 +82,7 @@ module FPU_IEEE754_MulDiv_Unified(
     // Multiply-Specific Registers
     //=================================================================
 
-    reg [127:0] product;               // 64×64 = 128-bit product
+    (* multstyle = "dsp" *) reg [127:0] product;               // 64×64 = 128-bit product
 
     //=================================================================
     // Divide-Specific Registers
