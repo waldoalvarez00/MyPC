@@ -173,6 +173,12 @@ module FPU_RegisterStack(
             // For pop+write: use OLD stack pointer (write before pop takes effect)
             // For write only: use current stack pointer
             if (write_enable) begin
+                // Debug: observe writes into the physical stack during simulation
+                // synthesis translate_off
+                $display("[REGSTACK] write_enable=1 push=%b pop=%b sp=%0d write_reg=%0d data_in=%h",
+                         push, pop, stack_ptr, write_reg, data_in);
+                // synthesis translate_on
+
                 if (push) begin
                     // Push+write: use new stack pointer
                     registers[(new_stack_ptr + write_reg) & 3'b111] <= data_in;

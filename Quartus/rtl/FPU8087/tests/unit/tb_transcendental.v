@@ -22,7 +22,7 @@ module tb_transcendental;
 
     parameter CLK_PERIOD = 10;  // 100 MHz clock
     parameter MAX_ERRORS = 10;  // Stop after this many errors
-    parameter VERBOSE = 0;      // Set to 1 for detailed output
+    parameter VERBOSE = 1;      // Set to 1 for detailed output
 
     //=================================================================
     // Clock and Reset
@@ -51,6 +51,12 @@ module tb_transcendental;
     reg [31:0] int_data_in;
     wire [31:0] int_data_out;
 
+    // Memory operand format signals (not used in this testbench, tie off)
+    wire        has_memory_op = 1'b0;
+    wire [1:0]  operand_size  = 2'd3;  // tbyte/FP80 (no conversion)
+    wire        is_integer    = 1'b0;
+    wire        is_bcd        = 1'b0;
+
     reg [15:0] control_in;
     reg        control_write;
     wire [15:0] status_out;
@@ -69,6 +75,10 @@ module tb_transcendental;
         .data_out(data_out),
         .int_data_in(int_data_in),
         .int_data_out(int_data_out),
+        .has_memory_op(has_memory_op),
+        .operand_size(operand_size),
+        .is_integer(is_integer),
+        .is_bcd(is_bcd),
         .control_in(control_in),
         .control_write(control_write),
         .status_out(status_out),

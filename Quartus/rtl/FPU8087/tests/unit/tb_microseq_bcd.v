@@ -104,6 +104,7 @@ module tb_microseq_bcd;
         .arith_uint64_in(arith_uint64_in),
         .arith_uint64_sign_in(arith_uint64_sign_in),
         .arith_result(arith_result),
+        .arith_result_secondary(80'h0),
         .arith_uint64_out(arith_uint64_out),
         .arith_uint64_sign_out(arith_uint64_sign_out),
         .arith_done(arith_done),

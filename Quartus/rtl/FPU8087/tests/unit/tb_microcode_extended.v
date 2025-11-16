@@ -50,6 +50,7 @@ module tb_microcode_extended;
         .arith_fp32_in(),
         .arith_fp64_in(),
         .arith_result(80'h0),  // Stub: return zero
+        .arith_result_secondary(80'h0),
         .arith_int16_out(16'h0),
         .arith_int32_out(32'h0),
         .arith_uint64_out(64'h0),

@@ -5,11 +5,15 @@ set -e  # Exit on error
 
 echo "Compiling transcendental function testbench..."
 
-cd /home/user/MyPC/Quartus/rtl/FPU8087
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+TB="${ROOT_DIR}/tests/unit/tb_transcendental.v"
+
+cd "${ROOT_DIR}"
 
 # Compile with Icarus Verilog
 iverilog -g2009 -Wall -o tb_transcendental.vvp \
-    tb_transcendental.v \
+    "${TB}" \
     FPU_Core.v \
     FPU_ArithmeticUnit.v \
     FPU_Transcendental.v \
@@ -38,6 +42,12 @@ iverilog -g2009 -Wall -o tb_transcendental.vvp \
     FPU_RegisterStack.v \
     FPU_StatusWord.v \
     FPU_ControlWord.v \
+    FPU_IEEE754_MulDiv_Unified.v \
+    FPU_Format_Converter_Unified.v \
+    FPU_Payne_Hanek.v \
+    FPU_Payne_Hanek_ROM.v \
+    MicroSequencer_Extended_BCD.v \
+    FPU_Exception_Handler.v \
     AddSubComp.v \
     LZCbit.v \
     LZCByte.v \
@@ -49,16 +59,7 @@ iverilog -g2009 -Wall -o tb_transcendental.vvp \
     MathConstants.v \
     2>&1 | tee compile.log
 
-if [ $? -eq 0 ]; then
-    echo ""
-    echo "Compilation successful!"
-    echo ""
-    echo "Running simulation..."
-    vvp tb_transcendental.vvp | tee simulation.log
-    echo ""
-    echo "Simulation complete. Check simulation.log for results."
-else
-    echo ""
-    echo "Compilation failed! Check compile.log for errors."
-    exit 1
-fi
+echo "Running simulation..."
+vvp tb_transcendental.vvp | tee simulation.log
+echo ""
+echo "Simulation complete. Check simulation.log for results."

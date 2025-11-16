@@ -140,6 +140,7 @@ module tb_payne_hanek_microcode;
         .arith_fp32_in(arith_fp32_in),
         .arith_fp64_in(arith_fp64_in),
         .arith_result(arith_result),
+        .arith_result_secondary(80'h0),
         .arith_int16_out(arith_int16_out),
         .arith_int32_out(arith_int32_out),
         .arith_uint64_out(arith_uint64_out),

@@ -51,6 +51,7 @@ module MicroSequencer_Extended_BCD (
     output reg [31:0] arith_fp32_in,
     output reg [63:0] arith_fp64_in,
     input wire [79:0] arith_result,         // Result (80-bit FP)
+    input wire [79:0] arith_result_secondary, // Secondary result (for sincos/tan)
     input wire signed [15:0] arith_int16_out,
     input wire signed [31:0] arith_int32_out,
     input wire [63:0] arith_uint64_out,     // From BCD conversion
@@ -86,6 +87,9 @@ module MicroSequencer_Extended_BCD (
     input wire [79:0] ph_rom_data       // ROM data output
 );
 
+    // Common FP80 constants
+    localparam FP80_HALF = 80'h3FFE_8000000000000000;  // 0.5
+
     //=================================================================
     // Opcode Definitions
     //=================================================================
@@ -118,6 +122,7 @@ module MicroSequencer_Extended_BCD (
     localparam MOP_CALL_ARITH     = 5'h10; // Start arithmetic operation
     localparam MOP_WAIT_ARITH     = 5'h11; // Wait for arithmetic completion
     localparam MOP_LOAD_ARITH_RES = 5'h12; // Load result from arithmetic unit
+    localparam MOP_LOAD_ARITH_RES_SEC = 5'd26; // Load secondary result from arithmetic unit
 
     // BCD conversion operations (0x1A-0x1F)
     localparam MOP_CALL_BCD2BIN   = 5'h1A; // Start BCD → Binary conversion
@@ -326,17 +331,52 @@ module MicroSequencer_Extended_BCD (
         microcode_rom[16'h0133] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
         //-------------------------------------------------------------
-        // Program 4: FSQRT - Square Root
-        // Address: 0x0140-0x014F
-        // Computes √ST(0) using Newton-Raphson iteration
-        // Newton-Raphson: x[n+1] = 0.5 * (x[n] + N/x[n])
-        // For better performance, we use hardware OP_SQRT (12) if available
+        // Program 4: FSQRT - Square Root (microcode Newton-Raphson)
+        // Address: 0x0140-0x0160
+        // Computes √N using two Newton-Raphson iterations:
+        //   x0 = N
+        //   x_{k+1} = 0.5 * (x_k + N / x_k)
+        // Uses shared DIV/ADD/MUL hardware; no dedicated SQRT block.
         //-------------------------------------------------------------
-        microcode_rom[16'h0140] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0141};          // Load value from data_in
-        microcode_rom[16'h0141] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd12, 15'h0142};     // Call SQRT (op=12) - hardware sqrt
-        microcode_rom[16'h0142] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0143};      // Wait for completion
-        microcode_rom[16'h0143] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0144};  // Load result
-        microcode_rom[16'h0144] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        // Init: load N, stash N in C, seed x = N in B
+        microcode_rom[16'h0140] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0141};          // A = N
+        microcode_rom[16'h0141] = {OPCODE_EXEC, MOP_MOVE_A_TO_C, 8'd0, 15'h0142};     // C = N
+        microcode_rom[16'h0142] = {OPCODE_EXEC, MOP_MOVE_A_TO_B, 8'd0, 15'h0143};     // B = x (seed = N)
+        // Iteration 1: q = N / x
+        microcode_rom[16'h0143] = {OPCODE_EXEC, MOP_MOVE_C_TO_A, 8'd0, 15'h0144};     // A = N
+        microcode_rom[16'h0144] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd3, 15'h0145};      // DIV (op=3): N / x
+        microcode_rom[16'h0145] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0146};      // Wait DIV
+        microcode_rom[16'h0146] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0147};  // temp_result = q
+        microcode_rom[16'h0147] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h0148};   // A = q
+        // s = q + x
+        microcode_rom[16'h0148] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd0, 15'h0149};      // ADD (op=0): q + x(B)
+        microcode_rom[16'h0149] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h014A};      // Wait ADD
+        microcode_rom[16'h014A] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h014B};  // temp_result = s
+        // x_next = s * 0.5
+        microcode_rom[16'h014B] = {OPCODE_EXEC, MOP_LOAD_HALF_B, 8'd0, 15'h014C};     // B = 0.5
+        microcode_rom[16'h014C] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h014D};   // A = s
+        microcode_rom[16'h014D] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h014E};      // MUL (op=2): s * 0.5
+        microcode_rom[16'h014E] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h014F};      // Wait MUL
+        microcode_rom[16'h014F] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0150};  // temp_result = x_next
+        microcode_rom[16'h0150] = {OPCODE_EXEC, MOP_MOVE_RES_TO_B, 8'd0, 15'h0151};   // x = x_next (B)
+        // Iteration 2: repeat with updated x
+        microcode_rom[16'h0151] = {OPCODE_EXEC, MOP_MOVE_C_TO_A, 8'd0, 15'h0152};     // A = N
+        microcode_rom[16'h0152] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd3, 15'h0153};      // DIV N / x
+        microcode_rom[16'h0153] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0154};      // Wait DIV
+        microcode_rom[16'h0154] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0155};  // q
+        microcode_rom[16'h0155] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h0156};   // A = q
+        microcode_rom[16'h0156] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd0, 15'h0157};      // ADD q + x
+        microcode_rom[16'h0157] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0158};      // Wait ADD
+        microcode_rom[16'h0158] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0159};  // s
+        microcode_rom[16'h0159] = {OPCODE_EXEC, MOP_LOAD_HALF_B, 8'd0, 15'h015A};     // B = 0.5
+        microcode_rom[16'h015A] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h015B};   // A = s
+        microcode_rom[16'h015B] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h015C};      // MUL s * 0.5
+        microcode_rom[16'h015C] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h015D};      // Wait MUL
+        microcode_rom[16'h015D] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h015E};  // x_next
+        microcode_rom[16'h015E] = {OPCODE_EXEC, MOP_MOVE_RES_TO_B, 8'd0, 15'h015F};   // x = x_next
+        // Return with temp_result holding x_next
+        microcode_rom[16'h015F] = {OPCODE_EXEC, MOP_STORE, 8'd0, 15'h0160};           // Store result
+        microcode_rom[16'h0160] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
         //-------------------------------------------------------------
         // Program 5: FSIN - Sine
@@ -529,10 +569,9 @@ module MicroSequencer_Extended_BCD (
         microcode_rom[16'h0750] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0751};          // Load angle from data_in
         microcode_rom[16'h0751] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd15, 15'h0752};     // Call SINCOS (op=15)
         microcode_rom[16'h0752] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0753};      // Wait for completion
-        microcode_rom[16'h0753] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0754};  // Load sin result (primary)
-        // Note: Secondary result (cos) available in arith_result_secondary
-        microcode_rom[16'h0754] = {OPCODE_EXEC, MOP_STORE, 8'd0, 15'h0755};           // Store result
-        microcode_rom[16'h0755] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h0753] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0754};      // Load sin result (primary)
+        microcode_rom[16'h0754] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES_SEC, 8'd0, 15'h0755};  // Load cos result (secondary) into temp_fp_b
+        microcode_rom[16'h0755] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                         // Return
 
         //-------------------------------------------------------------
         // Program 20: FPREM1 - IEEE Partial Remainder
@@ -895,6 +934,13 @@ module MicroSequencer_Extended_BCD (
                                     $display("[MICROSEQ_BCD] MOVE_C_TO_B: %h", temp_fp_c);
                                 end
 
+                                MOP_LOAD_HALF_B: begin
+                                    temp_fp_b <= FP80_HALF;
+                                    pc <= next_addr;
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ_BCD] LOAD_HALF_B: %h", FP80_HALF);
+                                end
+
                                 MOP_CALL_ARITH: begin
                                     arith_operation <= immediate[4:0];
                                     arith_operand_a <= temp_fp_a;
@@ -930,6 +976,13 @@ module MicroSequencer_Extended_BCD (
                                     pc <= next_addr;
                                     state <= STATE_FETCH;
                                     $display("[MICROSEQ_BCD] LOAD_ARITH_RES: %h", arith_result);
+                                end
+
+                                MOP_LOAD_ARITH_RES_SEC: begin
+                                    temp_fp_b <= arith_result_secondary;
+                                    pc <= next_addr;
+                                    state <= STATE_FETCH;
+                                    $display("[MICROSEQ_BCD] LOAD_ARITH_RES_SEC: %h", arith_result_secondary);
                                 end
 
                                 // NEW: BCD to Binary operations

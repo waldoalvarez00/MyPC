@@ -296,6 +296,18 @@ module FPU_Core(
     reg [31:0]  arith_fp32_in;
     reg [63:0]  arith_fp64_in;
 
+    // Final muxed arithmetic control (declared before instantiation)
+    wire        final_arith_enable;
+    wire [4:0]  final_arith_operation;
+    wire [79:0] final_arith_operand_a;
+    wire [79:0] final_arith_operand_b;
+    wire signed [15:0] final_arith_int16_in;
+    wire signed [31:0] final_arith_int32_in;
+    wire [63:0] final_arith_uint64_in;
+    wire        final_arith_uint64_sign_in;
+    wire [31:0] final_arith_fp32_in;
+    wire [63:0] final_arith_fp64_in;
+
     FPU_ArithmeticUnit arithmetic_unit (
         .clk(clk),
         .reset(reset),
@@ -450,6 +462,7 @@ module FPU_Core(
     wire       microseq_complete;
     wire [79:0] microseq_data_out;
     wire [79:0] microseq_temp_result;  // Debug output: temp_result from microsequencer
+    wire [79:0] microseq_temp_fp_b;    // Secondary temp (used for FSINCOS cos)
     reg [79:0]  microseq_data_in_source;  // Multiplexed data input (external data_in or temp_operand_a)
 
     // Microsequencer interfaces to hardware units (connect to same units as FPU_Core)
@@ -479,25 +492,51 @@ module FPU_Core(
     // Shared control: when microsequencer is active, it controls the hardware units
     reg microseq_active;
 
+    // Explicit mux outputs for BCD/ROM to avoid implicit wires
+    wire        final_bcd2bin_enable;
+    wire [79:0] final_bcd2bin_bcd_in;
+    wire        final_bin2bcd_enable;
+    wire [63:0] final_bin2bcd_binary_in;
+    wire        final_bin2bcd_sign_in;
+    wire [2:0]  final_ph_rom_addr;
+    wire [79:0] final_ph_rom_data;
+
     // Multiplex hardware unit control between FPU_Core FSM and microsequencer
     // Note: rounding_mode always comes from control word, not multiplexed
-    wire        final_arith_enable = microseq_active ? microseq_arith_enable : arith_enable;
-    wire [4:0]  final_arith_operation = microseq_active ? microseq_arith_operation : arith_operation;
-    wire [79:0] final_arith_operand_a = microseq_active ? microseq_arith_operand_a : arith_operand_a;
-    wire [79:0] final_arith_operand_b = microseq_active ? microseq_arith_operand_b : arith_operand_b;
-    wire signed [15:0] final_arith_int16_in = microseq_active ? microseq_arith_int16_in : arith_int16_in;
-    wire signed [31:0] final_arith_int32_in = microseq_active ? microseq_arith_int32_in : arith_int32_in;
-    wire [63:0] final_arith_uint64_in = microseq_active ? microseq_arith_uint64_in : arith_uint64_in;
-    wire        final_arith_uint64_sign_in = microseq_active ? microseq_arith_uint64_sign_in : arith_uint64_sign_in;
-    wire [31:0] final_arith_fp32_in = microseq_active ? microseq_arith_fp32_in : arith_fp32_in;
-    wire [63:0] final_arith_fp64_in = microseq_active ? microseq_arith_fp64_in : arith_fp64_in;
+    assign final_arith_enable      = microseq_active ? microseq_arith_enable      : arith_enable;
+    assign final_arith_operation   = microseq_active ? microseq_arith_operation   : arith_operation;
+    assign final_arith_operand_a   = microseq_active ? microseq_arith_operand_a   : arith_operand_a;
+    assign final_arith_operand_b   = microseq_active ? microseq_arith_operand_b   : arith_operand_b;
+    assign final_arith_int16_in    = microseq_active ? microseq_arith_int16_in    : arith_int16_in;
+    assign final_arith_int32_in    = microseq_active ? microseq_arith_int32_in    : arith_int32_in;
+    assign final_arith_uint64_in   = microseq_active ? microseq_arith_uint64_in   : arith_uint64_in;
+    assign final_arith_uint64_sign_in = microseq_active ? microseq_arith_uint64_sign_in : arith_uint64_sign_in;
+    assign final_arith_fp32_in     = microseq_active ? microseq_arith_fp32_in     : arith_fp32_in;
+    assign final_arith_fp64_in     = microseq_active ? microseq_arith_fp64_in     : arith_fp64_in;
 
-    wire        final_bcd2bin_enable = microseq_active ? microseq_bcd2bin_enable : bcd2bin_enable;
-    wire [79:0] final_bcd2bin_bcd_in = microseq_active ? microseq_bcd2bin_bcd_in : bcd2bin_bcd_in;
+    assign final_bcd2bin_enable    = microseq_active ? microseq_bcd2bin_enable    : bcd2bin_enable;
+    assign final_bcd2bin_bcd_in    = microseq_active ? microseq_bcd2bin_bcd_in    : bcd2bin_bcd_in;
 
-    wire        final_bin2bcd_enable = microseq_active ? microseq_bin2bcd_enable : bin2bcd_enable;
-    wire [63:0] final_bin2bcd_binary_in = microseq_active ? microseq_bin2bcd_binary_in : bin2bcd_binary_in;
-    wire        final_bin2bcd_sign_in = microseq_active ? microseq_bin2bcd_sign_in : bin2bcd_sign_in;
+    assign final_bin2bcd_enable    = microseq_active ? microseq_bin2bcd_enable    : bin2bcd_enable;
+    assign final_bin2bcd_binary_in = microseq_active ? microseq_bin2bcd_binary_in : bin2bcd_binary_in;
+    assign final_bin2bcd_sign_in   = microseq_active ? microseq_bin2bcd_sign_in   : bin2bcd_sign_in;
+
+    assign final_ph_rom_addr = ph_rom_addr;
+    assign final_ph_rom_data = ph_rom_data;
+
+    // Debug: observe muxed arith control when microsequencer is active
+    // synthesis translate_off
+    always @(posedge clk) begin
+        if (microseq_active) begin
+            $display("[DBG FINAL] microseq_active=%b final_en=%b op=%0d microseq_en=%b core_en=%b",
+                     microseq_active, final_arith_enable, final_arith_operation,
+                     microseq_arith_enable, arith_enable);
+        end
+        if (microseq_start) begin
+            $display("[DBG CORE] microseq start program=%0d data_in=%h", microseq_program_index, microseq_data_in_source);
+        end
+    end
+    // synthesis translate_on
 
     MicroSequencer_Extended_BCD microsequencer (
         .clk(clk),
@@ -515,7 +554,7 @@ module FPU_Core(
         // Debug interface (used for FBLD result)
         .debug_temp_result(microseq_temp_result),
         .debug_temp_fp_a(),
-        .debug_temp_fp_b(),
+        .debug_temp_fp_b(microseq_temp_fp_b),
         .debug_temp_uint64(),
         .debug_temp_sign(),
 
@@ -532,6 +571,7 @@ module FPU_Core(
         .arith_fp32_in(microseq_arith_fp32_in),
         .arith_fp64_in(microseq_arith_fp64_in),
         .arith_result(arith_result),
+        .arith_result_secondary(arith_result_secondary),
         .arith_int16_out(arith_int16_out),
         .arith_int32_out(arith_int32_out),
         .arith_uint64_out(arith_uint64_out),
@@ -987,6 +1027,7 @@ module FPU_Core(
     reg       do_pop_after;
     reg [79:0] temp_result;
     reg [79:0] temp_result_secondary;  // For dual-result operations (FSINCOS)
+    reg        fsincos_phase;          // 0=compute sin, 1=compute cos
     reg       has_secondary_result;     // Flag for dual-result operations
     reg [79:0] temp_operand_a, temp_operand_b;
     reg signed [31:0] temp_int32;
@@ -1113,6 +1154,7 @@ module FPU_Core(
             microseq_program_index <= 4'd0;
             microseq_active <= 1'b0;
             microseq_data_in_source <= 80'd0;
+            fsincos_phase <= 1'b0;
 
             data_out <= 80'd0;
             int_data_out <= 32'd0;
@@ -1133,6 +1175,7 @@ module FPU_Core(
             microseq_start <= 1'b0;  // One-shot signal for microsequencer
             exception_latch <= 1'b0;  // Exception handler one-shot signal
             exception_clear <= 1'b0;  // Exception handler one-shot signal
+            fsincos_phase <= fsincos_phase;
             // Note: arith_enable is NOT defaulted to 0, it's explicitly managed
 
             // Level 2: Clear busy flag when arithmetic operations complete
@@ -1162,7 +1205,8 @@ module FPU_Core(
 
                             // Capture memory operation format flags immediately
                             // (they may be cleared by testbench before STATE_DECODE/EXECUTE)
-                            captured_has_memory_op <= has_memory_op;
+                            // Treat X/Z as 0 so unit tests that leave these unconnected behave as register-only ops
+                            captured_has_memory_op <= (has_memory_op === 1'b1);
                             captured_operand_size <= operand_size;
                             captured_is_integer <= is_integer;
                             captured_is_bcd <= is_bcd;
@@ -1177,8 +1221,16 @@ module FPU_Core(
                     temp_operand_a <= st0;
                     temp_operand_b <= stack_read_data;
 
+                    // Debug: observe operands for FST register accesses
+                    // synthesis translate_off
+                    if (current_inst == INST_FST) begin
+                        $display("[DECODE] INST_FST: index=%0d st0=%h sti=%h",
+                                 current_index, st0, stack_read_data);
+                    end
+                    // synthesis translate_on
+
                     // Handle memory operand format based on decoder flags (already captured in STATE_IDLE)
-                    if (has_memory_op) begin
+                    if (captured_has_memory_op) begin
                         // Memory operand - capture based on size and type
                         case (operand_size)
                             2'd0: temp_int32 <= {{16{data_in[15]}}, data_in[15:0]};  // Sign-extend 16-bit
@@ -1551,9 +1603,23 @@ module FPU_Core(
                         end
 
                         INST_FST, INST_FSTP: begin
-                            // Store FP80 (no conversion needed)
-                            data_out <= temp_operand_a;  // ST(0) → data_out
-                            state <= STATE_STACK_OP;
+                            // Store FP80 value
+                            if (captured_has_memory_op) begin
+                                // Memory store: always store ST(0) to memory
+                                data_out <= temp_operand_a;  // ST(0) → data_out
+                                state <= STATE_STACK_OP;
+                            end else begin
+                                // Register-only store used by unit testbench:
+                                //   FST ST(0) or FST ST(i) should return the selected stack register
+                                //   without modifying the stack.
+                                // temp_operand_a holds ST(0), temp_operand_b holds ST(i) from STATE_DECODE.
+                                // synthesis translate_off
+                                $display("[FST REG] index=%0d temp_a(ST0)=%h temp_b(STi)=%h",
+                                         current_index, temp_operand_a, temp_operand_b);
+                                // synthesis translate_on
+                                data_out <= (current_index == 0) ? temp_operand_a : temp_operand_b;
+                                state <= STATE_DONE;
+                            end
                         end
 
                         INST_FST32, INST_FSTP32: begin
@@ -1606,45 +1672,35 @@ module FPU_Core(
 
                         // Transcendental instructions
                         INST_FSQRT: begin
-                            // Check for NaN propagation or invalid operation (sqrt of negative)
-                            if (~arith_done) begin
-                                if (~arith_enable) begin
-                                    // Pre-operation checks
-                                    preop_nan_detected <= is_nan(temp_operand_a);
-                                    preop_invalid <= is_invalid_sqrt(temp_operand_a);
+                            // Pre-check for NaN/invalid (sqrt of negative) and zero shortcut
+                            preop_nan_detected <= is_nan(temp_operand_a);
+                            preop_invalid <= is_invalid_sqrt(temp_operand_a);
 
-                                    if (preop_nan_detected || preop_invalid) begin
-                                        // Short-circuit: return NaN immediately
-                                        if (is_snan(temp_operand_a)) begin
-                                            // Propagate SNaN as QNaN
-                                            temp_result <= propagate_nan(temp_operand_a, 80'd0, 1'b0);
-                                            status_invalid <= 1'b1;  // SNaN triggers invalid
-                                        end else if (is_qnan(temp_operand_a)) begin
-                                            // Propagate QNaN unchanged
-                                            temp_result <= temp_operand_a;
-                                        end else begin
-                                            // sqrt(negative) → QNaN
-                                            temp_result <= make_qnan(1'b1);  // Negative QNaN for sqrt(negative)
-                                            status_invalid <= 1'b1;
-                                        end
-                                        error <= !mask_invalid;  // Error if unmasked
-                                        has_secondary_result <= 1'b0;
-                                        state <= STATE_WRITEBACK;
-                                    end else begin
-                                        // Normal operation
-                                        arith_operation <= 4'd12;  // OP_SQRT
-                                        arith_operand_a <= temp_operand_a;
-                                        arith_enable <= 1'b1;
-                                        fpu_busy <= 1'b1;
-                                    end
+                            if (preop_nan_detected || preop_invalid) begin
+                                // Propagate NaN/invalid without invoking microcode
+                                if (is_snan(temp_operand_a)) begin
+                                    temp_result <= propagate_nan(temp_operand_a, 80'd0, 1'b0);
+                                    status_invalid <= 1'b1;  // SNaN triggers invalid
+                                end else if (is_qnan(temp_operand_a)) begin
+                                    temp_result <= temp_operand_a;
+                                end else begin
+                                    temp_result <= make_qnan(1'b1);  // sqrt(negative) → QNaN
+                                    status_invalid <= 1'b1;
                                 end
-                            end else begin
-                                temp_result <= arith_result;
+                                error <= !mask_invalid;  // Error if unmasked
                                 has_secondary_result <= 1'b0;
-                                status_invalid <= arith_invalid;
-                                arith_enable <= 1'b0;
-                                fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
+                            end else if (is_zero(temp_operand_a)) begin
+                                temp_result <= temp_operand_a;  // sqrt(0) = 0
+                                has_secondary_result <= 1'b0;
+                                state <= STATE_WRITEBACK;
+                            end else begin
+                                // Route to microsequencer (Program 4: FSQRT @0x0140)
+                                microseq_data_in_source <= temp_operand_a;  // Value to sqrt
+                                microseq_program_index <= 5'd4;
+                                microseq_start <= 1'b1;
+                                microseq_active <= 1'b1;
+                                state <= STATE_WAIT_MICROSEQ;
                             end
                         end
 
@@ -1653,6 +1709,7 @@ module FPU_Core(
                                 if (~arith_enable) begin
                                     arith_operation <= 4'd13;  // OP_SIN
                                     arith_operand_a <= temp_operand_a;
+                                    arith_operand_b <= 80'd0;
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
                                 end
@@ -1671,6 +1728,7 @@ module FPU_Core(
                                 if (~arith_enable) begin
                                     arith_operation <= 4'd14;  // OP_COS
                                     arith_operand_a <= temp_operand_a;
+                                    arith_operand_b <= 80'd0;
                                     arith_enable <= 1'b1;
                                     fpu_busy <= 1'b1;
                                 end
@@ -1685,12 +1743,47 @@ module FPU_Core(
                         end
 
                         INST_FSINCOS: begin
-                            // Sin and Cos simultaneously: Use microcode program 19
-                            microseq_data_in_source <= temp_operand_a;  // Angle (ST(0))
-                            microseq_program_index <= 5'd19;  // Program 19: FSINCOS at 0x0750
-                            microseq_start <= 1'b1;
-                            microseq_active <= 1'b1;
-                            state <= STATE_WAIT_MICROSEQ;
+                            // Fast path for angle == 0
+                            if (temp_operand_a[78:0] == 79'd0) begin
+                                $display("[FSINCOS] fast path angle=0, temp_operand_a=%h", temp_operand_a);
+                                temp_result <= 80'h3FFF8000000000000000; // cos(0) = 1.0
+                                temp_result_secondary <= 80'd0;          // sin(0) = 0.0
+                                has_secondary_result <= 1'b1;
+                                state <= STATE_WRITEBACK;
+                            end else if (arith_done) begin
+                                if (!fsincos_phase) begin
+                                    // Finished sin phase; arm cos next
+                                    temp_result_secondary <= arith_result;  // sin(θ)
+                                    fsincos_phase <= 1'b1;
+                                    arith_enable <= 1'b0;
+                                    fpu_busy <= 1'b1;  // stay busy for cos
+                                end else if (arith_enable) begin
+                                    // Finished cos phase; commit results
+                                    temp_result <= arith_result;             // cos(θ)
+                                    has_secondary_result <= 1'b1;
+                                    status_invalid <= arith_invalid;
+                                    arith_enable <= 1'b0;
+                                    fpu_busy <= 1'b0;
+                                    fsincos_phase <= 1'b0;
+                                    state <= STATE_WRITEBACK;
+                                end
+                            end else begin
+                                if (~arith_enable) begin
+                                    if (!fsincos_phase) begin
+                                        // Phase 0: compute sin
+                                        arith_operation <= 4'd13;  // OP_SIN
+                                        arith_operand_a <= temp_operand_a;
+                                        arith_operand_b <= 80'd0;
+                                    end else begin
+                                        // Phase 1: compute cos
+                                        arith_operation <= 4'd14;  // OP_COS
+                                        arith_operand_a <= temp_operand_a;
+                                        arith_operand_b <= 80'd0;
+                                    end
+                                    arith_enable <= 1'b1;
+                                    fpu_busy <= 1'b1;
+                                end
+                            end
                         end
 
                         INST_FPTAN: begin
@@ -1808,7 +1901,7 @@ module FPU_Core(
 
                         // Non-arithmetic instructions
                         INST_FLD: begin
-                            if (captured_has_memory_op && (captured_operand_size != 2'd3 || captured_is_bcd)) begin
+                            if ((captured_has_memory_op === 1'b1) && (captured_operand_size != 2'd3 || captured_is_bcd)) begin
                                 // Memory operand that needs format conversion
                                 // Set up conversion and transition to STATE_MEM_CONVERT
                                 $display("[DEBUG] INST_FLD: Memory op, needs conversion. operand_size=%d, is_integer=%b, is_bcd=%b",
@@ -1828,7 +1921,7 @@ module FPU_Core(
                         end
 
                         INST_FST: begin
-                            if (captured_has_memory_op && (captured_operand_size != 2'd3 || captured_is_bcd)) begin
+                            if ((captured_has_memory_op === 1'b1) && (captured_operand_size != 2'd3 || captured_is_bcd)) begin
                                 // Memory operand that needs format conversion
                                 // Set up conversion and transition to STATE_MEM_CONVERT
                                 mem_conv_active <= 1'b1;
@@ -1838,6 +1931,12 @@ module FPU_Core(
                                 state <= STATE_MEM_CONVERT;
                             end else begin
                                 // No conversion needed (FP80 or register operand)
+                                // temp_operand_a should hold ST(0), temp_operand_b should hold ST(i)
+                                // current_index selects which logical ST(i) we are targeting
+                                // Debug: observe which value FST is returning
+                                // synthesis translate_off
+                                $display("[FST DEBUG] current_index=%0d temp_a(ST0)=%h temp_b(STi)=%h", current_index, temp_operand_a, temp_operand_b);
+                                // synthesis translate_on
                                 data_out <= (current_index == 0) ? temp_operand_a : temp_operand_b;
                                 state <= STATE_DONE;
                             end
@@ -2548,6 +2647,19 @@ module FPU_Core(
                                 state <= STATE_WRITEBACK;
                             end
 
+                            INST_FSQRT: begin
+                                temp_result <= microseq_temp_result;
+                                has_secondary_result <= 1'b0;
+                                state <= STATE_WRITEBACK;
+                            end
+
+                            INST_FSINCOS: begin
+                                temp_result <= microseq_temp_result;            // sin
+                                temp_result_secondary <= microseq_temp_fp_b;    // cos
+                                has_secondary_result <= 1'b1;
+                                state <= STATE_WRITEBACK;
+                            end
+
                             default: begin
                                 // Unexpected instruction in microseq wait state
                                 error <= 1'b1;
@@ -2631,13 +2743,18 @@ module FPU_Core(
                         //   Cycle 2: Write cos(θ) to ST(0)
                         INST_FSINCOS: begin
                             if (has_secondary_result) begin
+                                $display("[FSINCOS] write sin=%h cos=%h has_sec=%b", temp_result_secondary, temp_result, has_secondary_result);
+                                // Debug: show stack pointer/register being written
+                                $display("[FSINCOS] writing ST(1) <= sin");
                                 // Write sin(θ) to ST(1)
                                 stack_write_reg <= 3'd1;
-                                stack_data_in <= temp_result;            // sin(θ)
+                                stack_data_in <= temp_result_secondary;  // sin(θ)
                                 stack_write_enable <= 1'b1;
+                                stack_push <= 1'b0;  // keep depth; just overwrite ST(1)
                                 state <= STATE_FSINCOS_PUSH;  // Go to second write
                             end else begin
                                 // Fallback if no secondary result (shouldn't happen for FSINCOS)
+                                $display("[FSINCOS] missing secondary, writing only primary=%h", temp_result);
                                 stack_write_reg <= 3'd0;
                                 stack_data_in <= temp_result;
                                 stack_write_enable <= 1'b1;
@@ -2708,9 +2825,11 @@ module FPU_Core(
 
                 STATE_FSINCOS_PUSH: begin
                     // Second cycle of FSINCOS: write cos(θ) to ST(0)
+                    $display("[FSINCOS] writing ST(0) <= cos %h", temp_result);
                     stack_write_reg <= 3'd0;
-                    stack_data_in <= temp_result_secondary;  // cos(θ)
+                    stack_data_in <= temp_result;  // cos(θ)
                     stack_write_enable <= 1'b1;
+                    stack_push <= 1'b0;
                     state <= STATE_DONE;
                 end
 

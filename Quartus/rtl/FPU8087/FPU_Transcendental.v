@@ -207,7 +207,7 @@ module FPU_Transcendental(
         .ext_muldiv_inexact(ext_poly_muldiv_inexact)
     );
 
-    // Newton-Raphson Square Root - REMOVED (Now implemented in microcode)
+    // Newton-Raphson Square Root - REMOVED (handled in microcode)
     // SQRT operations are handled by the microsequencer at address 0x0140
     // This eliminates ~22K area (22% reduction) with only 0.6% performance penalty
 
@@ -216,17 +216,6 @@ module FPU_Transcendental(
     wire sqrt_done = sqrt_enable;  // Immediate completion (unsupported in hardware)
     wire sqrt_error = 1'b0;         // No error, just not supported in hardware
     wire [79:0] sqrt_out = 80'h7FFF_C000000000000000;  // Return NaN to indicate microcode needed
-
-    // Original hardware implementation removed:
-    // FPU_SQRT_Newton sqrt_unit (
-    //     .clk(clk),
-    //     .reset(reset),
-    //     .enable(sqrt_enable),
-    //     .s_in(operand_a),
-    //     .sqrt_out(sqrt_out),
-    //     .done(sqrt_done),
-    //     .error(sqrt_error)
-    // );
 
     //=================================================================
     // STRATEGY 1: Shared Arithmetic Units

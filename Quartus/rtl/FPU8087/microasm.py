@@ -77,17 +77,26 @@ class Instruction:
         """Encode instruction to 32-bit value"""
         if self.opcode < 0 or self.opcode > 15:
             raise ValueError(f"Opcode out of range: {self.opcode}")
-        if self.micro_op < 0 or self.micro_op > 15:
+        # Micro-op field is 5 bits in the current microsequencer format.
+        # The existing MicroOp enum only uses values 0x0-0xF, but we allow
+        # up to 0x1F so future extensions (e.g. CALL_ARITH) can be encoded.
+        if self.micro_op < 0 or self.micro_op > 31:
             raise ValueError(f"Micro-op out of range: {self.micro_op}")
         if self.immediate < 0 or self.immediate > 255:
             raise ValueError(f"Immediate out of range: {self.immediate}")
-        if self.next_addr < 0 or self.next_addr > 65535:
+        # Next address is 15 bits in the current microsequencer format.
+        if self.next_addr < 0 or self.next_addr > 0x7FFF:
             raise ValueError(f"Next address out of range: {self.next_addr}")
 
+        # Match microsim.py decode_instruction layout:
+        # [31:28] opcode (4 bits)
+        # [27:23] micro_op (5 bits)
+        # [22:15] immediate (8 bits)
+        # [14:0]  next_addr (15 bits)
         return ((self.opcode & 0xF) << 28) | \
-               ((self.micro_op & 0xF) << 24) | \
-               ((self.immediate & 0xFF) << 16) | \
-               (self.next_addr & 0xFFFF)
+               ((self.micro_op & 0x1F) << 23) | \
+               ((self.immediate & 0xFF) << 15) | \
+               (self.next_addr & 0x7FFF)
 
     def to_hex(self) -> str:
         """Convert to hexadecimal string"""

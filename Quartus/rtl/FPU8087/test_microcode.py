@@ -14,7 +14,32 @@ Usage:
 import sys
 import os
 import math
-from microsim import MicrosequencerSimulator, MicrocodeTest, ExtendedFloat
+from microsim import (
+    MicrosequencerSimulator,
+    MicrocodeTest,
+    ExtendedFloat,
+    MicroOp,
+    Opcode,
+)
+
+
+# ============================================================================
+# Encoding Helpers (match microsim 5-bit micro_op format)
+# ============================================================================
+
+def encode_exec(micro_op: MicroOp, immediate: int, next_addr: int) -> int:
+    """Encode an EXEC microinstruction using microsim's extended format."""
+    return (
+        ((Opcode.EXEC & 0xF) << 28)
+        | ((int(micro_op) & 0x1F) << 23)
+        | ((immediate & 0xFF) << 15)
+        | (next_addr & 0x7FFF)
+    )
+
+
+def encode_halt(next_addr: int = 0) -> int:
+    """Encode a HALT microinstruction."""
+    return ((Opcode.HALT & 0xF) << 28) | (next_addr & 0x0FFFFFFF)
 
 
 # ============================================================================
@@ -211,10 +236,11 @@ def test_register_operations(verbose=False):
 
     # Manually create a small program to test registers
     # LOAD, READ_STATUS, READ_CONTROL, HALT
-    sim.microcode_rom[0] = 0x11000001  # LOAD
-    sim.microcode_rom[1] = 0x1E000002  # READ_STATUS (REG_OPS with immediate=0)
-    sim.microcode_rom[2] = 0x1E010003  # READ_CONTROL (REG_OPS with immediate=1)
-    sim.microcode_rom[3] = 0xF0000000  # HALT
+    # Encoding uses microsim's 5-bit micro_op field.
+    sim.microcode_rom[0] = encode_exec(MicroOp.LOAD, 0, 1)             # LOAD
+    sim.microcode_rom[1] = encode_exec(MicroOp.REG_OPS, 0, 2)          # READ_STATUS
+    sim.microcode_rom[2] = encode_exec(MicroOp.REG_OPS, 1, 3)          # READ_CONTROL
+    sim.microcode_rom[3] = encode_halt()                               # HALT
 
     # Setup
     sim.fpu_state.status_word = 0x1234
@@ -254,14 +280,15 @@ def test_math_constants(verbose=False):
 
     sim = MicrosequencerSimulator(verbose=verbose)
 
-    # Test accessing different constants
-    # SET_CONST 0 (π), ACCESS_CONST, HALT
-    # SET_CONST 1 (e), ACCESS_CONST, HALT
-    sim.microcode_rom[0] = 0x13000001  # SET_CONST 0 (π)
-    sim.microcode_rom[1] = 0x14000002  # ACCESS_CONST
-    sim.microcode_rom[2] = 0x13010003  # SET_CONST 1 (e)
-    sim.microcode_rom[3] = 0x14000004  # ACCESS_CONST
-    sim.microcode_rom[4] = 0xF0000000  # HALT
+    # Test accessing different constants using updated encoding:
+    #   SET_CONST 0 (π),  ACCESS_CONST
+    #   SET_CONST 1 (e),  ACCESS_CONST
+    #   HALT
+    sim.microcode_rom[0] = encode_exec(MicroOp.SET_CONST, 0, 1)        # SET_CONST 0 (π)
+    sim.microcode_rom[1] = encode_exec(MicroOp.ACCESS_CONST, 0, 2)     # ACCESS_CONST
+    sim.microcode_rom[2] = encode_exec(MicroOp.SET_CONST, 1, 3)        # SET_CONST 1 (e)
+    sim.microcode_rom[3] = encode_exec(MicroOp.ACCESS_CONST, 0, 4)     # ACCESS_CONST
+    sim.microcode_rom[4] = encode_halt()                               # HALT
 
     success = sim.run()
 

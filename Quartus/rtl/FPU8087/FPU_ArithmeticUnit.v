@@ -104,10 +104,22 @@ module FPU_ArithmeticUnit(
     localparam OP_FXTRACT  = 5'd23;  // Extract exponent and significand
     localparam OP_FSCALE   = 5'd24;  // Scale by power of 2
 
-    //=================================================================
-    // Arithmetic Units with Sharing Support (Strategy 1)
-    // Internal sharing between normal operations and transcendental unit
-    //=================================================================
+// Debug: monitor enable/done
+// synthesis translate_off
+always @(posedge clk) begin
+    if (enable) begin
+        $display("[DBG ARITH UNIT] enable op=%0d A=%h B=%h", operation, operand_a, operand_b);
+    end
+    if (done) begin
+        $display("[DBG ARITH UNIT] done op=%0d res=%h sec=%h has_sec=%b", operation, result, result_secondary, has_secondary);
+    end
+end
+// synthesis translate_on
+
+//=================================================================
+// Arithmetic Units with Sharing Support (Strategy 1)
+// Internal sharing between normal operations and transcendental unit
+//=================================================================
 
     //=================================================================
     // Transcendental Unit Request Signals (defined early for muxing)
