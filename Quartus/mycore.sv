@@ -596,14 +596,10 @@ always @(*) begin
         io_data = irq_control_data;
     else if (pic_access) 
         io_data = pic_data;
-    else if (timer_access) 
+    else if (timer_access)
         io_data = timer_data;
-    else if (bios_control_access) 
-        io_data = bios_control_data;
-    else if (mcga_reg_access) 
+    else if (mcga_reg_access)
         io_data = vga_reg_data;
-    else if (ps2_mouse_access) 
-        io_data = ps2_mouse_data;
     else if (cga_reg_access) 
         io_data = cga_reg_data;
     else if (ppi_control_access)
@@ -701,27 +697,12 @@ wire bios_access;
 wire bios_ack;
 wire [15:0] bios_data;
 
-wire bios_control_access;
-wire bios_control_ack;
-
-wire [15:0] bios_control_data;
-
-wire sdram_config_access;
-wire sdram_config_ack;
-wire sdram_config_done;
-
-//wire [15:0] sdram_config_data;
-
+wire sdram_config_done;  // Used for post_sdram_reset control
 
 wire ps2_kbd_access;
 wire ps2_kbd_ack;
 wire [15:0] ps2_kbd_data;
 wire ps2_kbd_intr;
-
-wire ps2_mouse_access;
-wire ps2_mouse_ack;
-wire [15:0] ps2_mouse_data;
-wire ps2_mouse_intr;
 
 
 wire uart_access;
@@ -771,9 +752,7 @@ wire ppi_ack;
 reg io_ack;
 
 always @(posedge sys_clk) begin
-    if (sdram_config_access)
-        io_ack <= sdram_config_ack;
-    else if (default_io_access)
+    if (default_io_access)
         io_ack <= default_io_ack;
     else if (uart_access)
         io_ack <= uart1_ack;
@@ -791,14 +770,10 @@ always @(posedge sys_clk) begin
         io_ack <= timer_ack;
     else if (mcga_reg_access)
         io_ack <= vga_reg_ack;
-    else if (ps2_mouse_access)
-        io_ack <= ps2_mouse_ack;
     else if (ppi_control_access)
         io_ack <= ppi_ack;
     else if (dma_chip_select | dma_page_chip_select)
         io_ack <= dma_ack;
-    else if (bios_control_access)
-        io_ack <= bios_control_ack;
     else if (floppy_access)
         io_ack <= floppy_ack;
     else if (fpu_control_access)
@@ -909,16 +884,13 @@ AddressDecoderIO AddressDecoderIO(
 
     // Select outputs
     .leds_access(leds_access),
-    .sdram_config_access(sdram_config_access),
     .default_io_access(default_io_access),
     .uart_access(uart_access),
 	 .uart2_access(uart2_access),
     .irq_control_access(irq_control_access),
     .pic_access(pic_access),
     .timer_access(timer_access),
-    .bios_control_access(bios_control_access),
     .mcga_reg_access(mcga_reg_access),
-    .ps2_mouse_access(ps2_mouse_access),
 	 .cga_reg_access(cga_reg_access),
 	 .dma_page_chip_select(dma_page_chip_select),
 	 .dma_chip_select(dma_chip_select),

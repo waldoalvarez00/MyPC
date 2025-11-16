@@ -166,6 +166,7 @@ module FPU8087(
 
     reg [2:0]  mem_state;
     reg [19:0] mem_addr_reg;
+    reg [19:0] mem_addr_capture;        // Captured EA from queue
     reg [15:0] mem_data_out_reg;
     reg        mem_access_reg;
     reg        mem_wr_en_reg;
@@ -300,7 +301,7 @@ module FPU8087(
 
                     // Address calculation: base + word_offset
                     if (mem_transfer_count == 0) begin
-                        mem_addr_reg <= mem_addr_reg;  // Use captured EA
+                        mem_addr_reg <= mem_addr_capture;  // Load captured EA
                     end else begin
                         mem_addr_reg <= mem_addr_reg + 2;  // Increment by 2 bytes
                     end
@@ -336,7 +337,7 @@ module FPU8087(
 
                     // Address calculation
                     if (mem_transfer_count == 0) begin
-                        mem_addr_reg <= mem_addr_reg;  // Use captured EA
+                        mem_addr_reg <= mem_addr_capture;  // Load captured EA
                     end else begin
                         mem_addr_reg <= mem_addr_reg + 2;
                     end
@@ -428,8 +429,8 @@ module FPU8087(
                         current_is_integer <= queued_is_integer;
                         current_is_bcd <= queued_is_bcd;
 
-                        // Initialize memory address with EA from queue
-                        mem_addr_reg <= queued_ea;
+                        // Capture memory address from queue
+                        mem_addr_capture <= queued_ea;
 
                         // Determine operation type
                         if (queued_has_memory_op) begin

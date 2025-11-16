@@ -13,7 +13,6 @@ module AddressDecoderIO(
 
                     // Select outputs
                     output reg   leds_access,
-                    output reg   sdram_config_access,
                     output reg   default_io_access,
 						  output reg   uart_access,
                     output reg   uart2_access,
@@ -21,10 +20,8 @@ module AddressDecoderIO(
                     output reg   irq_control_access,
                     output reg   pic_access,
                     output reg   timer_access,
-                    output reg   bios_control_access,
                     output reg   vga_reg_access,
-                    
-                    output reg   ps2_mouse_access,
+
 						  output reg   cga_reg_access,
 						  output reg   mcga_reg_access,
                     output reg   ppi_control_access,
@@ -68,17 +65,14 @@ always_comb begin
 
     // Initialize all accesses to 0
     leds_access          = 1'b0;
-    sdram_config_access  = 1'b0;
     default_io_access    = 1'b0;
     uart_access          = 1'b0;
 
     irq_control_access   = 1'b0;
     pic_access           = 1'b0;
     timer_access         = 1'b0;
-    bios_control_access  = 1'b0;
     vga_reg_access       = 1'b0;
     mcga_reg_access      = 1'b0;
-    ps2_mouse_access     = 1'b0;
     ppi_control_access   = 1'b0;
     cga_reg_access       = 1'b0;
     uart2_access         = 1'b0;
@@ -144,26 +138,16 @@ always_comb begin
         else if (data_m_addr[16:1] == 16'b1111_1111_1111_1110) begin // FFFE
             leds_access = 1'b1;
         end
-        else if (data_m_addr[16:1] == 16'b1111_1111_1111_1100) begin // FFFC
-            sdram_config_access = 1'b1;
-        end
         else if (data_m_addr[16:2] == 15'b1111_1111_1111_101) begin
             uart_access = 1'b1;
         end
         else if (data_m_addr[16:2] == 15'b1111_1111_1111_011) begin
             irq_control_access = 1'b1;
         end
-        else if (data_m_addr[16:2] == 15'b1111_1111_1110_110) begin
-            bios_control_access = 1'b1;
-        end
         else if (data_m_addr[16:3] == 14'b0000_0000_0100_00) begin  // 4Xh = x40 -> x43 (PIT)
             timer_access = 1'b1;
         end
-        
-        else if (data_m_addr[16:1] == 15'b1111_1111_1110_000) begin // FFD0h
-            ps2_mouse_access = 1'b1;
-        end
-		  
+
 		  else if (data_m_addr[16:3] == 14'b0000_0000_0110_00) begin
 		      ppi_control_access = 1'b1;
 		  end
@@ -194,51 +178,4 @@ always_comb begin
     end
 end
 
-						  
-/*
-	
-
-// Note, check for glitches	
-always_comb begin
-    leds_access = 1'b0;
-    sdram_config_access = 1'b0;
-    default_io_access = 1'b0;
-    uart_access = 1'b0;
-    spi_access = 1'b0;
-    irq_control_access = 1'b0;
-    pic_access = 1'b0;
-    timer_access = 1'b0;
-    bios_control_access = 1'b0;
-
-    vga_reg_access = 1'b0;
-
-
-    ps2_kbd_access = 1'b0;
-    ps2_mouse_access = 1'b0;
-
-
-    if (d_io && data_m_access) begin
-        casez ({data_m_addr[15:1], 1'b0})
-        16'b1111_1111_1111_1110: leds_access = 1'b1;
-        16'b1111_1111_1111_1100: sdram_config_access = 1'b1;
-        16'b1111_1111_1111_1010: uart_access = 1'b1;
-        16'b1111_1111_1111_00z0: spi_access = 1'b1;
-        16'b1111_1111_1111_0110: irq_control_access = 1'b1;
-        16'b1111_1111_1110_1100: bios_control_access = 1'b1;
-        16'b0000_0000_0100_00z0: timer_access = 1'b1;
-        16'b0000_0000_0010_0000: pic_access = 1'b1;
-// VGA
-        16'b0000_0011_110z_zzzz: vga_reg_access = 1'b1;
-
-// PS2
-        16'b1111_1111_1110_0000: ps2_mouse_access = 1'b1;
-        16'b0000_0000_0110_0000: ps2_kbd_access = 1'b1;
-
-        default:  default_io_access = 1'b1;
-        endcase
-    end
-end
-
-*/
-						  
 endmodule

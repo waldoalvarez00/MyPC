@@ -24,17 +24,17 @@
  *
  * Features:
  * - Direct-mapped cache organization
- * - 512 cache lines (configurable)
+ * - 256 cache lines (configurable, reduced from 512 to save FPGA resources)
  * - 8-word (16-byte) cache line size
  * - Read-only (no write support needed for instructions)
  * - Simple fill logic (no flush needed)
  * - Optimized for sequential instruction fetch patterns
  *
  * Cache Organization:
- * - Total size: 512 lines * 8 words * 2 bytes = 8 KB
+ * - Total size: 256 lines * 8 words * 2 bytes = 4 KB
  * - Address breakdown: [tag | index | offset]
  *   - Tag: Upper bits for line identification
- *   - Index: Middle bits select cache line (9 bits for 512 lines)
+ *   - Index: Middle bits select cache line (8 bits for 256 lines)
  *   - Offset: Lower 3 bits select word within line
  *
  * Performance:
@@ -62,7 +62,7 @@ module ICache(
     input logic m_ack
 );
 
-parameter lines = 512;
+parameter lines = 256;  // Reduced from 512 to save FPGA resources (4 KB cache)
 
 localparam line_size = 8;
 localparam index_bits = $clog2(lines);
