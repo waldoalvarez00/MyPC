@@ -53,14 +53,16 @@ module KF8253_Control_Logic (
     end
 
     always_ff @(posedge reset or posedge clock) begin
-        if (reset)
+        if (reset) begin
             prev_write_enable_n <= 1'b1;
-        else if (chip_select_n)
-            prev_write_enable_n <= 1'b1;
-        else
-            prev_write_enable_n <= write_enable_n;
+            write_flag <= 1'b0;
+        end
+        else begin
+            prev_write_enable_n <= write_enable_n | chip_select_n;
+            // write_flag pulses when write_enable_n transitions from 0 to 1 while chip selected
+            write_flag <= ~prev_write_enable_n & (write_enable_n | chip_select_n);
+        end
     end
-    assign write_flag = ~prev_write_enable_n & write_enable_n;
 
     always_ff @(posedge reset or posedge clock) begin
         if (reset)

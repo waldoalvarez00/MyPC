@@ -15,6 +15,28 @@
 // You should have received a copy of the GNU General Public License
 // along with s80x86.  If not, see <http://www.gnu.org/licenses/>.
 
+//==============================================================================
+// NOTE: THIS MODULE IS NOT USED IN THE MISTER BUILD
+//==============================================================================
+// The MiSTer build (mycore.sv) uses KFPS2KB instead of PS2KeyboardController
+// for keyboard handling. This module is only compiled when CONFIG_PS2 is
+// defined in Top.sv, which is NOT the case for MiSTer.
+//
+// This module remains in the codebase as:
+// - Reference implementation with comprehensive test coverage (21/21 tests)
+// - Alternative configuration for non-MiSTer builds
+// - Educational value for PS/2 protocol implementation
+//
+// For MiSTer-specific testing, see: modelsim/kfps2kb_tb.sv
+// For this module's tests, see: modelsim/ps2_keyboard_protocol_tb.sv
+//
+// Key differences from KFPS2KB:
+// - CPU register interface (not direct keycode output)
+// - 8-entry FIFO for scancode buffering
+// - Full PS/2 initialization state machine
+// - No MiSTer-specific features (F11/F12 handling)
+//==============================================================================
+
 `default_nettype none
 module PS2KeyboardController #(parameter clkf=50000000)
                               (input logic clk,

@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Setup environment
+export PATH="/tmp/iverilog_extract/usr/bin:$PATH"
+
 # Create timestamp for results
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RESULTS_DIR="sim_results_ps2_mouse_${TIMESTAMP}"

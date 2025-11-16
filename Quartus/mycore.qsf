@@ -652,6 +652,7 @@ set_global_assignment -name QIP_FILE rtl/bios/bios.qip
 set_global_assignment -name QIP_FILE rtl/sdram/sdram.qip
 set_global_assignment -name QIP_FILE rtl/CPU/cdc/cdc.qip
 set_global_assignment -name QIP_FILE rtl/VGA/VGA.qip
+set_global_assignment -name QIP_FILE rtl/audio/audio.qip
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/irq/IRQControl.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/pic/PIC.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/timer/TimerUnit.sv

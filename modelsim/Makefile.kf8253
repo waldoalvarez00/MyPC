@@ -1,0 +1,35 @@
+# Makefile for KF8253 Verilator Testbench
+
+# Directories
+RTL_DIR = ../Quartus/rtl/KF8253
+VERILOG_SOURCES = $(RTL_DIR)/KF8253.sv \
+                  $(RTL_DIR)/KF8253_Counter.sv \
+                  $(RTL_DIR)/KF8253_Control_Logic.sv
+
+# Verilator flags
+VERILATOR_FLAGS = --cc --exe --build -Wall \
+                  -I$(RTL_DIR) \
+                  --top-module KF8253 \
+                  -Wno-WIDTHTRUNC \
+                  -Wno-WIDTHEXPAND \
+                  -Wno-CASEINCOMPLETE \
+                  -Wno-UNSIGNED \
+                  -Wno-UNOPTFLAT
+
+# Target executable
+TARGET = obj_dir/VKF8253
+
+.PHONY: all clean run
+
+all: $(TARGET)
+
+$(TARGET): $(VERILOG_SOURCES) kf8253_tb.cpp
+	verilator $(VERILATOR_FLAGS) $(VERILOG_SOURCES) kf8253_tb.cpp
+
+run: $(TARGET)
+	./$(TARGET)
+
+clean:
+	rm -rf obj_dir
+
+.DEFAULT_GOAL := run
