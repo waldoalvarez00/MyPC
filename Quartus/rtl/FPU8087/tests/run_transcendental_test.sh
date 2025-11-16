@@ -3,13 +3,16 @@
 
 set -e  # Exit on error
 
+# Add Icarus Verilog to PATH if not already there
+export PATH="/tmp/iverilog_extract/usr/bin:$PATH"
+
 echo "Compiling transcendental function testbench..."
 
 cd /home/user/MyPC/Quartus/rtl/FPU8087
 
 # Compile with Icarus Verilog
 iverilog -g2009 -Wall -o tb_transcendental.vvp \
-    tb_transcendental.v \
+    tests/unit/tb_transcendental.v \
     FPU_Core.v \
     FPU_ArithmeticUnit.v \
     FPU_Transcendental.v \
@@ -23,6 +26,12 @@ iverilog -g2009 -Wall -o tb_transcendental.vvp \
     FPU_IEEE754_AddSub.v \
     FPU_IEEE754_Multiply.v \
     FPU_IEEE754_Divide.v \
+    FPU_IEEE754_MulDiv_Unified.v \
+    FPU_Format_Converter_Unified.v \
+    FPU_Payne_Hanek.v \
+    FPU_Exception_Handler.v \
+    FPU_Payne_Hanek_ROM.v \
+    MicroSequencer_Extended_BCD.v \
     FPU_Int16_to_FP80.v \
     FPU_Int32_to_FP80.v \
     FPU_FP80_to_Int16.v \
