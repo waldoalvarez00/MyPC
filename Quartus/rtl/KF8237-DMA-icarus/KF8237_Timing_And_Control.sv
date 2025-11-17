@@ -136,14 +136,17 @@ module KF8237_Timing_And_Control (
             chanel_0_address_hold_enable    <= 1'b0;
             compressed_timing               <= 1'b0;
             extended_write_selection        <= 1'b0;
-            dack_sense_active_high          <= 1'b0;
+            // Default to active-HIGH DACK sense so external
+            // peripherals (like the floppy controller) can
+            // treat dma_acknowledge bits as active-high selects.
+            dack_sense_active_high          <= 1'b1;
         end
         else if (master_clear) begin
             memory_to_memory_enable         <= 1'b0;
             chanel_0_address_hold_enable    <= 1'b0;
             compressed_timing               <= 1'b0;
             extended_write_selection        <= 1'b0;
-            dack_sense_active_high          <= 1'b0;
+            dack_sense_active_high          <= 1'b1;
         end
         else if (write_command_register) begin
             memory_to_memory_enable         <= internal_data_bus[0];

@@ -46,7 +46,7 @@ module floppy
 	input       [2:0] io_address,
 	
 	input             io_read, // a read operation is requested.
-	output reg  [7:0] io_readdata,
+	output      [7:0] io_readdata,
 	
 	input             io_write,
 	input       [7:0] io_writedata,
@@ -75,12 +75,25 @@ module floppy
 	input       [1:0] wp,
 
 	input      [27:0] clock_rate,
-
+	
 	output      [1:0] request
 );
 
 reg [27:0] clk_rate;
 always @(posedge clk) clk_rate <= clock_rate;
+
+//------------------------------------------------------------------------------
+// I/O bus acknowledge
+//------------------------------------------------------------------------------
+// Generate a simple 1-cycle acknowledge pulse for any floppy I/O access.
+// This is used by both the standalone floppy testbenches and the MyPC
+// core's registered I/O acknowledge routing.
+always @(posedge clk or posedge reset) begin
+	if (reset)
+		bus_ack <= 1'b0;
+	else
+		bus_ack <= io_read | io_write;
+end
 
 //------------------------------------------------------------------------------ media management
 
@@ -119,14 +132,14 @@ wire ndma_read  = io_read  && io_address == 3'd5 && execute_ndma && cmd_read_nor
 wire ndma_write = io_write && io_address == 3'd5 && execute_ndma && (cmd_write_normal_in_progress || cmd_format_in_progress);
 
 wire [7:0] io_readdata_prepare =
-    (io_address == 3'd2) ? { 2'b0, motor_enable[1], motor_enable[0], dma_irq_enable, enable, selected_drive } : //digital output register
-    (io_address == 3'd4) ? { datareg_ready, transfer_to_cpu, execute_ndma, busy, in_seek_mode } :  //main status reg
-    (ndma_read)          ? fifo_q :
-    (io_address == 3'd5) ? reply[7:0] :
-    (io_address == 3'd7) ? { change[selected_drive[0]], 7'h7F } :
-                           8'd0;
+	    (io_address == 3'd2) ? { 2'b0, motor_enable[1], motor_enable[0], dma_irq_enable, enable, selected_drive } : //digital output register
+	    (io_address == 3'd4) ? { datareg_ready, transfer_to_cpu, execute_ndma, busy, in_seek_mode } :  //main status reg
+	    (ndma_read)          ? fifo_q :
+	    (io_address == 3'd5) ? reply[7:0] :
+	    (io_address == 3'd7) ? { change[selected_drive[0]], 7'h7F } :
+	                           8'd0;
 
-always @(posedge clk) io_readdata <= io_readdata_prepare;
+	assign io_readdata = io_readdata_prepare;
 
 //------------------------------------------------------------------------------
 
@@ -289,9 +302,18 @@ always @(posedge clk or posedge reset or posedge sw_reset) begin
 end
 
 //------------------------------------------------------------------------------
+// Command first/next detection
+//------------------------------------------------------------------------------
+// simple_cmd_first: any new command byte on the data port when the
+// controller is idle and not in the middle of a multi-byte command.
+// command_first: same as simple_cmd_first, but additionally requires
+// BUSY=0. Multi-byte commands use command_first/command_next, while
+// simple one-byte commands (VERSION, SENSE INT, LOCK/UNLOCK, INVALID)
+// are allowed to start even if BUSY is still set.
 
-wire command_first = io_write && io_address == 3'h5 && state == S_IDLE && !command_left && ~busy;
-wire command_next  = io_write && io_address == 3'h5 && state == S_IDLE &&  command_left;
+wire simple_cmd_first = io_write && io_address == 3'h5 && state == S_IDLE && !command_left;
+wire command_first    = simple_cmd_first && ~busy;
+wire command_next     = io_write && io_address == 3'h5 && state == S_IDLE &&  command_left;
 
 reg [71:0] command;
 always @(posedge clk or posedge reset) begin
@@ -336,11 +358,11 @@ always @(posedge clk or posedge reset or posedge sw_reset) begin
 	else if(enter_result_phase)         pending_command <= 8'h00;
 end
 
-wire cmd_sense_interrupt_status_start = command_first && io_writedata[4:0] == 5'h08; //enters result phase
-wire cmd_dump_registers_start         = command_first && io_writedata[4:0] == 5'h0E; //enters result phase
-wire cmd_version_start                = command_first && io_writedata[4:0] == 5'h10; //enters result phase
-wire cmd_unlock_start                 = command_first && io_writedata      == 8'h14; //enters result phase
-wire cmd_lock_start                   = command_first && io_writedata      == 8'h94; //enters result phase
+wire cmd_sense_interrupt_status_start = simple_cmd_first && io_writedata[4:0] == 5'h08; //enters result phase
+wire cmd_dump_registers_start         = simple_cmd_first && io_writedata[4:0] == 5'h0E; //enters result phase
+wire cmd_version_start                = simple_cmd_first && io_writedata[4:0] == 5'h10; //enters result phase
+wire cmd_unlock_start                 = simple_cmd_first && io_writedata      == 8'h14; //enters result phase
+wire cmd_lock_start                   = simple_cmd_first && io_writedata      == 8'h94; //enters result phase
 
 wire cmd_specify_start      = command_size == 4'd2 && command_next && command_left == 4'd1 && command[12:8]  == 5'h03; //immediate finish
 wire cmd_get_status_start   = command_size == 4'd1 && command_next && command_left == 4'd1 && command[4:0]   == 5'h04; //enters result phase
@@ -354,7 +376,7 @@ wire cmd_read_normal_start  = command_size == 4'd8 && command_next && command_le
 wire cmd_perpendicular_mode_start = command_size == 4'd1 && command_next && command_left == 4'd1 && command[4:0]   == 5'h12; //immediate finish
 wire cmd_configure_mode_start     = command_size == 4'd3 && command_next && command_left == 4'd1 && command[20:16] == 5'h13; //immediate finish
 
-wire cmd_invalid_start = command_first &&
+wire cmd_invalid_start = simple_cmd_first &&
 	io_writedata[4:0] != 5'h03 &&
 	io_writedata[4:0] != 5'h04 &&
 	io_writedata[4:0] != 5'h05 &&
