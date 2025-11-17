@@ -405,7 +405,7 @@ module tb_pipelined_dma_fpu_arbiter;
         //======================================================================
         // TEST 8: All three requesting (DMA > FPU > CPU priority)
         //======================================================================
-        test_count = test_count + 1;
+        
         $display("\nTest %0d: All three buses requesting", test_count);
 
         @(posedge clk);
@@ -418,6 +418,7 @@ module tb_pipelined_dma_fpu_arbiter;
         b_m_access = 1;
 
         // DMA should win first
+		test_count = test_count + 1;
         wait(a_m_ack);
         if (q_grant == 2'b01) begin
             $display("  PASS: DMA won first (grant = %02b)", q_grant);
@@ -431,6 +432,7 @@ module tb_pipelined_dma_fpu_arbiter;
         a_m_access = 0;
 
         // FPU should win second
+		test_count = test_count + 1;
         wait(c_m_ack);
         if (q_grant == 2'b11) begin
             $display("  PASS: FPU won second (grant = %02b)", q_grant);
@@ -444,6 +446,7 @@ module tb_pipelined_dma_fpu_arbiter;
         c_m_access = 0;
 
         // CPU should win third
+		test_count = test_count + 1;
         wait(b_m_ack);
         if (q_grant == 2'b10) begin
             $display("  PASS: CPU won third (grant = %02b)", q_grant);
