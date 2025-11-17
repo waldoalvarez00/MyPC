@@ -8,6 +8,10 @@
 
 set -e  # Exit on error
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${ROOT_DIR}"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -76,19 +80,19 @@ run_test() {
 
 # Phase 1: Instruction Queue Tests
 echo -e "${BLUE}=== Phase 1: Instruction Queue ===${NC}"
-run_test "tb_instruction_queue" "tb_instruction_queue.v FPU_Instruction_Queue.v"
+run_test "tb_instruction_queue" "tests/unit/tb_instruction_queue.v FPU_Instruction_Queue.v"
 
 # Phase 2: Exception Handler Tests
 echo -e "${BLUE}=== Phase 2: Exception Handler ===${NC}"
-run_test "tb_exception_handler" "tb_exception_handler.v FPU_Exception_Handler.v"
+run_test "tb_exception_handler" "tests/unit/tb_exception_handler.v FPU_Exception_Handler.v"
 
 # Phase 3: Integration Tests
 echo -e "${BLUE}=== Phase 3: Exception Integration ===${NC}"
-run_test "tb_fpu_exception_integration" "tb_fpu_exception_integration.v FPU_Exception_Handler.v"
+run_test "tb_fpu_exception_integration" "tests/integration/tb_fpu_exception_integration.v FPU_Exception_Handler.v"
 
 # Phase 4: Asynchronous Operation Tests
 echo -e "${BLUE}=== Phase 4: Asynchronous Operation ===${NC}"
-run_test "tb_fpu_async_operation" "tb_fpu_async_operation.v FPU_Instruction_Queue.v"
+run_test "tb_fpu_async_operation" "tests/integration/tb_fpu_async_operation.v FPU_Instruction_Queue.v"
 
 # Summary
 echo -e "${BLUE}========================================${NC}"
