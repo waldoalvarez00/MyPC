@@ -1,0 +1,18 @@
+[options]
+mode prove
+depth 20
+
+[engines]
+smtbmc yices
+
+[script]
+read -sv PipelinedMemArbiterExtend.sv
+read -formal -sv PipelinedMemArbiterExtend_formal.sv
+hierarchy -top PipelinedMemArbiterExtend_formal
+clk2fflogic
+prep -nordff -top PipelinedMemArbiterExtend_formal
+dffunmap
+
+[files]
+Quartus/rtl/PipelinedMemArbiterExtend.sv
+formal/PipelinedMemArbiterExtend_formal.sv

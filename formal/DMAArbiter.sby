@@ -1,0 +1,18 @@
+[options]
+mode prove
+depth 20
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -sv DMAArbiter.sv DMAArbiter_formal.sv
+hierarchy -top DMAArbiter_formal
+clk2fflogic
+prep -nordff -top DMAArbiter_formal
+dffunmap
+
+[files]
+Quartus/rtl/DMAArbiter.sv
+formal/DMAArbiter_formal.sv
+

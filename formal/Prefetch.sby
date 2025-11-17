@@ -1,0 +1,17 @@
+[options]
+mode prove
+depth 20
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -sv Prefetch.sv Prefetch_formal.sv
+hierarchy -top Prefetch_formal
+prep -top Prefetch_formal
+async2sync
+dffunmap
+
+[files]
+Quartus/rtl/CPU/Prefetch.sv
+formal/Prefetch_formal.sv

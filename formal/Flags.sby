@@ -1,0 +1,23 @@
+[options]
+mode prove
+depth 20
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -sv \
+    FlagsEnum.sv \
+    MicrocodeTypes.sv \
+    Flags.sv \
+    Flags_formal.sv
+hierarchy -top Flags_formal
+clk2fflogic
+prep -nordff -top Flags_formal
+dffunmap
+
+[files]
+Quartus/rtl/CPU/FlagsEnum.sv
+Quartus/rtl/CPU/MicrocodeTypes.sv
+Quartus/rtl/CPU/Flags.sv
+formal/Flags_formal.sv

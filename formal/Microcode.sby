@@ -1,0 +1,27 @@
+[options]
+mode prove
+depth 20
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -sv \
+    RegisterEnum.sv \
+    FlagsEnum.sv \
+    Instruction.sv \
+    MicrocodeTypes.sv \
+    Microcode.sv \
+    Microcode_formal.sv
+hierarchy -top Microcode_formal
+clk2fflogic
+prep -nordff -top Microcode_formal
+dffunmap
+
+[files]
+Quartus/rtl/CPU/RegisterEnum.sv
+Quartus/rtl/CPU/FlagsEnum.sv
+Quartus/rtl/CPU/Instruction.sv
+Quartus/rtl/CPU/MicrocodeTypes.sv
+Quartus/rtl/CPU/Microcode.sv
+formal/Microcode_formal.sv

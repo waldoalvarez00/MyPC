@@ -1,0 +1,18 @@
+[options]
+mode prove
+depth 20
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -sv MemArbiter.sv MemArbiter_formal.sv
+hierarchy -top MemArbiter_formal
+clk2fflogic
+prep -top MemArbiter_formal
+async2sync
+dffunmap
+
+[files]
+Quartus/rtl/CPU/MemArbiter.sv
+formal/MemArbiter_formal.sv

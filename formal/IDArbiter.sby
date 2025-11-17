@@ -1,0 +1,18 @@
+[options]
+mode prove
+depth 20
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -sv IDArbiter.sv IDArbiter_formal.sv
+hierarchy -top IDArbiter_formal
+clk2fflogic
+prep -nordff -top IDArbiter_formal
+dffunmap
+
+[files]
+Quartus/rtl/IDArbiter.sv
+formal/IDArbiter_formal.sv
+

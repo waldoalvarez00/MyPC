@@ -1,0 +1,18 @@
+[options]
+mode prove
+depth 20
+
+[engines]
+smtbmc yices
+
+[script]
+read -sv PipelinedDMAArbiter.sv
+read -formal -sv PipelinedDMAArbiter_formal.sv
+hierarchy -top PipelinedDMAArbiter_formal
+clk2fflogic
+prep -nordff -top PipelinedDMAArbiter_formal
+dffunmap
+
+[files]
+Quartus/rtl/PipelinedDMAArbiter.sv
+formal/PipelinedDMAArbiter_formal.sv
