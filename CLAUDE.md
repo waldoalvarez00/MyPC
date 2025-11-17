@@ -6,8 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MyPC is a complete **80186 CPU + 8087 FPU** PC emulation for the MiSTer FPGA platform, featuring:
 - Microcode-driven 80186 CPU with Harvard architecture caches
-- Full IEEE 754-compliant 8087 FPU (165/165 tests passing)
-- Complete VGA/MCGA/CGA/EGA graphics (15 video modes)
+- Full IEEE 754-compliant 8087 FPU
+- Complete VGA/MCGA/CGA/EGA graphics (15 video modes) in a non standard address to allow it to coexist with a CGA adapter in a compatible memory location
 - Comprehensive peripheral support (8259 PIC, 8253 PIT, 8237 DMA, floppy, UART, PS/2)
 - Targets MiSTer DE10-Nano (Intel Cyclone V FPGA)
 
