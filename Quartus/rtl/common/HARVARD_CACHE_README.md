@@ -81,13 +81,15 @@ cd /home/user/MyPC/modelsim
 
 ## Status
 
-✅ **COMPLETE AND TESTED**
-- Implementation complete
+✅ **MISSING COHERENCE **
+- Implementation partially complete
 - Testbench verified
 - FPGA fit confirmed
-- Ready for integration
+- Not ready for integration
+- Invalidation of cache line of instruction cache on data write to allow
+  flawless self-modifying code, boot code and OS/Load code
 
 ---
 
 **Date:** 2025-11-11
-**Version:** 1.0
+**Version:** 2.0

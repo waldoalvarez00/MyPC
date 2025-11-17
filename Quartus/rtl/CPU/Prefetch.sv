@@ -22,9 +22,13 @@
 // This module is responsible for fetching bytes from the memory and pushing
 // them into the instruction stream FIFO.  The CS is stored outside of the
 // Prefetch unit and passed in to be combined with the internal IP which is
-// wired out.  This means that IP wrapping works correctly, and can be updated
-// under external control.  The fetching can be stalled when servicing
+// wired out. This means that IP wrapping works correctly, and can be updated
+// under external control. The fetching can be stalled when servicing
 // a branch, updating the IP will flush the FIFO.
+
+// TODO: Important requires to implement Smart Flush of Fifo with some data writes to fully allow the 
+//       CPU to execute Self Modifying code / Boot loader code / OS Loaded code
+//       Implement smart range of CS and IP
 
 `default_nettype none
 module Prefetch(input logic clk,

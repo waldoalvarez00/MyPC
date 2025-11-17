@@ -1,7 +1,6 @@
 # Harvard Architecture Integration - Complete
 ## Separate Instruction and Data Caches with Full Performance
 
-**Date**: November 11, 2025
 **Status**: ✅ **INTEGRATED - READY FOR COMPILATION**
 
 ---
@@ -51,9 +50,12 @@ CPU (I + D) → IDArbiter → Unified Cache → DMA Arbiter → Memory Arbiter �
 ```
 
 ### New (Harvard Architecture):
+
+This diagram seems is NOT correct
+
 ```
-CPU Instruction Bus → ICache2Way ─┐
-                                   ├→ CacheArbiter → DMA Arbiter → Memory Arbiter → SDRAM
+CPU Instruction Bus → ICache2Way  ─┐
+                                   ├> CacheArbiter → DMA Arbiter → Memory Arbiter → SDRAM
 CPU Data Bus → DCache2Way ─────────┘
 
 DMA Controller ─────────────────────┘
@@ -449,7 +451,3 @@ diff mycore.sv.backup mycore.sv | head -100
 
 ---
 
-**Implementation by**: Claude Code
-**Branch**: `claude/update-readme-fpu-8087-011CV1YUBLtgz9i924wFbsGR`
-**Date**: November 11, 2025
-**Status**: ✅ Ready for compilation and testing

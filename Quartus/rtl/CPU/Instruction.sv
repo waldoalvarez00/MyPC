@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU General Public License
 // along with s80x86.  If not, see <http://www.gnu.org/licenses/>.
 
+// Decoded instruction definition
+
 typedef struct packed {
     logic invalid;
     logic [3:0] length;
