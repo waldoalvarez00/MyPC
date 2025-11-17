@@ -1,3 +1,47 @@
+
+Analysis of synthesis usage log
+
+Top LAB consumers and viable optimizations that preserve functionality:
+
+  - FPU_ArithmeticUnit (~37k ALUTs)
+      - Move all large multiplies into DSPs. The unified mul/div already has a DSP hint; use altera_mult_add with DSP adder chain and pipeline
+        the 128-bit product to keep the sum in DSP fabric.
+		
+      - Collapse duplicated logic across ops: if add/sub and compare share alignment/normalization, refactor into shared modules with op selects.
+      - Enable retiming/physical synthesis on this hierarchy and register wide combinational cones (e.g., sign/exponent/mantissa align) to
+        improve packing.
+		
+		
+		
+  - FPU_Transcendental (~24.5k) & CORDIC_Wrapper (~24k) & Range_Reduction (~18k)
+  
+      - Horner polynomials: enforce DSP use on each multiply; keep coefficients in MLAB ROMs; use a single adder/multiplier pipeline with staging
+        to avoid parallel redundant hardware.
+		
+		
+		
+      - CORDIC: make shift tables ROM-based; share/add pipeline between sin/cos iterations if latency allows; remove unused intermediate
+        precision bits if margins are generous.
+		
+		
+		
+  - FPU_IEEE754_MulDiv_Unified (~7k)
+      - Force DSP for mantissa multiply (as above), and for the divider’s multiply-by-reciprocal steps if present.
+      - Use small MLABs for quotient digit tables / SRT selection; add one pipeline stage on the SRT add/sub datapath for better ALM packing.
+	  
+  - FPU_Format_Converter_Unified (~2.7k) / AddSub (~2.3k)
+      - Push constants into ROM (MLAB), use DSP for the main multiply, and serialize lesser multiplications through the same DSP if timing
+        allows.
+		
+  - CPU Core (~2.7k) / ALU (~0.75k)
+      - Force small multiplies to DSPs (multstyle="DSP" or QSF instance assignments).
+      - Ensure all filter multiplies are DSPs; place coefficients in MLAB; consider lowering internal precision if margins permit.
+	  
+
+
+
+
+
 # DSP Block Optimization Analysis for MiSTer MyPC
 
 **Date:** 2025-11-16
@@ -17,26 +61,15 @@ This analysis identifies arithmetic operations in the MyPC codebase that can be 
 
 **Finding:** The codebase has **NO explicit DSP block inference attributes** configured.
 
-**Quartus Settings Analysis:**
-- Synthesis mode: `OPTIMIZATION_TECHNIQUE SPEED`
-- No `DSP_BLOCK_BALANCING` configuration
-- Relying on **default automatic inference** (conservative)
 
-**Impact:** Quartus may be implementing some multipliers in logic fabric instead of DSP blocks, wasting valuable resources.
+## Priority 1: FPU Multiplication (HIGHEST IMPACT ADDED Explicit)
 
----
+Already inferred as DSP
 
-## Priority 1: FPU Multiplication (HIGHEST IMPACT)
 
 ### Location
 `Quartus/rtl/FPU8087/FPU_IEEE754_MulDiv_Unified.v:250`
 
-### Current Implementation
-```verilog
-reg [127:0] product;  // 64×64 = 128-bit product
-...
-product = mant_a * mant_b;  // Line 250
-```
 
 ### Analysis
 - **Operation:** 64-bit × 64-bit unsigned multiplication
@@ -121,10 +154,8 @@ assign product = p00 +
                  // ... etc
 ```
 
-### Expected Resource Savings
-- **Current (estimated):** ~800-1200 ALMs for 64×64 multiplier
-- **With DSP blocks:** 16 DSP blocks + ~200 ALMs for adder tree
-- **Savings:** ~600-1000 ALMs (**2-3% total FPGA reduction**)
+
+
 
 ### Performance Impact
 - **Timing:** DSP blocks run at 400+ MHz on Cyclone V (vs 50 MHz target) → **excellent timing margin**
@@ -144,6 +175,8 @@ if (is_signed)
 else
     out[31:0] = {16'b0, a} * {16'b0, b};
 ```
+
+Status: Already inferred as 
 
 ### Analysis
 - **Operation:** 16-bit × 16-bit signed/unsigned multiplication
