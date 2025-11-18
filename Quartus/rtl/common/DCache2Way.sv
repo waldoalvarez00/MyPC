@@ -470,6 +470,23 @@ always_ff @(posedge clk or posedge reset) begin
                 $display("[%0t][DCache2Way] CODE_WRITE_HIT addr=%h data=%h be=%b way=%0d coh_probe_present=%b",
                          $time, c_addr, c_data_out, c_bytesel, hit_way, coh_probe_present);
             end
+            // Trace flush scheduling and execution (for SMC debugging)
+            if (do_flush && !flushing) begin
+                $display("[%0t][DCache2Way] FLUSH_START idx=%h way=%0d dirty0=%b dirty1=%b valid0=%b valid1=%b code_flush_pending=%b code_flush_way=%0d",
+                         $time,
+                         latched_address[index_end:index_start],
+                         (code_flush_pending ? code_flush_way : selected_way),
+                         dirty_way0, dirty_way1, valid_way0, valid_way1,
+                         code_flush_pending, code_flush_way);
+            end
+            if (flushing && m_access && m_wr_en && !m_ack) begin
+                $display("[%0t][DCache2Way] FLUSH_BEAT addr=%h data=%h",
+                         $time, c_m_addr, c_m_data_out);
+            end
+            if (flushing && m_ack) begin
+                $display("[%0t][DCache2Way] FLUSH_ACK addr=%h",
+                         $time, c_m_addr);
+            end
         end
     end
 end

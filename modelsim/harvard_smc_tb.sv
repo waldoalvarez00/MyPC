@@ -221,8 +221,10 @@ always_ff @(posedge clk) begin
                 sdram_ack     <= 1'b1;
                 if (sdram_wr_en) begin
                     memory[sdram_addr] <= sdram_data_out;
+                    $display("[SDRAM] WRITE addr=%h data=%h be=%b", sdram_addr, sdram_data_out, sdram_bytesel);
                 end else begin
                     sdram_data_in <= memory[sdram_addr];
+                    $display("[SDRAM] READ  addr=%h data=%h", sdram_addr, memory[sdram_addr]);
                 end
             end
         end
@@ -369,6 +371,10 @@ initial begin
     repeat(10) @(posedge clk);
     reset = 1'b0;
     repeat(10) @(posedge clk);
+
+    $display("[DBG] Initial SDRAM contents:");
+    $display("  mem[00300]=%h mem[01300]=%h mem[02300]=%h",
+             memory[19'h00300], memory[19'h01300], memory[19'h02300]);
 
     $display("==================================================");
     $display("Harvard Cache Self-Modifying Code Test");
