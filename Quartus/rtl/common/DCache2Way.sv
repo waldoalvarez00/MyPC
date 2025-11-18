@@ -102,7 +102,7 @@ reg busy;
 reg flushing;
 reg [index_end-1:0] line_address;
 reg [19:1] latched_address, fetch_address;
-reg updating;
+reg [19:1] fill_addr;
 reg accessing;
 reg code_flush_pending;
 reg code_flush_way;
@@ -110,7 +110,9 @@ reg flush_way_reg;
 reg [index_bits-1:0] flush_index_reg;
 reg [tag_bits-1:0] flush_tag_reg;
 reg [2:0] flush_beat;
-reg flush_active;
+typedef enum logic [1:0] {FL_IDLE, FL_READ, FL_WAIT, FL_WRITE} fl_state_t;
+fl_state_t fl_state;
+reg [15:0] flush_data;
 
 // Pending write-hit (robust line RAM update via B-port)
 reg        pending_whit;
@@ -118,6 +120,7 @@ reg        pending_whit_way;
 reg [index_end:1] pending_whit_addr;
 reg [15:0] pending_whit_data;
 reg [1:0]  pending_whit_be;
+reg        debug_printed;
 
 // Coherence outputs towards I-cache
 assign coh_wr_valid     = c_ack && c_wr_en;
@@ -154,9 +157,9 @@ wire filling_current = fetch_address[19:index_start] == latched_address[19:index
 wire allow_early_hit = !c_wr_en;
 
 assign hit_way0 = accessing && ((valid_way0 && tags_match_way0) ||
-    (allow_early_hit && busy && !flushing && selected_way == 1'b0 && filling_current && line_valid[fetch_address[3:1]]));
+    (allow_early_hit && busy && !flushing_active && selected_way == 1'b0 && filling_current && line_valid[fetch_address[3:1]]));
 assign hit_way1 = accessing && ((valid_way1 && tags_match_way1) ||
-    (allow_early_hit && busy && !flushing && selected_way == 1'b1 && filling_current && line_valid[fetch_address[3:1]]));
+    (allow_early_hit && busy && !flushing_active && selected_way == 1'b1 && filling_current && line_valid[fetch_address[3:1]]));
 
 assign hit = hit_way0 || hit_way1;
 assign hit_way = hit_way1;  // 0 if way0 hit, 1 if way1 hit
@@ -166,13 +169,15 @@ wire [15:0] c_q = hit_way0 ? data_way0 : data_way1;
 
 // Output logic
 assign c_data_in = enabled ? (c_ack ? c_q : 16'b0) : m_data_in;
-assign c_ack = enabled ? accessing & !flushing & hit : m_ack;
+assign c_ack = enabled ? accessing & !flushing_active & hit : m_ack;
 
 // Memory interface
 wire [19:1] flush_addr = {flush_tag_reg, flush_index_reg, flush_beat};
-assign m_addr     = enabled ? (flushing ? flush_addr : c_m_addr) : c_addr;
-assign m_wr_en    = enabled ? flushing : c_wr_en;
-assign m_access   = enabled ? (flushing ? 1'b1 : busy) : c_access;
+wire flushing_active = (fl_state != FL_IDLE);
+
+assign m_addr     = enabled ? (flushing_active ? flush_addr : c_m_addr) : c_addr;
+assign m_wr_en    = enabled ? (fl_state == FL_WRITE) : c_wr_en;
+assign m_access   = enabled ? (flushing_active ? 1'b1 : busy) : c_access;
 assign m_bytesel  = enabled ? 2'b11 : c_bytesel;
 assign m_data_out = enabled ? c_m_data_out : c_data_out;
 
@@ -182,38 +187,43 @@ assign way_to_replace = lru_bit;  // 0 = replace way0, 1 = replace way1
 // Determine if we need to flush the selected way before filling
 wire selected_dirty = selected_way ? dirty_way1 : dirty_way0;
 wire selected_valid = selected_way ? valid_way1 : valid_way0;
-wire flush_active_wire = flushing;
+wire flush_active_wire = flushing_active;
 
 // Code writes are treated the same as data writes in the cache;
 // coherence with I-cache is handled at the memory arbiter via invalidation.
 wire code_write_hit = 1'b0;
 
 // Flush and fill logic
-wire request_flush_dirty = updating && ~hit && !busy && !flushing && selected_valid && selected_dirty;
-wire request_fill        = updating && ~hit && !busy && !flushing && (!selected_valid || !selected_dirty);
-wire request_code_flush  = code_flush_pending && !busy && !flushing;
+wire request_flush_dirty = c_access && ~hit && !busy && !flushing_active && selected_valid && selected_dirty;
+wire request_fill        = c_access && ~hit && !busy && !flushing_active && (!selected_valid || !selected_dirty);
+wire request_code_flush  = code_flush_pending && !busy && !flushing_active;
 
 wire do_flush = request_flush_dirty || request_code_flush;
 wire do_fill  = request_fill && !request_code_flush;
 
-wire write_line = m_ack && !flushing;
+wire write_line = m_ack && !flushing_active;
 
 // Tag/Valid/Dirty write enables
 wire write_tag_way0 = do_fill && selected_way == 1'b0;
 wire write_tag_way1 = do_fill && selected_way == 1'b1;
 
-wire write_valid_way0 = (do_flush && flush_way_reg == 1'b0) ||
-                        (write_tag_way0) ||
-                        (selected_way == 1'b0 && ~flushing && line_idx == 3'b111 && m_ack);
-wire write_valid_way1 = (do_flush && flush_way_reg == 1'b1) ||
-                        (write_tag_way1) ||
-                        (selected_way == 1'b1 && ~flushing && line_idx == 3'b111 && m_ack);
+wire flush_done = (fl_state == FL_WRITE) && m_ack && (flush_beat == 3'b111);
 
-wire write_dirty_way0 = (c_ack & c_wr_en && hit_way0 && !code_write_hit) || (do_flush && flush_way_reg == 1'b0);
-wire write_dirty_way1 = (c_ack & c_wr_en && hit_way1 && !code_write_hit) || (do_flush && flush_way_reg == 1'b1);
+wire write_valid_way0 = write_tag_way0 ||
+                        (selected_way == 1'b0 && ~flushing_active && line_idx == 3'b111 && m_ack) ||
+                        (flush_done && flush_way_reg == 1'b0);
+wire write_valid_way1 = write_tag_way1 ||
+                        (selected_way == 1'b1 && ~flushing_active && line_idx == 3'b111 && m_ack) ||
+                        (flush_done && flush_way_reg == 1'b1);
+
+wire valid_way0_wdata = (flush_done && flush_way_reg == 1'b0) ? 1'b0 : 1'b1;
+wire valid_way1_wdata = (flush_done && flush_way_reg == 1'b1) ? 1'b0 : 1'b1;
+
+wire write_dirty_way0 = (c_ack & c_wr_en && hit_way0 && !code_write_hit) || (flush_done && flush_way_reg == 1'b0);
+wire write_dirty_way1 = (c_ack & c_wr_en && hit_way1 && !code_write_hit) || (flush_done && flush_way_reg == 1'b1);
 
 // LRU update: write on hit or fill completion
-assign write_lru = (c_ack && hit) || (~flushing && line_idx == 3'b111 && m_ack);
+assign write_lru = (c_ack && hit) || (~flushing_active && line_idx == 3'b111 && m_ack);
 
 // LRU RAM - stores which way to replace next per set
 DPRam #(.words(sets),
@@ -237,9 +247,9 @@ DPRam #(.words(sets),
               .wr_en_a(1'b0),
               .wdata_a({tag_bits{1'b0}}),
               .q_a(tag_way0),
-              .addr_b(latched_address[index_end:index_start]),
+              .addr_b(fill_addr[index_end:index_start]),
               .wr_en_b(write_tag_way0),
-              .wdata_b(latched_address[19:tag_start]),
+              .wdata_b(fill_addr[19:tag_start]),
               .q_b());
 
 DPRam #(.words(sets),
@@ -248,11 +258,10 @@ DPRam #(.words(sets),
                 .addr_a(c_addr[index_end:index_start]),
                 .wr_en_a(1'b0),
                 .wdata_a(1'b0),
-        .q_a(valid_way0),
-                .addr_b(latched_address[index_end:index_start]),
+                .q_a(valid_way0),
+                .addr_b(fill_addr[index_end:index_start]),
                 .wr_en_b(write_valid_way0),
-                .wdata_b((do_flush && flush_way_reg == 1'b0) ? (code_flush_pending ? 1'b1 : 1'b0) :
-                        (~flushing && line_idx == 3'b111 && selected_way == 1'b0)),
+                .wdata_b(valid_way0_wdata),
                 .q_b());
 
 DPRam #(.words(sets),
@@ -261,8 +270,8 @@ DPRam #(.words(sets),
                 .addr_a(c_addr[index_end:index_start]),
                 .wr_en_a(c_ack & c_wr_en && hit_way0),
                 .wdata_a(1'b1),
-        .q_a(dirty_way0),
-                .addr_b(latched_address[index_end:index_start]),
+                .q_a(dirty_way0),
+                .addr_b(fill_addr[index_end:index_start]),
                 .wr_en_b(do_flush && flush_way_reg == 1'b0),
                 .wdata_b(1'b0),
                 .q_b());
@@ -275,9 +284,9 @@ DPRam #(.words(sets),
               .wr_en_a(1'b0),
               .wdata_a({tag_bits{1'b0}}),
               .q_a(tag_way1),
-              .addr_b(latched_address[index_end:index_start]),
+              .addr_b(fill_addr[index_end:index_start]),
               .wr_en_b(write_tag_way1),
-              .wdata_b(latched_address[19:tag_start]),
+              .wdata_b(fill_addr[19:tag_start]),
               .q_b());
 
 DPRam #(.words(sets),
@@ -286,11 +295,10 @@ DPRam #(.words(sets),
                 .addr_a(c_addr[index_end:index_start]),
                 .wr_en_a(1'b0),
                 .wdata_a(1'b0),
-        .q_a(valid_way1),
-                .addr_b(latched_address[index_end:index_start]),
+                .q_a(valid_way1),
+                .addr_b(fill_addr[index_end:index_start]),
                 .wr_en_b(write_valid_way1),
-                .wdata_b((do_flush && flush_way_reg == 1'b1) ? (code_flush_pending ? 1'b1 : 1'b0) :
-                        (~flushing && line_idx == 3'b111 && selected_way == 1'b1)),
+                .wdata_b(valid_way1_wdata),
                 .q_b());
 
 DPRam #(.words(sets),
@@ -299,46 +307,46 @@ DPRam #(.words(sets),
                 .addr_a(c_addr[index_end:index_start]),
                 .wr_en_a(c_ack & c_wr_en && hit_way1),
                 .wdata_a(1'b1),
-        .q_a(dirty_way1),
-                .addr_b(latched_address[index_end:index_start]),
+                .q_a(dirty_way1),
+                .addr_b(fill_addr[index_end:index_start]),
                 .wr_en_b(do_flush && flush_way_reg == 1'b1),
                 .wdata_b(1'b0),
                 .q_b());
 
 // Port B read data from each way (for flush)
 wire [15:0] data_way0_b, data_way1_b;
-wire [15:0] c_m_data_out = flushing ? (flush_way_reg ? data_way1 : data_way0) // use hit path data during flush
+wire [15:0] c_m_data_out = flushing_active ? flush_data
                                     : (selected_way ? data_way1_b : data_way0_b);
 
 // Separate line RAMs for each way
 // B-port arbitration: either line fill/flush (write_line) or a pending write-hit
-wire use_b_whit_way0 = pending_whit && !busy && !flushing && (pending_whit_way == 1'b0);
-wire use_b_whit_way1 = pending_whit && !busy && !flushing && (pending_whit_way == 1'b1);
+wire use_b_whit_way0 = pending_whit && !busy && !flushing_active && (pending_whit_way == 1'b0);
+wire use_b_whit_way1 = pending_whit && !busy && !flushing_active && (pending_whit_way == 1'b1);
 
-wire [index_end:1] line_addr_for_b = flushing ? {flush_index_reg, flush_beat} : line_address;
+wire [index_end:1] line_addr_for_b = flushing_active ? {flush_index_reg, flush_beat} : line_address;
 
 BlockRam #(.words(sets * line_size))
          LineRAM0(.clk(clk),
-                  .addr_a(flushing ? {flush_index_reg, flush_beat} : c_addr[index_end:1]),
-                  .wr_en_a(c_access && c_wr_en && !flushing && hit_way0),
+                  .addr_a(c_addr[index_end:1]),
+                  .wr_en_a(c_access && c_wr_en && !flushing_active && hit_way0),
                   .wdata_a(c_data_out),
                   .be_a(c_bytesel),
                   .q_a(data_way0),
                   .addr_b(use_b_whit_way0 ? pending_whit_addr : line_addr_for_b),
-                  .wr_en_b((write_line && selected_way == 1'b0 && !flushing) || use_b_whit_way0),
+                  .wr_en_b((write_line && selected_way == 1'b0 && !flushing_active) || use_b_whit_way0),
                   .wdata_b(use_b_whit_way0 ? pending_whit_data : m_data_in),
                   .q_b(data_way0_b),
                   .be_b(use_b_whit_way0 ? pending_whit_be : 2'b11));
 
 BlockRam #(.words(sets * line_size))
          LineRAM1(.clk(clk),
-                  .addr_a(flushing ? {flush_index_reg, flush_beat} : c_addr[index_end:1]),
-                  .wr_en_a(c_access && c_wr_en && !flushing && hit_way1),
+                  .addr_a(c_addr[index_end:1]),
+                  .wr_en_a(c_access && c_wr_en && !flushing_active && hit_way1),
                   .wdata_a(c_data_out),
                   .be_a(c_bytesel),
                   .q_a(data_way1),
                   .addr_b(use_b_whit_way1 ? pending_whit_addr : line_addr_for_b),
-                  .wr_en_b((write_line && selected_way == 1'b1 && !flushing) || use_b_whit_way1),
+                  .wr_en_b((write_line && selected_way == 1'b1 && !flushing_active) || use_b_whit_way1),
                   .wdata_b(use_b_whit_way1 ? pending_whit_data : m_data_in),
                   .q_b(data_way1_b),
                   .be_b(use_b_whit_way1 ? pending_whit_be : 2'b11));
@@ -360,6 +368,8 @@ endtask
 task automatic fill_line;
 begin
     c_m_addr <= c_addr;
+    fill_addr <= c_addr;
+    latched_address <= c_addr;
     busy <= 1'b1;
     line_valid <= 8'b0;
 end
@@ -376,17 +386,17 @@ end
 
 // Line address calculation
 always_comb begin
-    if (m_ack && flushing)
+    if (m_ack && flushing_active)
         line_address = {flush_index_reg, flush_beat + 1'b1};
     else if (request_flush_dirty)
         line_address = {latched_address[index_end:index_start], 3'b0};
     else
-        line_address = {latched_address[index_end:index_start], c_m_addr[3:1]};
+        line_address = {fill_addr[index_end:index_start], c_m_addr[3:1]};
 end
 
 // Address latching
 always_ff @(posedge clk) begin
-    if (!busy && !flushing)
+    if (!busy && !flushing_active)
         latched_address <= c_addr;
     fetch_address <= c_addr;
 end
@@ -398,65 +408,97 @@ always_ff @(posedge clk or posedge reset) begin
     end else begin
         if (code_write_hit)
             selected_way <= hit_way;
-        else if (updating && ~hit && !busy && !flushing)
+        else if (c_access && ~hit && !busy && !flushing_active)
             selected_way <= way_to_replace;
     end
 end
 
-// Update state machine
-always_ff @(posedge clk or posedge reset) begin
-    if (reset) begin
-        updating <= 1'b0;
-    end else begin
-        if (enabled && !busy && !flushing && c_access)
-            updating <= 1'b1;
-        if (updating && !(do_flush || flushing))
-            updating <= 1'b0;
-    end
-end
-
-// Fill/flush state machine
+// Fill/flush state machines
 always_ff @(posedge clk or posedge reset) begin
     if (reset) begin
         line_idx <= 3'b0;
         line_valid <= 8'b0;
         busy <= 1'b0;
         flushing <= 1'b0;
+        fill_addr <= {19{1'b0}};
         code_flush_pending <= 1'b0;
         code_flush_way <= 1'b0;
         flush_way_reg <= 1'b0;
         flush_index_reg <= {index_bits{1'b0}};
         flush_tag_reg <= {tag_bits{1'b0}};
         flush_beat <= 3'b0;
-    end else if (enabled && m_ack) begin
-        if (flushing) begin
-            flush_beat <= flush_beat + 1'b1;
-            if (flush_beat == 3'b111) begin
-                flushing <= 1'b0;
-                busy <= 1'b0;
-            end
-        end else begin
+        fl_state <= FL_IDLE;
+        flush_data <= 16'h0000;
+    end else if (enabled) begin
+        // ------------------------
+        // Line fill (when not flushing)
+        // ------------------------
+        if (m_ack && !flushing_active && busy) begin
             c_m_addr <= {c_m_addr[19:4], c_m_addr[3:1] + 1'b1};
             line_idx <= line_idx + 1'b1;
-            if (!flushing)
-                line_valid[c_m_addr[3:1]] <= 1'b1;
+            line_valid[c_m_addr[3:1]] <= 1'b1;
             if (line_idx == 3'b111) begin
+                line_idx <= 3'b0;
                 busy <= 1'b0;
             end
+        end else if (!flushing_active && do_fill) begin
+            line_idx <= 3'b0;
+            fill_line();
         end
-    end else if (enabled && do_flush) begin
-        flush_line(code_flush_pending ? code_flush_way : selected_way);
-        flush_beat <= 3'b0;
-        if (code_flush_pending)
-            code_flush_pending <= 1'b0;
-    end else if (enabled && do_fill) begin
-        line_idx <= 3'b0;
-        fill_line();
-    end else if (code_write_hit) begin
-        // Schedule an immediate flush of the hit line so that
-        // modified code reaches SDRAM while keeping the line resident.
-        code_flush_pending <= 1'b1;
-        code_flush_way     <= hit_way;
+
+        // Schedule code flush on write-hit (keeps residency)
+        if (code_write_hit && fl_state == FL_IDLE) begin
+            code_flush_pending <= 1'b1;
+            code_flush_way     <= hit_way;
+        end
+
+        // ------------------------
+        // Flush FSM
+        // ------------------------
+        case (fl_state)
+            FL_IDLE: begin
+                flushing <= 1'b0;
+                if (do_flush) begin
+                    flush_way_reg   <= code_flush_pending ? code_flush_way : selected_way;
+                    flush_index_reg <= latched_address[index_end:index_start];
+                    flush_tag_reg   <= code_flush_pending ? (code_flush_way ? tag_way1 : tag_way0)
+                                                          : (selected_way ? tag_way1 : tag_way0);
+                    flush_beat      <= 3'b000;
+                    fl_state        <= FL_READ;
+                    flushing        <= 1'b1;
+                    busy            <= 1'b1;
+                    code_flush_pending <= 1'b0;
+                end
+            end
+
+            FL_READ: begin
+                // Address is presented via line_addr_for_b
+                flushing <= 1'b1;
+                fl_state <= FL_WAIT;
+            end
+
+            FL_WAIT: begin
+                // Capture data from B-port for this beat
+                flushing   <= 1'b1;
+                flush_data <= flush_way_reg ? data_way1_b : data_way0_b;
+                fl_state   <= FL_WRITE;
+            end
+
+            FL_WRITE: begin
+                flushing <= 1'b1;
+                if (m_ack) begin
+                    if (flush_beat == 3'b111) begin
+                        fl_state   <= FL_IDLE;
+                        flushing   <= 1'b0;
+                        busy       <= 1'b0;
+                        flush_beat <= 3'b000;
+                    end else begin
+                        flush_beat <= flush_beat + 1'b1;
+                        fl_state   <= FL_READ;
+                    end
+                end
+            end
+        endcase
     end
 end
 
@@ -471,10 +513,11 @@ always_ff @(posedge clk or posedge reset) begin
         pending_whit_addr <= {index_end{1'b0}};
         pending_whit_data <= 16'h0000;
         pending_whit_be   <= 2'b00;
+        debug_printed     <= 1'b0;
     end else begin
         // Track pending write-hit for robust B-port update
         // Capture write-hit (immediate) or write-miss (deferred until after fill)
-        if (c_access && c_wr_en && !hit && !flushing) begin
+        if (c_access && c_wr_en && !hit && !flushing_active) begin
             // Miss: remember the write to apply once the line is filled
             pending_whit      <= 1'b1;
             pending_whit_way  <= selected_way;
@@ -487,21 +530,46 @@ always_ff @(posedge clk or posedge reset) begin
             pending_whit_addr <= c_addr[index_end:1];
             pending_whit_data <= c_data_out;
             pending_whit_be   <= c_bytesel;
-        end else if (pending_whit && !busy && !flushing) begin
+        end else if (pending_whit && !busy && !flushing_active) begin
             pending_whit <= 1'b0;
         end
 
         if (DEBUG) begin
+            if (!debug_printed) begin
+                $display("[%0t][DCache2Way] DEBUG ENABLED", $time);
+                debug_printed <= 1'b1;
+            end
+            if (c_access) begin
+                $display("[%0t][DCache2Way] ACCESS addr=%h hit=%b hit_way0=%b hit_way1=%b c_ack=%b busy=%b flushing=%b fl_state=%0d c_wr_en=%b m_ack=%b line_idx=%0d val0=%b val1=%b tag0=%h tag1=%h",
+                         $time, c_addr, hit, hit_way0, hit_way1, c_ack, busy, flushing, fl_state, c_wr_en, m_ack, line_idx, valid_way0, valid_way1, tag_way0, tag_way1);
+            end
             if (code_write_hit) begin
                 $display("[%0t][DCache2Way] CODE_WRITE_HIT addr=%h data=%h be=%b way=%0d coh_probe_present=%b",
                          $time, c_addr, c_data_out, c_bytesel, hit_way, coh_probe_present);
+            end
+            if (c_ack && c_wr_en && hit) begin
+                $display("[%0t][DCache2Way] WRITE_HIT addr=%h data=%h be=%b way=%0d dirty0=%b dirty1=%b",
+                         $time, c_addr, c_data_out, c_bytesel, hit_way, dirty_way0, dirty_way1);
+            end
+            if (request_flush_dirty && !flushing_active) begin
+                $display("[%0t][DCache2Way] FLUSH_REQ idx=%h sel_way=%0d dirty0=%b dirty1=%b valid0=%b valid1=%b",
+                         $time,
+                         latched_address[index_end:index_start],
+                         selected_way, dirty_way0, dirty_way1, valid_way0, valid_way1);
             end
             if (m_access && m_wr_en) begin
                 $display("[%0t][DCache2Way] WB addr=%h data=%h be=%b busy=%b flushing=%b",
                          $time, m_addr, m_data_out, m_bytesel, busy, flushing);
             end
+            if (!flushing_active && m_ack && busy && line_idx == 3'b111) begin
+                $display("[%0t][DCache2Way] FILL_COMPLETE idx=%h way=%0d tag0=%h tag1=%h val0=%b val1=%b",
+                         $time,
+                         c_m_addr[index_end:index_start],
+                         selected_way,
+                         tag_way0, tag_way1, valid_way0, valid_way1);
+            end
             // Trace flush scheduling and execution (for SMC debugging)
-            if (do_flush && !flushing) begin
+            if (do_flush && !flushing_active) begin
                 $display("[%0t][DCache2Way] FLUSH_START idx=%h way=%0d dirty0=%b dirty1=%b valid0=%b valid1=%b code_flush_pending=%b code_flush_way=%0d",
                          $time,
                          latched_address[index_end:index_start],
@@ -509,11 +577,11 @@ always_ff @(posedge clk or posedge reset) begin
                          dirty_way0, dirty_way1, valid_way0, valid_way1,
                          code_flush_pending, code_flush_way);
             end
-            if (flushing && m_access && m_wr_en && !m_ack) begin
+            if (flushing_active && m_access && m_wr_en && !m_ack) begin
                 $display("[%0t][DCache2Way] FLUSH_BEAT addr=%h data=%h",
                          $time, c_m_addr, c_m_data_out);
             end
-            if (flushing && m_ack) begin
+            if (flushing_active && m_ack) begin
                 $display("[%0t][DCache2Way] FLUSH_ACK addr=%h",
                          $time, c_m_addr);
             end
