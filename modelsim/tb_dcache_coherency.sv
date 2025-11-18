@@ -503,7 +503,7 @@ module tb_dcache_coherency;
 
             // CPU reads same address (should see FPU's write)
             cpu_read(test_addr, read_data);
-            check_result(16'h5678, read_data, "CPU reads FPU write");
+        check_result(16'h5678, read_data, "CPU reads FPU write (test 3)");
         end
 
         $display("");
@@ -537,7 +537,7 @@ module tb_dcache_coherency;
 
             // CPU reads (should see FPU write)
             cpu_read(test_addr, read_data);
-            check_result(16'hBBBB, read_data, "CPU reads FPU write");
+        check_result(16'hBBBB, read_data, "CPU reads FPU write (test 5)");
 
             // DMA overwrites
             dma_write(test_addr, 16'hCCCC, 2'b11);
