@@ -186,6 +186,16 @@ module icache_dcache_coh_tb;
     // Test parameters
     logic [19:1] code_addr;
     logic [15:0] data;
+    logic [15:0] data2;
+    reg   [19:1] code_addr_conflict;
+
+    // Helper: refetch and check against expected
+    task automatic ic_fetch_check(input [19:1] addr, input [15:0] exp, input string msg);
+        begin
+            ic_fetch(addr, data);
+            check_result(exp, data, msg);
+        end
+    endtask
 
     // Helper: single I-cache fetch
     task automatic ic_fetch(input [19:1] addr, output [15:0] data);
@@ -228,6 +238,7 @@ module icache_dcache_coh_tb;
 
     // Main test sequence
     initial begin
+        integer idx_w1, idx_w2;
         $dumpfile("icache_dcache_coh_tb.vcd");
         $dumpvars(0, icache_dcache_coh_tb);
 
@@ -292,6 +303,94 @@ module icache_dcache_coh_tb;
         ic_fetch(code_addr, data);
         check_result(16'hDEAD, data,
                      "ICache refetch after D-store to resident line");
+
+        // --------------------------------------------------------------------
+        // Test 2: Multi-word line update (full words)
+        // --------------------------------------------------------------------
+        $display("\n--- Test 2: Multi-word line update ---");
+        // Reset caches/memory for isolation
+        reset = 1'b1;
+        ic_c_access = 1'b0;
+        dc_c_access = 1'b0;
+        dc_c_wr_en  = 1'b0;
+        repeat(4) @(posedge clk);
+        reset = 1'b0;
+        repeat(4) @(posedge clk);
+        // Prime memory to known pattern for a line (offsets 0..3 used)
+        code_addr = 19'h00400;
+        memory[code_addr[12:1] + 0] = 16'hAAAA;
+        memory[code_addr[12:1] + 1] = 16'hBBBB;
+        memory[code_addr[12:1] + 2] = 16'hCCCC;
+        memory[code_addr[12:1] + 3] = 16'hDDDD;
+
+        // Bring line into I-cache
+        ic_fetch(code_addr, data);
+        // Perform two D-stores to different words within the same line
+        dc_store(code_addr + 3'h2, 16'h1234, 2'b11); // word 1
+        dc_store(code_addr + 3'h4, 16'h5678, 2'b11); // word 2
+        repeat(10) @(posedge clk);
+        // Check backing memory sees both writes
+        idx_w1 = (code_addr + 3'h2) >> 1;
+        idx_w2 = (code_addr + 3'h4) >> 1;
+        check_result(16'h1234, memory[idx_w1],
+                     "Backing memory after D-store word1");
+        check_result(16'h5678, memory[idx_w2],
+                     "Backing memory after D-store word2");
+        // Refetch all three words via I-cache
+        ic_fetch(code_addr, data);
+        ic_fetch(code_addr + 3'h2, data2);
+        check_result(16'hAAAA, data, "ICache refetch word0 (unchanged)");
+        check_result(16'h1234, data2, "ICache refetch word1 (updated)");
+        ic_fetch(code_addr + 3'h4, data2);
+        check_result(16'h5678, data2, "ICache refetch word2 (updated)");
+
+        // --------------------------------------------------------------------
+        // Test 3: Multiple D-stores before refetch (partial bytes)
+        // --------------------------------------------------------------------
+        $display("\n--- Test 3: Multiple D-stores before refetch (partial bytes) ---");
+        reset = 1'b1;
+        ic_c_access = 1'b0;
+        dc_c_access = 1'b0;
+        dc_c_wr_en  = 1'b0;
+        repeat(4) @(posedge clk);
+        reset = 1'b0;
+        repeat(4) @(posedge clk);
+        code_addr = 19'h00500;
+        memory[code_addr[12:1]] = 16'hABCD;
+        // Bring into I-cache
+        ic_fetch(code_addr, data);
+        // Two partial stores: lower byte, then upper byte (result should be 0x12EF)
+        dc_store(code_addr, 16'h00EF, 2'b01); // lower byte to EF
+        dc_store(code_addr, 16'h1200, 2'b10); // upper byte to 12
+        repeat(10) @(posedge clk);
+        check_result(16'h12EF, memory[code_addr[12:1]], "Backing memory after partial byte stores");
+        ic_fetch_check(code_addr, 16'h12EF, "ICache refetch after partial byte stores");
+
+        // --------------------------------------------------------------------
+        // Test 4: Conflict eviction (same set, different tags)
+        // --------------------------------------------------------------------
+        $display("\n--- Test 4: Conflict eviction coherence ---");
+        reset = 1'b1;
+        ic_c_access = 1'b0;
+        dc_c_access = 1'b0;
+        dc_c_wr_en  = 1'b0;
+        repeat(4) @(posedge clk);
+        reset = 1'b0;
+        repeat(4) @(posedge clk);
+        // Choose two addresses mapping to same set (index bits 4..9 zero)
+        code_addr = 19'h00010;
+        memory[code_addr[12:1]] = 16'hAAAA;
+        code_addr_conflict = 19'h10010;
+        memory[code_addr_conflict[12:1]] = 16'hBBBB;
+        // Bring first into I-cache and then dirty it via D-cache
+        ic_fetch(code_addr, data);
+        dc_store(code_addr, 16'hCAFE, 2'b11);
+        // Thrash with conflicting address to evict
+        ic_fetch(code_addr_conflict, data);
+        // Let evictions settle
+        repeat(10) @(posedge clk);
+        check_result(16'hCAFE, memory[code_addr[12:1]], "Backing memory after conflict eviction");
+        ic_fetch_check(code_addr, 16'hCAFE, "ICache refetch after conflict eviction");
 
         // --------------------------------------------------------------------
         // Summary

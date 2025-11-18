@@ -1,0 +1,20 @@
+[options]
+mode prove
+depth 20
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -sv ../../../Quartus/rtl/common/DCache2Way.sv ../../../Quartus/rtl/common/BlockRam.sv ../../../Quartus/rtl/common/DPRam.sv ../../../Quartus/rtl/PipelinedMemArbiterExtend.sv DCache2Way_MemArbiter_formal.sv
+hierarchy -top DCache2Way_MemArbiter_formal
+clk2fflogic
+prep -nordff -top DCache2Way_MemArbiter_formal
+dffunmap
+
+[files]
+../Quartus/rtl/common/DCache2Way.sv
+../Quartus/rtl/common/BlockRam.sv
+../Quartus/rtl/common/DPRam.sv
+../Quartus/rtl/PipelinedMemArbiterExtend.sv
+DCache2Way_MemArbiter_formal.sv

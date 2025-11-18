@@ -69,6 +69,15 @@ logic [1:0]  sdram_bytesel;
 logic        icache_inval_valid;
 logic [19:1] icache_inval_addr;
 
+// D↔I cache coherence sideband
+logic        coh_wr_valid;
+logic [19:1] coh_wr_addr;
+logic [15:0] coh_wr_data;
+logic [1:0]  coh_wr_bytesel;
+logic        coh_probe_valid;
+logic [19:1] coh_probe_addr;
+logic        coh_probe_present;
+
 // Simple SDRAM memory model (512K words)
 logic [15:0] memory [0:524287];
 
@@ -98,7 +107,15 @@ ICache2Way #(.sets(256)) ICacheInst (
     .m_ack(ic_m_ack),
     // Coherence invalidation from final arbiter
     .inval_valid(icache_inval_valid),
-    .inval_addr(icache_inval_addr)
+    .inval_addr(icache_inval_addr),
+    // D-cache coherence sideband
+    .coh_wr_valid(coh_wr_valid),
+    .coh_wr_addr(coh_wr_addr),
+    .coh_wr_data(coh_wr_data),
+    .coh_wr_bytesel(coh_wr_bytesel),
+    .coh_probe_valid(coh_probe_valid),
+    .coh_probe_addr(coh_probe_addr),
+    .coh_probe_present(coh_probe_present)
 );
 
 // Data cache: 2-way set associative, write-back
@@ -121,7 +138,15 @@ DCache2Way #(.sets(256), .DEBUG(1'b1)) DCacheInst (
     .m_access(dc_m_access),
     .m_ack(dc_m_ack),
     .m_wr_en(dc_m_wr_en),
-    .m_bytesel(dc_m_bytesel)
+    .m_bytesel(dc_m_bytesel),
+    // Coherence sideband
+    .coh_wr_valid(coh_wr_valid),
+    .coh_wr_addr(coh_wr_addr),
+    .coh_wr_data(coh_wr_data),
+    .coh_wr_bytesel(coh_wr_bytesel),
+    .coh_probe_valid(coh_probe_valid),
+    .coh_probe_addr(coh_probe_addr),
+    .coh_probe_present(coh_probe_present)
 );
 
 // Cache arbiter between I-cache and D-cache
@@ -152,7 +177,7 @@ CacheArbiter CacheArb (
 );
 
 // Final SDRAM arbiter with I-cache invalidation
-PipelinedMemArbiterExtend CacheVGAArb (
+PipelinedMemArbiterExtend #(.DEBUG(1'b1)) CacheVGAArb (
     .clk(clk),
     .reset(reset),
     // CPU+DMA bus from cache arbiter
@@ -435,7 +460,8 @@ initial begin
         $finish(0);
     end else begin
         $display("✗✗✗ SELF-MODIFYING CODE TEST FAILED ✗✗✗");
-        $finish(1);
+        // Use $fatal to propagate a non-zero exit code to the wrapper script.
+        $fatal(1, "SELF-MODIFYING CODE TEST FAILED");
     end
 end
 

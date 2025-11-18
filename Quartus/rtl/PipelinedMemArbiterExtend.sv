@@ -42,7 +42,9 @@
  */
 
 `default_nettype none
-module PipelinedMemArbiterExtend(
+module PipelinedMemArbiterExtend #(
+    parameter bit DEBUG = 0
+)(
     input logic clk,
     input logic reset,
 
@@ -294,6 +296,19 @@ always_ff @(posedge clk or posedge reset) begin
     end
 end
 
+// Debug instrumentation (sim-only)
+generate if (DEBUG) begin : GEN_DEBUG
+    always_ff @(posedge clk) begin
+        if (stage3_valid && !stage3_grant_vga && stage3_wr_en) begin
+            $display("[%0t][MemArb] CPU WRITE addr=%h data=%h be=%b stage4_valid=%b sdram_ack=%b",
+                     $time, stage3_addr, stage3_data_out, stage3_bytesel, stage4_valid, sdram_m_ack);
+        end
+        if (stage3_valid && !stage3_grant_vga && !stage3_wr_en && sdram_m_ack) begin
+            $display("[%0t][MemArb] CPU READ  addr=%h data=%h", $time, stage3_addr, sdram_m_data_in);
+        end
+    end
+end endgenerate
+
 //=============================================================================
 // Output Assignments
 //=============================================================================
@@ -389,15 +404,16 @@ assign mcga_m_data_in = mcga_m_data_in_reg;
 
 `ifdef FORMAL
     // Only one bus acknowledged at a time
-    assert property (@(posedge clk) disable iff (reset)
-        !(cpu_m_ack_reg && mcga_m_ack_reg));
-
-    // Starvation prevention works
-    assert property (@(posedge clk) disable iff (reset)
-        (cpu_age >= 4'd12 && stage1_cpu_access && stage1_vga_access) |=> !stage3_grant_vga);
-
-    assert property (@(posedge clk) disable iff (reset)
-        (vga_age >= 4'd12 && stage1_cpu_access && stage1_vga_access) |=> stage3_grant_vga);
+    // (rewrite as simple always blocks for yosys smtbmc compatibility)
+    always @(posedge clk) begin
+        if (!reset) begin
+            assert(!(cpu_m_ack_reg && mcga_m_ack_reg));
+            if (cpu_age >= 4'd12 && stage1_cpu_access && stage1_vga_access)
+                assert(!stage3_grant_vga);
+            if (vga_age >= 4'd12 && stage1_cpu_access && stage1_vga_access)
+                assert(stage3_grant_vga);
+        end
+    end
 `endif
 
 endmodule
