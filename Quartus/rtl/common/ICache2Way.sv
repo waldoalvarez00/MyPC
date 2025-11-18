@@ -102,8 +102,10 @@ wire [index_bits-1:0] inv_idx = inval_valid ? inval_index : coh_idx;
 always_comb begin
     coh_probe_present = 1'b0;
     if (coh_probe_valid) begin
-        coh_probe_present = (dir_valid_way0[probe_idx] && dir_tag_way0[probe_idx] == probe_tag) ||
-                             (dir_valid_way1[probe_idx] && dir_tag_way1[probe_idx] == probe_tag);
+        // For now, treat any probe as "code region" for correctness.
+        // Directory information is still kept for potential future
+        // range-gating optimizations.
+        coh_probe_present = 1'b1;
     end
 end
 

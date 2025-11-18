@@ -106,10 +106,6 @@ reg updating;
 reg accessing;
 reg code_flush_pending;
 reg code_flush_way;
-reg code_wt_active;
-reg [19:1] code_wt_addr;
-reg [15:0] code_wt_data;
-reg [1:0] code_wt_bytesel;
 
 // Pending write-hit (robust line RAM update via B-port)
 reg        pending_whit;
@@ -168,11 +164,11 @@ assign c_data_in = enabled ? (c_ack ? c_q : 16'b0) : m_data_in;
 assign c_ack = enabled ? accessing & !flushing & hit : m_ack;
 
 // Memory interface
-assign m_addr     = enabled ? (code_wt_active ? code_wt_addr  : c_m_addr) : c_addr;
-assign m_wr_en    = enabled ? (code_wt_active ? 1'b1          : flushing & ~m_ack) : c_wr_en;
-assign m_access   = enabled ? (code_wt_active ? 1'b1          : busy | flushing) : c_access;
-assign m_bytesel  = enabled ? (code_wt_active ? code_wt_bytesel : 2'b11) : c_bytesel;
-assign m_data_out = enabled ? (code_wt_active ? code_wt_data  : c_m_data_out) : c_data_out;
+assign m_addr     = enabled ? c_m_addr : c_addr;
+assign m_wr_en    = enabled ? flushing & ~m_ack : c_wr_en;
+assign m_access   = enabled ? busy & ~m_ack : c_access;
+assign m_bytesel  = enabled ? 2'b11 : c_bytesel;
+assign m_data_out = enabled ? c_m_data_out : c_data_out;
 
 // LRU replacement selection
 assign way_to_replace = lru_bit;  // 0 = replace way0, 1 = replace way1
@@ -420,10 +416,6 @@ always_ff @(posedge clk or posedge reset) begin
         flushing <= 1'b0;
         code_flush_pending <= 1'b0;
         code_flush_way <= 1'b0;
-        code_wt_active <= 1'b0;
-        code_wt_addr <= {19{1'b0}};
-        code_wt_data <= 16'b0;
-        code_wt_bytesel <= 2'b0;
     end else if (enabled && m_ack) begin
         c_m_addr <= {c_m_addr[19:4], c_m_addr[3:1] + 1'b1};
         line_idx <= line_idx + 1'b1;
@@ -434,10 +426,6 @@ always_ff @(posedge clk or posedge reset) begin
             if (flushing)
                 flushing <= 1'b0;
         end
-        if (code_wt_active)
-            code_wt_active <= 1'b0;
-        if (code_wt_active)
-            busy <= 1'b0;
     end else if (enabled && do_flush) begin
         flush_line(code_flush_pending ? code_flush_way : selected_way);
         line_idx <= 3'b0;
@@ -446,55 +434,27 @@ always_ff @(posedge clk or posedge reset) begin
     end else if (enabled && do_fill) begin
         line_idx <= 3'b0;
         fill_line();
-    end
-    else if (code_write_hit) begin
-        code_wt_active <= 1'b1;
-        code_wt_addr <= c_addr;
-        code_wt_data <= c_data_out;
-        code_wt_bytesel <= c_bytesel;
-        busy <= 1'b1;  // hold bus until write-through ack arrives
-        flushing <= 1'b0;
-        line_idx <= 3'b0;
+    end else if (code_write_hit) begin
+        // Schedule an immediate flush of the hit line so that
+        // modified code reaches SDRAM while keeping the line resident.
+        code_flush_pending <= 1'b1;
+        code_flush_way     <= hit_way;
     end
 end
 
 // --------------------------------------------------------------------------
 // Debug instrumentation (sim-only). Enabled when DEBUG!=0.
-// Focus on key events instead of every cycle.
+// Keep minimal traces for coherence debugging.
 // --------------------------------------------------------------------------
-reg        dbg_prev_write_hit;
-reg        dbg_prev_hit_way;
-reg [19:1] dbg_prev_addr;
-reg [15:0] dbg_prev_data;
-
 always_ff @(posedge clk or posedge reset) begin
     if (reset) begin
-        dbg_prev_write_hit <= 1'b0;
-        dbg_prev_hit_way   <= 1'b0;
-        dbg_prev_addr      <= {19{1'b0}};
-        dbg_prev_data      <= 16'h0000;
-        pending_whit       <= 1'b0;
-        pending_whit_way   <= 1'b0;
-        pending_whit_addr  <= {index_end{1'b0}};
-        pending_whit_data  <= 16'h0000;
-        pending_whit_be    <= 2'b00;
-    end else if (DEBUG) begin
-        // Check previous-cycle write hit actually updated the line RAM.
-        if (dbg_prev_write_hit) begin
-            if (dbg_prev_hit_way ? (data_way1 !== dbg_prev_data)
-                                 : (data_way0 !== dbg_prev_data)) begin
-                $display("[%0t][DCache2Way][DBG] WRITE-HIT mismatch addr=%h expected=%h got0=%h got1=%h way=%0d",
-                         $time, dbg_prev_addr, dbg_prev_data,
-                         data_way0, data_way1, dbg_prev_hit_way);
-            end
-        end
-
-        // Capture current write-hit for next-cycle check and B-port update
-        dbg_prev_write_hit <= c_ack && c_wr_en && hit;
-        dbg_prev_hit_way   <= hit_way;
-        dbg_prev_addr      <= c_addr;
-        dbg_prev_data      <= c_data_out;
-
+        pending_whit      <= 1'b0;
+        pending_whit_way  <= 1'b0;
+        pending_whit_addr <= {index_end{1'b0}};
+        pending_whit_data <= 16'h0000;
+        pending_whit_be   <= 2'b00;
+    end else begin
+        // Track pending write-hit for robust B-port update
         if (c_ack && c_wr_en && hit) begin
             pending_whit      <= 1'b1;
             pending_whit_way  <= hit_way;
@@ -502,32 +462,14 @@ always_ff @(posedge clk or posedge reset) begin
             pending_whit_data <= c_data_out;
             pending_whit_be   <= c_bytesel;
         end else if (pending_whit && !busy && !flushing) begin
-            // Clear once B-port has had a chance to apply the update
             pending_whit <= 1'b0;
         end
 
-        // Targeted event traces
-        if (c_ack && c_wr_en && hit) begin
-            $display("[%0t][DCache2Way] WRITE ack addr=%h data=%h be=%b way=%0d dirty0=%b dirty1=%b valid0=%b valid1=%b",
-                     $time, c_addr, c_data_out, c_bytesel, hit_way,
-                     dirty_way0, dirty_way1, valid_way0, valid_way1);
-        end
-        if (code_write_hit) begin
-            $display("[%0t][DCache2Way] CODE_WRITE_HIT addr=%h data=%h be=%b way=%0d",
-                     $time, c_addr, c_data_out, c_bytesel, hit_way);
-        end
-        if (code_wt_active && m_ack) begin
-            $display("[%0t][DCache2Way] code_wt_ack addr=%h data=%h be=%b",
-                     $time, code_wt_addr, code_wt_data, code_wt_bytesel);
-        end
-        if (do_flush && !flushing) begin
-            $display("[%0t][DCache2Way] flush_start way=%0d addr=%h dirty0=%b dirty1=%b valid0=%b valid1=%b",
-                     $time, code_flush_pending ? code_flush_way : selected_way,
-                     latched_address, dirty_way0, dirty_way1, valid_way0, valid_way1);
-        end
-        if (c_ack && !c_wr_en) begin
-            $display("[%0t][DCache2Way] READ ack addr=%h data=%h way=%0d data0=%h data1=%h",
-                     $time, c_addr, c_q, hit_way ? 1 : 0, data_way0, data_way1);
+        if (DEBUG) begin
+            if (code_write_hit) begin
+                $display("[%0t][DCache2Way] CODE_WRITE_HIT addr=%h data=%h be=%b way=%0d coh_probe_present=%b",
+                         $time, c_addr, c_data_out, c_bytesel, hit_way, coh_probe_present);
+            end
         end
     end
 end
