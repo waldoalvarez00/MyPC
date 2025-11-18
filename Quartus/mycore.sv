@@ -1062,6 +1062,10 @@ wire [15:0] icache_m_data_in;
 wire icache_m_access;
 wire icache_m_ack;
 
+// I-Cache coherence invalidation (from final SDRAM arbiter)
+wire        icache_inval_valid;
+wire [19:1] icache_inval_addr;
+
 // 2-Way Set-Associative Instruction Cache with LRU
 // Optimized for sequential instruction fetch patterns
 ICache2Way #(.sets(256)) InstructionCache (
@@ -1079,7 +1083,14 @@ ICache2Way #(.sets(256)) InstructionCache (
     .m_addr(icache_m_addr),
     .m_data_in(icache_m_data_in),
     .m_access(icache_m_access),
-    .m_ack(icache_m_ack)
+    .m_ack(icache_m_ack),
+
+    // Coherence invalidation: driven by PipelinedMemArbiterExtend when
+    // a CPU/DMA/VGA write completes. Initially this is enabled for all
+    // writes; a future optimization can gate this by code ranges for
+    // better performance on pure data workloads.
+    .inval_valid(icache_inval_valid),
+    .inval_addr(icache_inval_addr)
 );
 
 // Connect CPU instruction bus to I-cache
@@ -1249,6 +1260,10 @@ PipelinedMemArbiterExtend CacheVGAArbiter(
 
     // VGA priority hint (NEW for pipelined arbiter)
     .vga_active_display(vga_active_display_hint),
+
+    // I-Cache invalidation on completed writes (Harvard I/D coherence).
+    .icache_inval_valid(icache_inval_valid),
+    .icache_inval_addr(icache_inval_addr),
 
     // SDRAM interface
     .sdram_m_addr(sdram_m_addr),

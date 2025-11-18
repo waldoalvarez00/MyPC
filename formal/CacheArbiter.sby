@@ -1,0 +1,18 @@
+[options]
+mode prove
+depth 20
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -sv CacheArbiter.sv CacheArbiter_formal.sv
+hierarchy -top CacheArbiter_formal
+clk2fflogic
+prep -nordff -top CacheArbiter_formal
+dffunmap
+
+[files]
+Quartus/rtl/common/CacheArbiter.sv
+formal/CacheArbiter_formal.sv
+

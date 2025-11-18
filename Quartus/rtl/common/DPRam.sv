@@ -38,11 +38,17 @@ logic [width-1:0] ram[0:words-1] /* synthesis syn_ramstyle = "no_rw_check,M9K"*/
 logic [width-1:0] ram[0:words-1] /* synthesis syn_ramstyle = "no_rw_check"*/;
 `endif
 
-// Initialize RAM to 0 for simulation (synthesis tools will ignore this)
+// Initialize RAM to 0 for simulation.
+// Note: Some formal tool flows (Yosys/SMTBMC) have limitations around
+// non-constant memory initialization enables. Guard this out under
+// `FORMAL` so formal proofs see arbitrary initial contents, which is
+// safe for all current uses of this RAM.
+`ifndef FORMAL
 initial begin
     for (int i = 0; i < words; i = i + 1)
         ram[i] = {width{1'b0}};
 end
+`endif
 
 logic [width-1:0] r_a, r_b, bypass_a_val, bypass_b_val;
 logic bypass_a, bypass_b;

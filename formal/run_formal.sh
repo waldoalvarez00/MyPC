@@ -27,6 +27,18 @@ sby -t -f formal/PipelinedDMAFPUArbiter.sby
 echo "Running PipelinedMemArbiterExtend formal..."
 sby -t -f formal/PipelinedMemArbiterExtend.sby
 
+echo "Running ICache2Way formal..."
+sby -t -f formal/ICache2Way.sby
+
+echo "Running DCache2Way formal..."
+sby -t -f formal/DCache2Way.sby
+
+echo "Running CacheArbiter formal..."
+sby -t -f formal/CacheArbiter.sby
+
+echo "Running DCacheFrontendArbiter formal..."
+sby -t -f formal/DCacheFrontendArbiter.sby
+
 echo "Running Microcode formal..."
 sby -t -f formal/Microcode.sby
 

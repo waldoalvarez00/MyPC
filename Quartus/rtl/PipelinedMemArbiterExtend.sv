@@ -67,6 +67,16 @@ module PipelinedMemArbiterExtend(
     // VGA priority hint (optional - from VGA controller)
     input logic vga_active_display,  // High during active scanline
 
+    // I-Cache coherence invalidation tap.
+    // When a CPU/DMA write completes (sdram_m_ack with write enable),
+    // the arbiter raises icache_inval_valid for one cycle with the
+    // word-aligned SDRAM address. ICache2Way will invalidate any lines
+    // matching that index. This can later be gated by range hints
+    // (e.g. code segments) so that only writes into code regions
+    // trigger invalidation for better performance.
+    output logic        icache_inval_valid,
+    output logic [19:1] icache_inval_addr,
+
     // Output bus to SDRAM controller
     output logic [19:1] sdram_m_addr,
     input logic [15:0] sdram_m_data_in,
@@ -259,6 +269,27 @@ always_ff @(posedge clk or posedge reset) begin
             // New request entering stage 4
             stage4_grant_vga <= stage3_grant_vga;
             stage4_valid <= 1'b1;
+        end
+    end
+end
+
+//-----------------------------------------------------------------------------
+// I-Cache invalidation generation
+//-----------------------------------------------------------------------------
+// Generate a single-cycle invalidate pulse for any completed write request
+// (CPU+DMA path or VGA). Today this is unconditional for all writes; a future
+// enhancement can AND this with a configurable code-range check so that only
+// writes into instruction regions trigger invalidation, improving performance
+// for pure data traffic.
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        icache_inval_valid <= 1'b0;
+        icache_inval_addr  <= 19'b0;
+    end else begin
+        icache_inval_valid <= 1'b0;
+        if (stage4_valid && sdram_m_ack && stage3_wr_en) begin
+            icache_inval_valid <= 1'b1;
+            icache_inval_addr  <= stage3_addr;
         end
     end
 end

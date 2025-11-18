@@ -18,7 +18,16 @@ module ICache2Way(
     output logic [19:1] m_addr,
     input logic [15:0] m_data_in,
     output logic m_access,
-    input logic m_ack
+    input logic m_ack,
+
+    // Coherence invalidation interface:
+    //  - Assert inval_valid for one cycle with the word-aligned
+    //    address of a completed data write.
+    //  - The cache will invalidate both ways for that index.
+    //  - This can later be gated by range hints (code segments)
+    //    to reduce unnecessary invalidations.
+    input logic        inval_valid,
+    input logic [19:1] inval_addr
 );
 
 parameter sets = 256;
@@ -55,6 +64,10 @@ wire [15:0] data_way0, data_way1;
 // LRU bit per set
 wire lru_bit;
 wire write_lru;
+
+// Invalidation index (word-addressed)
+wire [index_bits-1:0] inval_index = inval_addr[index_end:index_start];
+wire                  do_invalidate = enabled && inval_valid;
 
 // Hit/miss logic
 wire tags_match_way0 = tag_way0 == fetch_address[19:tag_start];
@@ -120,9 +133,15 @@ DPRam #(.words(sets), .width(1))
             .wr_en_a(1'b0),
             .wdata_a(1'b0),
             .q_a(valid_way0),
-            .addr_b(latched_address[index_end:index_start]),
-            .wr_en_b(write_valid_way0),
-            .wdata_b(selected_way == 1'b0 && line_idx == 3'b111),
+            // Port B is shared between normal fills and external invalidations.
+            // Invalidation simply clears the valid bit for the given index
+            // (both ways), even if tags don't match. This is safe and keeps
+            // the implementation simple; range hints can later narrow when
+            // inval_valid is asserted for performance.
+            .addr_b(do_invalidate ? inval_index : latched_address[index_end:index_start]),
+            .wr_en_b(do_invalidate ? 1'b1 : write_valid_way0),
+            .wdata_b(do_invalidate ? 1'b0
+                                   : (selected_way == 1'b0 && line_idx == 3'b111)),
             .q_b());
 
 // Way 1 storage
@@ -143,9 +162,10 @@ DPRam #(.words(sets), .width(1))
             .wr_en_a(1'b0),
             .wdata_a(1'b0),
             .q_a(valid_way1),
-            .addr_b(latched_address[index_end:index_start]),
-            .wr_en_b(write_valid_way1),
-            .wdata_b(selected_way == 1'b1 && line_idx == 3'b111),
+            .addr_b(do_invalidate ? inval_index : latched_address[index_end:index_start]),
+            .wr_en_b(do_invalidate ? 1'b1 : write_valid_way1),
+            .wdata_b(do_invalidate ? 1'b0
+                                   : (selected_way == 1'b1 && line_idx == 3'b111)),
             .q_b());
 
 // Line RAMs
