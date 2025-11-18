@@ -38,14 +38,25 @@ fi
 echo "Compilation successful!"
 echo ""
 
-# Run the simulation
+# Run the simulation (capture output to log for easier review on failure)
 echo "Running simulation..."
 echo "================================================================"
-vvp tb_dcache_coherency.vvp
+vvp tb_dcache_coherency.vvp | tee tb_dcache_coherency.log
 
 RESULT=$?
 
-# Clean up
+# If simulation failed (non-zero), report and keep artifacts
+if [ $RESULT -ne 0 ]; then
+    echo ""
+    echo "================================================================"
+    echo "✗ D-Cache Coherency Test FAILED (simulation returned $RESULT)"
+    echo "================================================================"
+    echo "Keeping tb_dcache_coherency.vcd for debugging."
+    echo "Check tb_dcache_coherency.log (captured output) for details."
+    exit 1
+fi
+
+# Clean up on success
 rm -f tb_dcache_coherency.vvp tb_dcache_coherency.vcd
 
 if [ $RESULT -eq 0 ]; then

@@ -271,6 +271,17 @@ assign cpu_data_in = cpu_data_in_reg;
                 $display("[ARBITER] WARNING: In state %0d but cache_access=0 (serving_dma=%b serving_fpu=%b serving_cpu=%b)",
                          state, serving_dma, serving_fpu, serving_cpu);
             end
+
+            // Trace grants and cache interface for debugging
+            if (cache_access || cache_ack) begin
+                $display("[ARBITER] cache_access=%b ack=%b wr_en=%b addr=%h data_out=%h bytesel=%b (serving_dma=%b serving_fpu=%b serving_cpu=%b)",
+                         cache_access, cache_ack, cache_wr_en, cache_addr, cache_data_out, cache_bytesel,
+                         serving_dma, serving_fpu, serving_cpu);
+            end
+            if (dma_access || dma_ack_reg) begin
+                $display("[ARBITER] dma_access=%b ack=%b addr=%h data_out=%h bytesel=%b",
+                         dma_access, dma_ack_reg, dma_addr, dma_data_out, dma_bytesel);
+            end
         end
     end
 `endif

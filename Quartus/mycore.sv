@@ -1066,6 +1066,15 @@ wire icache_m_ack;
 wire        icache_inval_valid;
 wire [19:1] icache_inval_addr;
 
+// Coherence sideband between D-cache and I-cache
+wire        coh_wr_valid;
+wire [19:1] coh_wr_addr;
+wire [15:0] coh_wr_data;
+wire [1:0]  coh_wr_bytesel;
+wire        coh_probe_valid;
+wire [19:1] coh_probe_addr;
+wire        coh_probe_present;
+
 // 2-Way Set-Associative Instruction Cache with LRU
 // Optimized for sequential instruction fetch patterns
 ICache2Way #(.sets(256)) InstructionCache (
@@ -1090,7 +1099,16 @@ ICache2Way #(.sets(256)) InstructionCache (
     // writes; a future optimization can gate this by code ranges for
     // better performance on pure data workloads.
     .inval_valid(icache_inval_valid),
-    .inval_addr(icache_inval_addr)
+    .inval_addr(icache_inval_addr),
+
+    // Coherence sideband from D-cache
+    .coh_wr_valid(coh_wr_valid),
+    .coh_wr_addr(coh_wr_addr),
+    .coh_wr_data(coh_wr_data),
+    .coh_wr_bytesel(coh_wr_bytesel),
+    .coh_probe_valid(coh_probe_valid),
+    .coh_probe_addr(coh_probe_addr),
+    .coh_probe_present(coh_probe_present)
 );
 
 // Connect CPU instruction bus to I-cache
@@ -1137,7 +1155,16 @@ DCache2Way #(.sets(256)) DataCache (
     .m_access(dcache_m_access),
     .m_ack(dcache_m_ack),
     .m_wr_en(dcache_m_wr_en),
-    .m_bytesel(dcache_m_bytesel)
+    .m_bytesel(dcache_m_bytesel),
+
+    // Coherence sideband to I-cache
+    .coh_wr_valid(coh_wr_valid),
+    .coh_wr_addr(coh_wr_addr),
+    .coh_wr_data(coh_wr_data),
+    .coh_wr_bytesel(coh_wr_bytesel),
+    .coh_probe_valid(coh_probe_valid),
+    .coh_probe_addr(coh_probe_addr),
+    .coh_probe_present(coh_probe_present)
 );
 
 // ===== D-CACHE FRONTEND ARBITER =====

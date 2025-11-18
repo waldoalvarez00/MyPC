@@ -102,7 +102,7 @@ ICache2Way #(.sets(256)) ICacheInst (
 );
 
 // Data cache: 2-way set associative, write-back
-DCache2Way #(.sets(256)) DCacheInst (
+DCache2Way #(.sets(256), .DEBUG(1'b1)) DCacheInst (
     .clk(clk),
     .reset(reset),
     .enabled(1'b1),

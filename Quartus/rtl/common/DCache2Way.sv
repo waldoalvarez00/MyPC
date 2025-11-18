@@ -72,10 +72,20 @@ module DCache2Way(
     output logic m_access,
     input logic m_ack,
     output logic m_wr_en,
-    output logic [1:0] m_bytesel
+    output logic [1:0] m_bytesel,
+
+    // Coherence interface to I-cache
+    output logic        coh_wr_valid,
+    output logic [19:1] coh_wr_addr,
+    output logic [15:0] coh_wr_data,
+    output logic [1:0]  coh_wr_bytesel,
+    output logic        coh_probe_valid,
+    output logic [19:1] coh_probe_addr,
+    input  logic        coh_probe_present
 );
 
 parameter sets = 256;  // 256 sets × 2 ways = 512 lines (same as direct-mapped)
+parameter bit DEBUG = 0;
 
 localparam line_size = 8;
 localparam index_bits = $clog2(sets);  // 8 bits for 256 sets
@@ -94,6 +104,21 @@ reg [index_end-1:0] line_address;
 reg [19:1] latched_address, fetch_address;
 reg updating;
 reg accessing;
+reg code_flush_pending;
+reg code_flush_way;
+reg code_wt_active;
+reg [19:1] code_wt_addr;
+reg [15:0] code_wt_data;
+reg [1:0] code_wt_bytesel;
+
+// Coherence outputs towards I-cache
+assign coh_wr_valid     = c_ack && c_wr_en;
+assign coh_wr_addr      = c_addr;
+assign coh_wr_data      = c_data_out;
+assign coh_wr_bytesel   = c_bytesel;
+assign coh_probe_valid  = c_ack && c_wr_en;
+assign coh_probe_addr   = c_addr;
+// coh_probe_present is consumed later if needed for policy decisions.
 
 // Way selection and LRU
 reg selected_way;        // Which way to fill/flush (0 or 1)
@@ -136,11 +161,11 @@ assign c_data_in = enabled ? (c_ack ? c_q : 16'b0) : m_data_in;
 assign c_ack = enabled ? accessing & !flushing & hit : m_ack;
 
 // Memory interface
-assign m_addr = enabled ? c_m_addr : c_addr;
-assign m_wr_en = enabled ? flushing & ~m_ack : c_wr_en;
-assign m_access = enabled ? busy & ~m_ack : c_access;
-assign m_bytesel = enabled ? 2'b11 : c_bytesel;
-assign m_data_out = enabled ? c_m_data_out : c_data_out;
+assign m_addr     = enabled ? (code_wt_active ? code_wt_addr  : c_m_addr) : c_addr;
+assign m_wr_en    = enabled ? (code_wt_active ? 1'b1          : flushing & ~m_ack) : c_wr_en;
+assign m_access   = enabled ? (code_wt_active ? 1'b1          : busy | flushing) : c_access;
+assign m_bytesel  = enabled ? (code_wt_active ? code_wt_bytesel : 2'b11) : c_bytesel;
+assign m_data_out = enabled ? (code_wt_active ? code_wt_data  : c_m_data_out) : c_data_out;
 
 // LRU replacement selection
 assign way_to_replace = lru_bit;  // 0 = replace way0, 1 = replace way1
@@ -149,9 +174,17 @@ assign way_to_replace = lru_bit;  // 0 = replace way0, 1 = replace way1
 wire selected_dirty = selected_way ? dirty_way1 : dirty_way0;
 wire selected_valid = selected_way ? valid_way1 : valid_way0;
 
+// Code writes (instruction-resident) must reach SDRAM immediately to keep I-cache coherent.
+// Gate on coh_probe_present so ordinary data writes don't force write-through.
+wire code_write_hit = c_ack && c_wr_en && coh_probe_present && !busy && !flushing;
+
 // Flush and fill logic
-wire do_flush = updating && ~hit && !busy && !flushing && selected_valid && selected_dirty;
-wire do_fill = updating && ~hit && !busy && !flushing && (!selected_valid || !selected_dirty);
+wire request_flush_dirty = updating && ~hit && !busy && !flushing && selected_valid && selected_dirty;
+wire request_fill = updating && ~hit && !busy && !flushing && (!selected_valid || !selected_dirty);
+wire request_code_flush = code_flush_pending && !busy && !flushing;
+
+wire do_flush = request_flush_dirty || request_code_flush;
+wire do_fill = request_fill && !request_code_flush;
 
 wire write_line = m_ack && !flushing;
 
@@ -166,8 +199,8 @@ wire write_valid_way1 = (do_flush && selected_way == 1'b1) ||
                         (write_tag_way1) ||
                         (selected_way == 1'b1 && ~flushing && line_idx == 3'b111 && m_ack);
 
-wire write_dirty_way0 = (c_ack & c_wr_en && hit_way0) || (do_flush && selected_way == 1'b0);
-wire write_dirty_way1 = (c_ack & c_wr_en && hit_way1) || (do_flush && selected_way == 1'b1);
+wire write_dirty_way0 = (c_ack & c_wr_en && hit_way0 && !code_write_hit) || (do_flush && selected_way == 1'b0);
+wire write_dirty_way1 = (c_ack & c_wr_en && hit_way1 && !code_write_hit) || (do_flush && selected_way == 1'b1);
 
 // LRU update: write on hit or fill completion
 assign write_lru = (c_ack && hit) || (~flushing && line_idx == 3'b111 && m_ack);
@@ -208,7 +241,7 @@ DPRam #(.words(sets),
                 .q_a(valid_way0),
                 .addr_b(latched_address[index_end:index_start]),
                 .wr_en_b(write_valid_way0),
-                .wdata_b((do_flush && selected_way == 1'b0) ? 1'b0 :
+                .wdata_b((do_flush && selected_way == 1'b0) ? (code_flush_pending ? 1'b1 : 1'b0) :
                         (~flushing && line_idx == 3'b111 && selected_way == 1'b0)),
                 .q_b());
 
@@ -246,7 +279,7 @@ DPRam #(.words(sets),
                 .q_a(valid_way1),
                 .addr_b(latched_address[index_end:index_start]),
                 .wr_en_b(write_valid_way1),
-                .wdata_b((do_flush && selected_way == 1'b1) ? 1'b0 :
+                .wdata_b((do_flush && selected_way == 1'b1) ? (code_flush_pending ? 1'b1 : 1'b0) :
                         (~flushing && line_idx == 3'b111 && selected_way == 1'b1)),
                 .q_b());
 
@@ -328,7 +361,7 @@ end
 always_comb begin
     if (m_ack && flushing)
         line_address = {latched_address[index_end:index_start], c_m_addr[3:1] + 1'b1};
-    else if (~hit && !flushing && !busy && selected_valid && selected_dirty)
+    else if (request_flush_dirty)
         line_address = {latched_address[index_end:index_start], 3'b0};
     else
         line_address = {latched_address[index_end:index_start], c_m_addr[3:1]};
@@ -346,7 +379,9 @@ always_ff @(posedge clk or posedge reset) begin
     if (reset) begin
         selected_way <= 1'b0;
     end else begin
-        if (updating && ~hit && !busy && !flushing)
+        if (code_write_hit)
+            selected_way <= hit_way;
+        else if (updating && ~hit && !busy && !flushing)
             selected_way <= way_to_replace;
     end
 end
@@ -370,6 +405,12 @@ always_ff @(posedge clk or posedge reset) begin
         line_valid <= 8'b0;
         busy <= 1'b0;
         flushing <= 1'b0;
+        code_flush_pending <= 1'b0;
+        code_flush_way <= 1'b0;
+        code_wt_active <= 1'b0;
+        code_wt_addr <= {19{1'b0}};
+        code_wt_data <= 16'b0;
+        code_wt_bytesel <= 2'b0;
     end else if (enabled && m_ack) begin
         c_m_addr <= {c_m_addr[19:4], c_m_addr[3:1] + 1'b1};
         line_idx <= line_idx + 1'b1;
@@ -380,10 +421,52 @@ always_ff @(posedge clk or posedge reset) begin
             if (flushing)
                 flushing <= 1'b0;
         end
-    end else if (enabled && do_flush)
-        flush_line(selected_way);
-    else if (enabled && do_fill)
+        if (code_wt_active)
+            code_wt_active <= 1'b0;
+        if (code_wt_active)
+            busy <= 1'b0;
+    end else if (enabled && do_flush) begin
+        flush_line(code_flush_pending ? code_flush_way : selected_way);
+        line_idx <= 3'b0;
+        if (code_flush_pending)
+            code_flush_pending <= 1'b0;
+    end else if (enabled && do_fill) begin
+        line_idx <= 3'b0;
         fill_line();
+    end
+    else if (code_write_hit) begin
+        code_wt_active <= 1'b1;
+        code_wt_addr <= c_addr;
+        code_wt_data <= c_data_out;
+        code_wt_bytesel <= c_bytesel;
+        busy <= 1'b1;  // hold bus until write-through ack arrives
+        flushing <= 1'b0;
+        line_idx <= 3'b0;
+    end
+end
+
+// --------------------------------------------------------------------------
+// Debug instrumentation (sim-only). Enabled when DEBUG!=0.
+// --------------------------------------------------------------------------
+always_ff @(posedge clk) begin
+    if (DEBUG) begin
+        if (c_access || m_access || busy || flushing) begin
+            $display("[%0t][DCache2Way] c_access=%b c_ack=%b c_wr=%b c_addr=%h m_access=%b m_ack=%b m_wr=%b busy=%b flushing=%b updating=%b hit=%b hit_way=%b selected_way=%b code_wt=%b",
+                     $time, c_access, c_ack, c_wr_en, c_addr, m_access, m_ack, m_wr_en, busy, flushing, updating, hit, hit_way, selected_way, code_wt_active);
+        end
+        if (code_write_hit) begin
+            $display("[%0t][DCache2Way] code_write_hit addr=%h data=%h be=%b way=%0d dirty0=%b dirty1=%b valid0=%b valid1=%b",
+                $time, c_addr, c_data_out, c_bytesel, hit_way, dirty_way0, dirty_way1, valid_way0, valid_way1);
+        end
+        if (code_wt_active && m_ack) begin
+            $display("[%0t][DCache2Way] code_wt_ack addr=%h data=%h be=%b",
+                $time, code_wt_addr, code_wt_data, code_wt_bytesel);
+        end
+        if (do_flush && !flushing) begin
+            $display("[%0t][DCache2Way] flush_start way=%0d addr=%h dirty0=%b dirty1=%b valid0=%b valid1=%b code_wt_active=%b",
+                $time, code_flush_pending ? code_flush_way : selected_way, latched_address, dirty_way0, dirty_way1, valid_way0, valid_way1, code_wt_active);
+        end
+    end
 end
 
 endmodule

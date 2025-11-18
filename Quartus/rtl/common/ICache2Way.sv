@@ -20,14 +20,26 @@ module ICache2Way(
     output logic m_access,
     input logic m_ack,
 
-    // Coherence invalidation interface:
+    // Coherence invalidation interface (e.g. from final arbiter):
     //  - Assert inval_valid for one cycle with the word-aligned
     //    address of a completed data write.
     //  - The cache will invalidate both ways for that index.
     //  - This can later be gated by range hints (code segments)
     //    to reduce unnecessary invalidations.
     input logic        inval_valid,
-    input logic [19:1] inval_addr
+    input logic [19:1] inval_addr,
+
+    // Coherence from D-cache (residency-based):
+    //  - coh_wr_* notifies on any data-side write; if the line is resident
+    //    in I-cache it will be invalidated (or updated in a future revision).
+    //  - coh_probe_* lets D-cache query whether an address is resident.
+    input  logic        coh_wr_valid,
+    input  logic [19:1] coh_wr_addr,
+    input  logic [15:0] coh_wr_data,
+    input  logic [1:0]  coh_wr_bytesel,
+    input  logic        coh_probe_valid,
+    input  logic [19:1] coh_probe_addr,
+    output logic        coh_probe_present
 );
 
 parameter sets = 256;
@@ -67,7 +79,33 @@ wire write_lru;
 
 // Invalidation index (word-addressed)
 wire [index_bits-1:0] inval_index = inval_addr[index_end:index_start];
-wire                  do_invalidate = enabled && inval_valid;
+
+// Directory for residency/probe without touching RAM ports.
+reg [19:tag_start] dir_tag_way0   [0:sets-1];
+reg [19:tag_start] dir_tag_way1   [0:sets-1];
+reg                 dir_valid_way0 [0:sets-1];
+reg                 dir_valid_way1 [0:sets-1];
+
+wire [index_bits-1:0] coh_idx   = coh_wr_addr[index_end:index_start];
+wire [19:tag_start]   coh_tag   = coh_wr_addr[19:tag_start];
+wire [index_bits-1:0] probe_idx = coh_probe_addr[index_end:index_start];
+wire [19:tag_start]   probe_tag = coh_probe_addr[19:tag_start];
+
+wire coh_hit_way0 = coh_wr_valid && dir_valid_way0[coh_idx] && dir_tag_way0[coh_idx] == coh_tag;
+wire coh_hit_way1 = coh_wr_valid && dir_valid_way1[coh_idx] && dir_tag_way1[coh_idx] == coh_tag;
+
+// Combined invalidation (either external inval or D-cache write hit)
+wire do_invalidate = enabled && (inval_valid || coh_hit_way0 || coh_hit_way1);
+wire [index_bits-1:0] inv_idx = inval_valid ? inval_index : coh_idx;
+
+// Probe result
+always_comb begin
+    coh_probe_present = 1'b0;
+    if (coh_probe_valid) begin
+        coh_probe_present = (dir_valid_way0[probe_idx] && dir_tag_way0[probe_idx] == probe_tag) ||
+                             (dir_valid_way1[probe_idx] && dir_tag_way1[probe_idx] == probe_tag);
+    end
+end
 
 // Hit/miss logic
 wire tags_match_way0 = tag_way0 == fetch_address[19:tag_start];
@@ -138,7 +176,7 @@ DPRam #(.words(sets), .width(1))
             // (both ways), even if tags don't match. This is safe and keeps
             // the implementation simple; range hints can later narrow when
             // inval_valid is asserted for performance.
-            .addr_b(do_invalidate ? inval_index : latched_address[index_end:index_start]),
+            .addr_b(do_invalidate ? inv_idx : latched_address[index_end:index_start]),
             .wr_en_b(do_invalidate ? 1'b1 : write_valid_way0),
             .wdata_b(do_invalidate ? 1'b0
                                    : (selected_way == 1'b0 && line_idx == 3'b111)),
@@ -162,7 +200,7 @@ DPRam #(.words(sets), .width(1))
             .wr_en_a(1'b0),
             .wdata_a(1'b0),
             .q_a(valid_way1),
-            .addr_b(do_invalidate ? inval_index : latched_address[index_end:index_start]),
+            .addr_b(do_invalidate ? inv_idx : latched_address[index_end:index_start]),
             .wr_en_b(do_invalidate ? 1'b1 : write_valid_way1),
             .wdata_b(do_invalidate ? 1'b0
                                    : (selected_way == 1'b1 && line_idx == 3'b111)),
@@ -255,6 +293,37 @@ always_ff @(posedge clk or posedge reset) begin
         end
     end else if (enabled && do_fill) begin
         fill_line();
+    end
+end
+
+// Track residency for coherence probes and invalidations without touching RAM ports.
+integer di;
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        for (di = 0; di < sets; di = di + 1) begin
+            dir_valid_way0[di] <= 1'b0;
+            dir_valid_way1[di] <= 1'b0;
+            dir_tag_way0[di]   <= { (tag_bits){1'b0} };
+            dir_tag_way1[di]   <= { (tag_bits){1'b0} };
+        end
+    end else begin
+        // Coherence invalidation clears directory valids.
+        if (coh_hit_way0)
+            dir_valid_way0[coh_idx] <= 1'b0;
+        if (coh_hit_way1)
+            dir_valid_way1[coh_idx] <= 1'b0;
+
+        // Tag updates on fills.
+        if (write_tag_way0)
+            dir_tag_way0[latched_address[index_end:index_start]] <= latched_address[19:tag_start];
+        if (write_tag_way1)
+            dir_tag_way1[latched_address[index_end:index_start]] <= latched_address[19:tag_start];
+
+        // Valid updates on fills.
+        if (write_valid_way0)
+            dir_valid_way0[latched_address[index_end:index_start]] <= selected_way == 1'b0 && line_idx == 3'b111;
+        if (write_valid_way1)
+            dir_valid_way1[latched_address[index_end:index_start]] <= selected_way == 1'b1 && line_idx == 3'b111;
     end
 end
 

@@ -15,6 +15,12 @@
 
 module tb_dcache_coherency;
 
+    initial begin
+        $dumpfile("tb_dcache_coherency.vcd");
+        $dumpvars(0, tb_dcache_coherency);
+        $display("[TB] Wave dump enabled");
+    end
+
     // Clock and reset
     logic clk;
     logic reset;
@@ -121,7 +127,7 @@ module tb_dcache_coherency;
     );
 
     // DCache2Way - 2-way set-associative data cache
-    DCache2Way #(.sets(64)) dcache (  // Smaller for testing (1KB)
+    DCache2Way #(.sets(64), .DEBUG(1'b1)) dcache (  // Smaller for testing (1KB)
         .clk(clk),
         .reset(reset),
         .enabled(1'b1),
@@ -435,8 +441,11 @@ module tb_dcache_coherency;
             test_addr = 19'h00100;  // Use lower addresses to avoid conflicts
 
             // DMA writes a value
+            $display("[DBG] Before DMA write: cache_c_access=%b ack=%b cache_m_access=%b cache_m_ack=%b", cache_c_access, cache_c_ack, cache_m_access, cache_m_ack);
             dma_write(test_addr, 16'hABCD, 2'b11);
+            $display("[DBG] After DMA write request: cache_c_access=%b ack=%b cache_m_access=%b cache_m_ack=%b", cache_c_access, cache_c_ack, cache_m_access, cache_m_ack);
             repeat(50) @(posedge clk);  // Allow cache line fill and update
+            $display("[DBG] After wait: cache_c_access=%b ack=%b cache_m_access=%b cache_m_ack=%b", cache_c_access, cache_c_ack, cache_m_access, cache_m_ack);
 
             // CPU reads same address (should see DMA's write)
             cpu_read(test_addr, read_data);
