@@ -47,6 +47,13 @@ logic [width-1:0] ram[0:words-1] /* synthesis syn_ramstyle = "no_rw_check"*/;
 initial begin
     for (int i = 0; i < words; i = i + 1)
         ram[i] = {width{1'b0}};
+    // Initialize output registers to prevent X propagation
+    r_a = {width{1'b0}};
+    r_b = {width{1'b0}};
+    bypass_a_val = {width{1'b0}};
+    bypass_b_val = {width{1'b0}};
+    bypass_a = 1'b0;
+    bypass_b = 1'b0;
 end
 `endif
 

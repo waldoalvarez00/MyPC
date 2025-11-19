@@ -114,13 +114,24 @@ typedef enum logic [2:0] {FL_IDLE, FL_PREFETCH, FL_SEND, FL_WAIT} fl_state_t;
 fl_state_t fl_state;
 reg [15:0] flush_data;
 
-// Pending write-miss: captured during miss, applied via A-port after fill completes
-reg        pending_wmiss;
-reg        pending_wmiss_way;
-reg [index_end:1] pending_wmiss_addr;
-reg [15:0] pending_wmiss_data;
-reg [1:0]  pending_wmiss_be;
-reg        applying_wmiss;  // State: currently applying pending write-miss
+// Request latching - capture CPU request when idle
+reg [19:1] req_addr;
+reg        req_is_write;
+reg [15:0] req_wdata;
+reg [1:0]  req_be;
+
+// Write buffer for stores to line being filled (per-word)
+reg [7:0]        wbuf_valid;      // one bit per word
+reg [15:0]       wbuf_data[0:7];  // 8 words
+reg [1:0]        wbuf_be[0:7];    // byte enables per word
+reg [19:1]       wbuf_line_addr;  // base address of line being filled
+reg              wbuf_active;     // buffer associated with current fill
+reg [2:0]        wbuf_apply_idx;  // which word we're applying (0-7)
+reg              wbuf_applying;   // in apply phase
+
+// Fill context
+reg [index_bits-1:0] fill_index_reg;
+
 reg        debug_printed;
 
 // Coherence outputs towards I-cache
@@ -154,14 +165,17 @@ wire tags_match_way0 = tag_way0 == fetch_address[19:tag_start];
 wire tags_match_way1 = tag_way1 == fetch_address[19:tag_start];
 wire filling_current = fetch_address[19:index_start] == latched_address[19:index_start];
 
-// Allow early hits during fill for both reads and writes
-// Writes via A-port don't conflict with B-port fills
-wire allow_early_hit = 1'b1;
+// Early hit conditions:
+// - For reads: data must be filled (line_valid[word] = 1)
+// - For writes: NO early hits - must wait for line to be valid
+wire early_hit_word_ready = line_valid[fetch_address[3:1]];
+wire allow_early_read_hit = !c_wr_en && early_hit_word_ready;
+wire allow_early_write_hit = 1'b0;  // Disabled - writes go through write buffer
 
 assign hit_way0 = accessing && ((valid_way0 && tags_match_way0) ||
-    (allow_early_hit && busy && !flushing_active && selected_way == 1'b0 && filling_current && line_valid[fetch_address[3:1]]));
+    (busy && !flushing_active && !wbuf_applying && selected_way == 1'b0 && filling_current && (allow_early_read_hit || allow_early_write_hit)));
 assign hit_way1 = accessing && ((valid_way1 && tags_match_way1) ||
-    (allow_early_hit && busy && !flushing_active && selected_way == 1'b1 && filling_current && line_valid[fetch_address[3:1]]));
+    (busy && !flushing_active && !wbuf_applying && selected_way == 1'b1 && filling_current && (allow_early_read_hit || allow_early_write_hit)));
 
 assign hit = hit_way0 || hit_way1;
 assign hit_way = hit_way1;  // 0 if way0 hit, 1 if way1 hit
@@ -171,7 +185,7 @@ wire [15:0] c_q = hit_way0 ? data_way0 : data_way1;
 
 // Output logic
 assign c_data_in = enabled ? (c_ack ? c_q : 16'b0) : m_data_in;
-assign c_ack = enabled ? accessing & !flushing_active & hit : m_ack;
+assign c_ack = enabled ? accessing & !flushing_active & !wbuf_applying & hit : m_ack;
 
 // Memory interface
 wire [19:1] flush_addr = {flush_tag_reg, flush_index_reg, flush_beat};
@@ -179,7 +193,7 @@ wire flushing_active = (fl_state != FL_IDLE);
 
 assign m_addr     = enabled ? (flushing_active ? flush_addr : c_m_addr) : c_addr;
 assign m_wr_en    = enabled ? (fl_state == FL_WAIT) : c_wr_en;
-assign m_access   = enabled ? (flushing_active ? 1'b1 : busy) : c_access;
+assign m_access   = enabled ? (flushing_active ? 1'b1 : (busy && !wbuf_applying)) : c_access;
 assign m_bytesel  = enabled ? 2'b11 : c_bytesel;
 assign m_data_out = enabled ? c_m_data_out : c_data_out;
 
@@ -196,9 +210,10 @@ wire flush_active_wire = flushing_active;
 wire code_write_hit = 1'b0;
 
 // Flush and fill logic
-wire request_flush_dirty = c_access && ~hit && !busy && !flushing_active && selected_valid && selected_dirty;
-wire request_fill        = c_access && ~hit && !busy && !flushing_active && (!selected_valid || !selected_dirty);
-wire request_code_flush  = code_flush_pending && !busy && !flushing_active;
+// Block fills/flushes while applying write buffer
+wire request_flush_dirty = c_access && ~hit && !busy && !flushing_active && !wbuf_applying && selected_valid && selected_dirty;
+wire request_fill        = c_access && ~hit && !busy && !flushing_active && !wbuf_applying && (!selected_valid || !selected_dirty);
+wire request_code_flush  = code_flush_pending && !busy && !flushing_active && !wbuf_applying;
 
 wire do_flush = request_flush_dirty || request_code_flush;
 wire do_fill  = request_fill && !request_code_flush;
@@ -221,8 +236,12 @@ wire write_valid_way1 = write_tag_way1 ||
 wire valid_way0_wdata = (flush_done && flush_way_reg == 1'b0) ? 1'b0 : 1'b1;
 wire valid_way1_wdata = (flush_done && flush_way_reg == 1'b1) ? 1'b0 : 1'b1;
 
-wire write_dirty_way0 = (c_ack & c_wr_en && hit_way0 && !code_write_hit) || (flush_done && flush_way_reg == 1'b0);
-wire write_dirty_way1 = (c_ack & c_wr_en && hit_way1 && !code_write_hit) || (flush_done && flush_way_reg == 1'b1);
+wire write_dirty_way0 = (c_ack & c_wr_en && hit_way0 && !code_write_hit) ||
+                        (wbuf_applying && selected_way == 1'b0 && wbuf_valid[wbuf_apply_idx] && wbuf_apply_idx == 3'b0) ||
+                        (flush_done && flush_way_reg == 1'b0);
+wire write_dirty_way1 = (c_ack & c_wr_en && hit_way1 && !code_write_hit) ||
+                        (wbuf_applying && selected_way == 1'b1 && wbuf_valid[wbuf_apply_idx] && wbuf_apply_idx == 3'b0) ||
+                        (flush_done && flush_way_reg == 1'b1);
 
 // LRU update: write on hit or fill completion
 assign write_lru = (c_ack && hit) || (~flushing_active && line_idx == 3'b111 && m_ack);
@@ -249,10 +268,18 @@ DPRam #(.words(sets),
               .wr_en_a(1'b0),
               .wdata_a({tag_bits{1'b0}}),
               .q_a(tag_way0),
-              .addr_b(fill_addr[index_end:index_start]),
+              .addr_b(latched_address[index_end:index_start]),
               .wr_en_b(write_tag_way0),
-              .wdata_b(fill_addr[19:tag_start]),
+              .wdata_b(latched_address[19:tag_start]),
               .q_b());
+
+// Debug tag writes
+always_ff @(posedge clk) begin
+    if (DEBUG && write_tag_way0) begin
+        $display("[%0t][DCache2Way] TAG_WRITE_WAY0 idx=%h tag=%h latched_addr=%h",
+                 $time, latched_address[index_end:index_start], latched_address[19:tag_start], latched_address);
+    end
+end
 
 DPRam #(.words(sets),
         .width(1))
@@ -261,16 +288,24 @@ DPRam #(.words(sets),
                 .wr_en_a(1'b0),
                 .wdata_a(1'b0),
                 .q_a(valid_way0),
-                .addr_b(fill_addr[index_end:index_start]),
+                .addr_b(latched_address[index_end:index_start]),
                 .wr_en_b(write_valid_way0),
                 .wdata_b(valid_way0_wdata),
                 .q_b());
 
+// Debug valid writes
+always_ff @(posedge clk) begin
+    if (DEBUG && write_valid_way0) begin
+        $display("[%0t][DCache2Way] VALID_WRITE_WAY0 idx=%h valid=%b (flush_done=%b)",
+                 $time, latched_address[index_end:index_start], valid_way0_wdata, flush_done);
+    end
+end
+
 DPRam #(.words(sets),
         .width(1))
       DirtyRam0(.clk(clk),
-                .addr_a(apply_wmiss_way0 ? pending_wmiss_addr[index_end:index_start] : c_addr[index_end:index_start]),
-                .wr_en_a((c_ack & c_wr_en && hit_way0) || apply_wmiss_way0),
+                .addr_a(c_addr[index_end:index_start]),
+                .wr_en_a(write_dirty_way0),
                 .wdata_a(1'b1),
                 .q_a(dirty_way0),
                 .addr_b(flush_index_reg),
@@ -286,9 +321,9 @@ DPRam #(.words(sets),
               .wr_en_a(1'b0),
               .wdata_a({tag_bits{1'b0}}),
               .q_a(tag_way1),
-              .addr_b(fill_addr[index_end:index_start]),
+              .addr_b(latched_address[index_end:index_start]),
               .wr_en_b(write_tag_way1),
-              .wdata_b(fill_addr[19:tag_start]),
+              .wdata_b(latched_address[19:tag_start]),
               .q_b());
 
 DPRam #(.words(sets),
@@ -298,7 +333,7 @@ DPRam #(.words(sets),
                 .wr_en_a(1'b0),
                 .wdata_a(1'b0),
                 .q_a(valid_way1),
-                .addr_b(fill_addr[index_end:index_start]),
+                .addr_b(latched_address[index_end:index_start]),
                 .wr_en_b(write_valid_way1),
                 .wdata_b(valid_way1_wdata),
                 .q_b());
@@ -306,8 +341,8 @@ DPRam #(.words(sets),
 DPRam #(.words(sets),
         .width(1))
       DirtyRam1(.clk(clk),
-                .addr_a(apply_wmiss_way1 ? pending_wmiss_addr[index_end:index_start] : c_addr[index_end:index_start]),
-                .wr_en_a((c_ack & c_wr_en && hit_way1) || apply_wmiss_way1),
+                .addr_a(c_addr[index_end:index_start]),
+                .wr_en_a(write_dirty_way1),
                 .wdata_a(1'b1),
                 .q_a(dirty_way1),
                 .addr_b(flush_index_reg),
@@ -324,16 +359,17 @@ wire [15:0] c_m_data_out = flushing_active ? flush_data
 // B-port: ONLY for fill/flush, completely separate from CPU hits
 wire [index_end:1] line_addr_for_b = flushing_active ? {flush_index_reg, flush_beat} : line_address;
 
-// Pending write-miss handling: apply via A-port after fill completes
-wire apply_wmiss_way0 = applying_wmiss && pending_wmiss_way == 1'b0;
-wire apply_wmiss_way1 = applying_wmiss && pending_wmiss_way == 1'b1;
+// Write buffer application: apply via A-port after fill completes
+wire apply_wbuf_way0 = wbuf_applying && selected_way == 1'b0;
+wire apply_wbuf_way1 = wbuf_applying && selected_way == 1'b1;
+wire [index_end:1] wbuf_apply_addr = {fill_index_reg, wbuf_apply_idx};
 
 BlockRam #(.words(sets * line_size))
          LineRAM0(.clk(clk),
-                  .addr_a(apply_wmiss_way0 ? pending_wmiss_addr : c_addr[index_end:1]),
-                  .wr_en_a((c_access && c_wr_en && !flushing_active && hit_way0) || apply_wmiss_way0),
-                  .wdata_a(apply_wmiss_way0 ? pending_wmiss_data : c_data_out),
-                  .be_a(apply_wmiss_way0 ? pending_wmiss_be : c_bytesel),
+                  .addr_a(apply_wbuf_way0 ? wbuf_apply_addr : c_addr[index_end:1]),
+                  .wr_en_a(apply_wbuf_way0 ? wbuf_valid[wbuf_apply_idx] : (c_access && c_wr_en && !flushing_active && !wbuf_applying && hit_way0)),
+                  .wdata_a(apply_wbuf_way0 ? wbuf_data[wbuf_apply_idx] : c_data_out),
+                  .be_a(apply_wbuf_way0 ? wbuf_be[wbuf_apply_idx] : c_bytesel),
                   .q_a(data_way0),
                   .addr_b(line_addr_for_b),
                   .wr_en_b(write_line && selected_way == 1'b0 && !flushing_active),
@@ -343,10 +379,10 @@ BlockRam #(.words(sets * line_size))
 
 BlockRam #(.words(sets * line_size))
          LineRAM1(.clk(clk),
-                  .addr_a(apply_wmiss_way1 ? pending_wmiss_addr : c_addr[index_end:1]),
-                  .wr_en_a((c_access && c_wr_en && !flushing_active && hit_way1) || apply_wmiss_way1),
-                  .wdata_a(apply_wmiss_way1 ? pending_wmiss_data : c_data_out),
-                  .be_a(apply_wmiss_way1 ? pending_wmiss_be : c_bytesel),
+                  .addr_a(apply_wbuf_way1 ? wbuf_apply_addr : c_addr[index_end:1]),
+                  .wr_en_a(apply_wbuf_way1 ? wbuf_valid[wbuf_apply_idx] : (c_access && c_wr_en && !flushing_active && !wbuf_applying && hit_way1)),
+                  .wdata_a(apply_wbuf_way1 ? wbuf_data[wbuf_apply_idx] : c_data_out),
+                  .be_a(apply_wbuf_way1 ? wbuf_be[wbuf_apply_idx] : c_bytesel),
                   .q_a(data_way1),
                   .addr_b(line_addr_for_b),
                   .wr_en_b(write_line && selected_way == 1'b1 && !flushing_active),
@@ -370,38 +406,52 @@ endtask
 // Fill task
 task automatic fill_line;
 begin
-    c_m_addr <= c_addr;
-    fill_addr <= c_addr;
-    latched_address <= c_addr;
+    c_m_addr <= latched_address;
+    fill_addr <= latched_address;
     busy <= 1'b1;
     line_valid <= 8'b0;
+    if (DEBUG) begin
+        $display("[%0t][DCache2Way] FILL_TASK setting busy=1", $time);
+    end
 end
 endtask
 
-// Reset logic
+// Reset logic and write buffer management
+// NO pre-computed wires - evaluate comparison directly to avoid timing issues
+
 always_ff @(posedge clk or posedge reset) begin
     if (reset) begin
         accessing <= 1'b0;
-        pending_wmiss <= 1'b0;
-        pending_wmiss_way <= 1'b0;
-        pending_wmiss_addr <= {index_end{1'b0}};
-        pending_wmiss_data <= 16'h0000;
-        pending_wmiss_be <= 2'b00;
-        applying_wmiss <= 1'b0;
+        wbuf_valid <= 8'b0;
+        wbuf_active <= 1'b0;
+        wbuf_applying <= 1'b0;
+        wbuf_apply_idx <= 3'b0;
     end else begin
         accessing <= c_access;
 
-        // Capture write-miss to apply after fill completes
-        // Only capture if we don't already have a pending write
-        if (c_access && c_wr_en && !hit && !busy && !flushing_active && !pending_wmiss) begin
-            pending_wmiss <= 1'b1;
-            pending_wmiss_way <= selected_way;
-            pending_wmiss_addr <= c_addr[index_end:1];
-            pending_wmiss_data <= c_data_out;
-            pending_wmiss_be <= c_bytesel;
-        end else if (applying_wmiss) begin
-            // Clear after applying
-            pending_wmiss <= 1'b0;
+        // Write buffer capture:
+        // Capture the initial write-miss that triggers the fill
+        if (do_fill && c_wr_en) begin
+            wbuf_active <= 1'b1;
+            wbuf_line_addr <= c_addr[19:1];
+            wbuf_valid[c_addr[3:1]] <= 1'b1;
+            wbuf_data[c_addr[3:1]]  <= c_data_out;
+            wbuf_be[c_addr[3:1]]    <= c_bytesel;
+            if (DEBUG) begin
+                $display("[%0t][DCache2Way] WBUF_CAPTURE_INITIAL addr=%h offset=%0d data=%h be=%b",
+                         $time, c_addr, c_addr[3:1], c_data_out, c_bytesel);
+            end
+        end
+        // Capture subsequent writes during fill to same line
+        // Direct comparison in if statement to avoid wire timing issues
+        else if (busy && !flushing_active && !wbuf_applying && c_access && c_wr_en && (c_addr[19:4] == latched_address[19:4])) begin
+            wbuf_valid[c_addr[3:1]] <= 1'b1;
+            wbuf_data[c_addr[3:1]]  <= c_data_out;
+            wbuf_be[c_addr[3:1]]    <= c_bytesel;
+            if (DEBUG) begin
+                $display("[%0t][DCache2Way] WBUF_CAPTURE_DURING addr=%h offset=%0d data=%h be=%b (c[19:4]=%h lat[19:4]=%h)",
+                         $time, c_addr, c_addr[3:1], c_data_out, c_bytesel, c_addr[19:4], latched_address[19:4]);
+            end
         end
     end
 end
@@ -417,10 +467,20 @@ always_comb begin
 end
 
 // Address latching
-always_ff @(posedge clk) begin
-    if (!busy && !flushing_active)
-        latched_address <= c_addr;
-    fetch_address <= c_addr;
+// latched_address: captured when starting a fill, held stable during fill and wbuf application
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        latched_address <= {19{1'b0}};
+    end else begin
+        if (!busy && !flushing_active) begin
+            latched_address <= c_addr;
+            if (DEBUG && c_access) begin
+                $display("[%0t][DCache2Way] LATCH_ADDR c_addr=%h busy=%b flush=%b",
+                         $time, c_addr, busy, flushing_active);
+            end
+        end
+        fetch_address <= c_addr;
+    end
 end
 
 // Way selection on miss - use LRU
@@ -451,31 +511,52 @@ always_ff @(posedge clk or posedge reset) begin
         flush_beat <= 3'b0;
         fl_state <= FL_IDLE;
         flush_data <= 16'h0000;
-        applying_wmiss <= 1'b0;
+        fill_index_reg <= {index_bits{1'b0}};
     end else if (enabled) begin
         // ------------------------
         // Line fill (when not flushing)
         // ------------------------
-        if (m_ack && !flushing_active && busy) begin
+        if (m_ack && !flushing_active && busy && !wbuf_applying) begin
             c_m_addr <= {c_m_addr[19:4], c_m_addr[3:1] + 1'b1};
             line_idx <= line_idx + 1'b1;
             line_valid[c_m_addr[3:1]] <= 1'b1;
             if (line_idx == 3'b111) begin
                 line_idx <= 3'b0;
-                // If we have pending_wmiss, enter applying_wmiss state
-                if (pending_wmiss) begin
-                    applying_wmiss <= 1'b1;
+                // If we have buffered writes, enter applying state
+                if (wbuf_active && (|wbuf_valid)) begin
+                    wbuf_applying <= 1'b1;
+                    wbuf_apply_idx <= 3'b0;
+                    if (DEBUG) begin
+                        $display("[%0t][DCache2Way] FILL_DONE, entering wbuf_applying", $time);
+                    end
                 end else begin
                     busy <= 1'b0;
+                    wbuf_active <= 1'b0;
+                    wbuf_valid <= 8'b0;
+                    if (DEBUG) begin
+                        $display("[%0t][DCache2Way] FILL_DONE, clearing busy", $time);
+                    end
                 end
             end
         end else if (!flushing_active && do_fill) begin
             line_idx <= 3'b0;
+            fill_index_reg <= latched_address[index_end:index_start];
+            if (DEBUG) begin
+                $display("[%0t][DCache2Way] FILL_START latched_addr=%h fill_index=%h",
+                         $time, latched_address, latched_address[index_end:index_start]);
+            end
             fill_line();
-        end else if (applying_wmiss) begin
-            // Apply pending_wmiss via A-port, then go idle
-            applying_wmiss <= 1'b0;
-            busy <= 1'b0;
+        end else if (wbuf_applying) begin
+            // Apply buffered writes via A-port (one per cycle)
+            if (wbuf_apply_idx == 3'b111) begin
+                // Last word - done applying
+                wbuf_applying <= 1'b0;
+                busy <= 1'b0;
+                wbuf_active <= 1'b0;
+                wbuf_valid <= 8'b0;
+            end else begin
+                wbuf_apply_idx <= wbuf_apply_idx + 1'b1;
+            end
         end
 
         // Schedule code flush on write-hit (keeps residency)
@@ -553,8 +634,10 @@ always_ff @(posedge clk or posedge reset) begin
                 debug_printed <= 1'b1;
             end
             if (c_access) begin
-                $display("[%0t][DCache2Way] ACCESS addr=%h hit=%b hit_way0=%b hit_way1=%b c_ack=%b busy=%b flushing=%b fl_state=%0d c_wr_en=%b m_ack=%b line_idx=%0d val0=%b val1=%b tag0=%h tag1=%h",
-                         $time, c_addr, hit, hit_way0, hit_way1, c_ack, busy, flushing, fl_state, c_wr_en, m_ack, line_idx, valid_way0, valid_way1, tag_way0, tag_way1);
+                $display("[%0t][DCache2Way] ACCESS addr=%h hit=%b hit_way0=%b hit_way1=%b c_ack=%b busy=%b flushing=%b fl_state=%0d c_wr_en=%b m_ack=%b line_idx=%0d val0=%b val1=%b tag0=%h tag1=%h line_valid=%b wbuf_active=%b wbuf_applying=%b",
+                         $time, c_addr, hit, hit_way0, hit_way1, c_ack, busy, flushing, fl_state, c_wr_en, m_ack, line_idx, valid_way0, valid_way1, tag_way0, tag_way1, line_valid[c_addr[3:1]], wbuf_active, wbuf_applying);
+                $display("[%0t][DCache2Way]   HIT_DEBUG: fetch_addr=%h fetch_tag=%h tags_match0=%b tags_match1=%b accessing=%b",
+                         $time, fetch_address, fetch_address[19:tag_start], tags_match_way0, tags_match_way1, accessing);
             end
             if (code_write_hit) begin
                 $display("[%0t][DCache2Way] CODE_WRITE_HIT addr=%h data=%h be=%b way=%0d coh_probe_present=%b",
@@ -575,11 +658,16 @@ always_ff @(posedge clk or posedge reset) begin
                          $time, m_addr, m_data_out, m_bytesel, busy, flushing);
             end
             if (!flushing_active && m_ack && busy && line_idx == 3'b111) begin
-                $display("[%0t][DCache2Way] FILL_COMPLETE idx=%h way=%0d tag0=%h tag1=%h val0=%b val1=%b",
+                $display("[%0t][DCache2Way] FILL_COMPLETE idx=%h way=%0d tag0=%h tag1=%h val0=%b val1=%b wbuf_active=%b wbuf_valid=%b",
                          $time,
                          c_m_addr[index_end:index_start],
                          selected_way,
-                         tag_way0, tag_way1, valid_way0, valid_way1);
+                         tag_way0, tag_way1, valid_way0, valid_way1, wbuf_active, wbuf_valid);
+            end
+            if (wbuf_applying) begin
+                $display("[%0t][DCache2Way] APPLYING_WBUF idx=%0d addr=%h data=%h be=%b way=%0d valid=%b wr_en=%b",
+                         $time, wbuf_apply_idx, {fill_index_reg, wbuf_apply_idx, 1'b0}, wbuf_data[wbuf_apply_idx], wbuf_be[wbuf_apply_idx], selected_way, wbuf_valid[wbuf_apply_idx],
+                         (selected_way == 1'b0) ? (apply_wbuf_way0 && wbuf_valid[wbuf_apply_idx]) : (apply_wbuf_way1 && wbuf_valid[wbuf_apply_idx]));
             end
             // Trace flush scheduling and execution (for SMC debugging)
             if (do_flush && !flushing_active) begin
