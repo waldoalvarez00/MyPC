@@ -32,8 +32,8 @@ module dcache2way_flush_tb;
     logic        m_wr_en;
     logic [1:0]  m_bytesel;
 
-    // Simple SDRAM model
-    logic [15:0] mem [0:2047];  // 2K words for this test
+    // Simple SDRAM model - 128K words to avoid aliasing with different tags
+    logic [15:0] mem [0:131071];  // 128K words (256KB) for this test
 
     DCache2Way #(.sets(SETS), .DEBUG(1'b1)) dut (
         .clk(clk),
@@ -72,11 +72,13 @@ module dcache2way_flush_tb;
         end else if (m_access) begin
             if (m_wr_en) begin
                 m_ack <= 1'b1;
-                if (m_bytesel[0]) mem[m_addr[11:1]][7:0]  <= m_data_out[7:0];
-                if (m_bytesel[1]) mem[m_addr[11:1]][15:8] <= m_data_out[15:8];
+                if (m_bytesel[0]) mem[m_addr[17:1]][7:0]  <= m_data_out[7:0];
+                if (m_bytesel[1]) mem[m_addr[17:1]][15:8] <= m_data_out[15:8];
+                $display("[%0t][MEM_MODEL] WRITE mem[%h] (m_addr=%h) <= %h (be=%b)",
+                         $time, m_addr[17:1], m_addr, m_data_out, m_bytesel);
             end else begin
                 m_ack <= 1'b1;
-                m_data_in <= mem[m_addr[11:1]];
+                m_data_in <= mem[m_addr[17:1]];
             end
         end
     end
@@ -116,17 +118,19 @@ module dcache2way_flush_tb;
 
     integer failures;
 
-    // Addresses chosen from index 0 (bits [11:4]=0)
-    localparam [19:1] A0 = 19'h00010;  // target line
-    localparam [19:1] A1 = 19'h10010;  // same set, different tag
-    localparam [19:1] A2 = 19'h20010;  // same set, different tag
+    // Addresses chosen from set 1 (bits [5:4]=01 for 4-set cache)
+    localparam [19:1] A0 = 19'h00010;  // target line, mem[0x10-0x17]
+    localparam [19:1] A1 = 19'h10010;  // same set, different tag, mem[0x8010-0x8017]
+    localparam [19:1] A2 = 19'h20010;  // same set, different tag, mem[0x10010-0x10017]
 
     initial begin
         integer i;
         reg [15:0] r;
+        reg [19:1] A0_plus_2;
         failures = 0;
+        A0_plus_2 = A0 + 19'h2;
         // init memory
-        for (i = 0; i < 2048; i = i + 1) mem[i] = 16'h1111;
+        for (i = 0; i < 131072; i = i + 1) mem[i] = 16'h1111;
 
         reset = 1'b1;
         c_access = 1'b0;
@@ -142,7 +146,7 @@ module dcache2way_flush_tb;
 
         // Dirty multiple words in the target line
         cpu_store(A0, 16'hDEAD, 2'b11); // word 0
-        cpu_store(A0 + 3'h2, 16'hBEEF, 2'b11); // word 1 (addr offset +2 words)
+        cpu_store(A0_plus_2, 16'hBEEF, 2'b11); // word 2 (addr offset +2 words)
 
         // Confirm cache hit returns updated data before eviction
         cpu_load(A0, r);
@@ -159,12 +163,14 @@ module dcache2way_flush_tb;
         repeat(16) @(posedge clk);
 
         // Check SDRAM (mem) reflects both writes from the evicted line
-        if (mem[A0[11:1]] != 16'hDEAD) begin
-            $display("FAIL: mem[A0] expected DEAD, got %h", mem[A0[11:1]]);
+        $display("DEBUG: Checking mem[%h] = %h (expect DEAD)", A0[17:1], mem[A0[17:1]]);
+        $display("DEBUG: Checking mem[%h] = %h (expect BEEF)", A0_plus_2[17:1], mem[A0_plus_2[17:1]]);
+        if (mem[A0[17:1]] != 16'hDEAD) begin
+            $display("FAIL: mem[A0] expected DEAD, got %h", mem[A0[17:1]]);
             failures++;
         end
-        if (mem[A0[11:1] + 1] != 16'hBEEF) begin
-            $display("FAIL: mem[A0+2] expected BEEF, got %h", mem[A0[11:1] + 1]);
+        if (mem[A0_plus_2[17:1]] != 16'hBEEF) begin
+            $display("FAIL: mem[A0+2] expected BEEF, got %h", mem[A0_plus_2[17:1]]);
             failures++;
         end
 

@@ -163,19 +163,56 @@ wire write_lru;
 // Hit/miss logic
 wire tags_match_way0 = tag_way0 == fetch_address[19:tag_start];
 wire tags_match_way1 = tag_way1 == fetch_address[19:tag_start];
-wire filling_current = fetch_address[19:index_start] == latched_address[19:index_start];
 
-// Early hit conditions:
-// - For reads: data must be filled (line_valid[word] = 1)
-// - For writes: NO early hits - must wait for line to be valid
-wire early_hit_word_ready = line_valid[fetch_address[3:1]];
+// Early hit logic uses CURRENT cycle's address (c_addr) not registered fetch_address
+// This is critical because c_access/c_addr arrive in the same cycle
+wire filling_current_early = c_addr[19:index_start] == latched_address[19:index_start];
+// Word is ready if: already filled OR being filled this cycle
+wire word_being_filled = m_ack && !flushing_active && busy && !wbuf_applying && (c_m_addr[3:1] == c_addr[3:1]);
+wire early_hit_word_ready = line_valid[c_addr[3:1]] || word_being_filled;
 wire allow_early_read_hit = !c_wr_en && early_hit_word_ready;
 wire allow_early_write_hit = 1'b0;  // Disabled - writes go through write buffer
 
-assign hit_way0 = accessing && ((valid_way0 && tags_match_way0) ||
-    (busy && !flushing_active && !wbuf_applying && selected_way == 1'b0 && filling_current && (allow_early_read_hit || allow_early_write_hit)));
-assign hit_way1 = accessing && ((valid_way1 && tags_match_way1) ||
-    (busy && !flushing_active && !wbuf_applying && selected_way == 1'b1 && filling_current && (allow_early_read_hit || allow_early_write_hit)));
+// Normal hit uses registered signals (accessing, fetch_address)
+// Early hit uses current cycle signals (c_access, c_addr) to avoid 1-cycle delay
+// Use always_comb to work around Icarus Verilog wire evaluation issue
+logic early_hit_base;
+logic early_hit_allowed;
+logic early_hit_way0;
+logic early_hit_way1;
+
+// Break down into multiple stages to work around Icarus Verilog bug
+logic early_cond1, early_cond2, early_cond3, early_cond4;
+
+always_comb begin
+    // Stage 1: Basic conditions
+    early_cond1 = c_access & busy;
+    // Stage 2: Add negations
+    early_cond2 = early_cond1 & ~flushing_active;
+    // Stage 3: Add wbuf check
+    early_cond3 = early_cond2 & ~wbuf_applying;
+    // Stage 4: Add address match
+    early_cond4 = early_cond3 & filling_current_early;
+
+    early_hit_base = early_cond4;
+    early_hit_allowed = allow_early_read_hit | allow_early_write_hit;
+    early_hit_way0 = early_hit_base & (selected_way == 1'b0) & early_hit_allowed;
+    early_hit_way1 = early_hit_base & (selected_way == 1'b1) & early_hit_allowed;
+
+    if (DEBUG && c_access && !c_ack) begin
+        $display("[%0t][DCache2Way]   EARLY_COND: c_access=%b busy=%b flushing=%b wbuf_applying=%b filling_current=%b",
+                 $time, c_access, busy, flushing_active, wbuf_applying, filling_current_early);
+        $display("[%0t][DCache2Way]   EARLY_ADDR: c_addr[19:4]=%h latched[19:4]=%h c_addr=%h latched=%h",
+                 $time, c_addr[19:4], latched_address[19:4], c_addr, latched_address);
+        $display("[%0t][DCache2Way]   EARLY_STAGES: cond1=%b cond2=%b cond3=%b cond4=%b base=%b",
+                 $time, early_cond1, early_cond2, early_cond3, early_cond4, early_hit_base);
+        $display("[%0t][DCache2Way]   EARLY_WAY: selected_way=%b way0_match=%b way1_match=%b allowed=%b",
+                 $time, selected_way, (selected_way == 1'b0), (selected_way == 1'b1), early_hit_allowed);
+    end
+end
+
+assign hit_way0 = (accessing && valid_way0 && tags_match_way0) || early_hit_way0;
+assign hit_way1 = (accessing && valid_way1 && tags_match_way1) || early_hit_way1;
 
 assign hit = hit_way0 || hit_way1;
 assign hit_way = hit_way1;  // 0 if way0 hit, 1 if way1 hit
@@ -183,8 +220,14 @@ assign hit_way = hit_way1;  // 0 if way0 hit, 1 if way1 hit
 // Output data selection based on which way hit
 wire [15:0] c_q = hit_way0 ? data_way0 : data_way1;
 
-// Output logic
-assign c_data_in = enabled ? (c_ack ? c_q : 16'b0) : m_data_in;
+// Check if current read has pending write in write buffer (for early hit during fill)
+wire wbuf_has_data = wbuf_active && (fetch_address[19:4] == wbuf_line_addr[19:4]) && wbuf_valid[fetch_address[3:1]];
+wire [15:0] wbuf_read_data = wbuf_data[fetch_address[3:1]];
+
+// Output logic: use write buffer data if available, otherwise use cache data
+assign c_data_in = enabled ? (c_ack ? (wbuf_has_data ? wbuf_read_data : c_q) : 16'b0) : m_data_in;
+// c_ack uses 'accessing' to match BlockRam 1-cycle latency
+// Early hit prevents miss, but ack comes next cycle when data ready
 assign c_ack = enabled ? accessing & !flushing_active & !wbuf_applying & hit : m_ack;
 
 // Memory interface
@@ -638,6 +681,8 @@ always_ff @(posedge clk or posedge reset) begin
                          $time, c_addr, hit, hit_way0, hit_way1, c_ack, busy, flushing, fl_state, c_wr_en, m_ack, line_idx, valid_way0, valid_way1, tag_way0, tag_way1, line_valid[c_addr[3:1]], wbuf_active, wbuf_applying);
                 $display("[%0t][DCache2Way]   HIT_DEBUG: fetch_addr=%h fetch_tag=%h tags_match0=%b tags_match1=%b accessing=%b",
                          $time, fetch_address, fetch_address[19:tag_start], tags_match_way0, tags_match_way1, accessing);
+                $display("[%0t][DCache2Way]   EARLY_HIT: early_way0=%b early_way1=%b base=%b allowed=%b",
+                         $time, early_hit_way0, early_hit_way1, early_hit_base, early_hit_allowed);
             end
             if (code_write_hit) begin
                 $display("[%0t][DCache2Way] CODE_WRITE_HIT addr=%h data=%h be=%b way=%0d coh_probe_present=%b",
