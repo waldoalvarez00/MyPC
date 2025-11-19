@@ -120,6 +120,7 @@ reg        pending_wmiss_way;
 reg [index_end:1] pending_wmiss_addr;
 reg [15:0] pending_wmiss_data;
 reg [1:0]  pending_wmiss_be;
+reg        applying_wmiss;  // State: currently applying pending write-miss
 reg        debug_printed;
 
 // Coherence outputs towards I-cache
@@ -153,8 +154,9 @@ wire tags_match_way0 = tag_way0 == fetch_address[19:tag_start];
 wire tags_match_way1 = tag_way1 == fetch_address[19:tag_start];
 wire filling_current = fetch_address[19:index_start] == latched_address[19:index_start];
 
-// Only allow early hits during fill for reads, not writes
-wire allow_early_hit = !c_wr_en;
+// Allow early hits during fill for both reads and writes
+// Writes via A-port don't conflict with B-port fills
+wire allow_early_hit = 1'b1;
 
 assign hit_way0 = accessing && ((valid_way0 && tags_match_way0) ||
     (allow_early_hit && busy && !flushing_active && selected_way == 1'b0 && filling_current && line_valid[fetch_address[3:1]]));
@@ -323,8 +325,8 @@ wire [15:0] c_m_data_out = flushing_active ? flush_data
 wire [index_end:1] line_addr_for_b = flushing_active ? {flush_index_reg, flush_beat} : line_address;
 
 // Pending write-miss handling: apply via A-port after fill completes
-wire apply_wmiss_way0 = pending_wmiss && !busy && !flushing_active && pending_wmiss_way == 1'b0;
-wire apply_wmiss_way1 = pending_wmiss && !busy && !flushing_active && pending_wmiss_way == 1'b1;
+wire apply_wmiss_way0 = applying_wmiss && pending_wmiss_way == 1'b0;
+wire apply_wmiss_way1 = applying_wmiss && pending_wmiss_way == 1'b1;
 
 BlockRam #(.words(sets * line_size))
          LineRAM0(.clk(clk),
@@ -385,17 +387,19 @@ always_ff @(posedge clk or posedge reset) begin
         pending_wmiss_addr <= {index_end{1'b0}};
         pending_wmiss_data <= 16'h0000;
         pending_wmiss_be <= 2'b00;
+        applying_wmiss <= 1'b0;
     end else begin
         accessing <= c_access;
 
         // Capture write-miss to apply after fill completes
-        if (c_access && c_wr_en && !hit && !busy && !flushing_active) begin
+        // Only capture if we don't already have a pending write
+        if (c_access && c_wr_en && !hit && !busy && !flushing_active && !pending_wmiss) begin
             pending_wmiss <= 1'b1;
             pending_wmiss_way <= selected_way;
             pending_wmiss_addr <= c_addr[index_end:1];
             pending_wmiss_data <= c_data_out;
             pending_wmiss_be <= c_bytesel;
-        end else if (pending_wmiss && !busy && !flushing_active) begin
+        end else if (applying_wmiss) begin
             // Clear after applying
             pending_wmiss <= 1'b0;
         end
@@ -447,6 +451,7 @@ always_ff @(posedge clk or posedge reset) begin
         flush_beat <= 3'b0;
         fl_state <= FL_IDLE;
         flush_data <= 16'h0000;
+        applying_wmiss <= 1'b0;
     end else if (enabled) begin
         // ------------------------
         // Line fill (when not flushing)
@@ -457,11 +462,20 @@ always_ff @(posedge clk or posedge reset) begin
             line_valid[c_m_addr[3:1]] <= 1'b1;
             if (line_idx == 3'b111) begin
                 line_idx <= 3'b0;
-                busy <= 1'b0;
+                // If we have pending_wmiss, enter applying_wmiss state
+                if (pending_wmiss) begin
+                    applying_wmiss <= 1'b1;
+                end else begin
+                    busy <= 1'b0;
+                end
             end
         end else if (!flushing_active && do_fill) begin
             line_idx <= 3'b0;
             fill_line();
+        end else if (applying_wmiss) begin
+            // Apply pending_wmiss via A-port, then go idle
+            applying_wmiss <= 1'b0;
+            busy <= 1'b0;
         end
 
         // Schedule code flush on write-hit (keeps residency)
