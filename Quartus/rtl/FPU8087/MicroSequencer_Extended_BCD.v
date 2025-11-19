@@ -1,12 +1,17 @@
 // Copyright 2025, Waldo Alvarez, https://pipflow.com
+
 `timescale 1ns / 1ps
 
 //=====================================================================
 // Extended MicroSequencer for 8087 FPU with BCD Support
 //
+// This unit still requires some optimizations
+// like possibly coalescing temp registers
+//
 // This module extends the basic microsequencer with hardware unit
 // interface support. It provides "call and wait" subroutines that
 // delegate to existing FPU_Core hardware units:
+//
 // - FPU_ArithmeticUnit (add, sub, mul, div, sqrt, trig, conversions)
 // - Stack Manager (push, pop, exchange)
 // - Format Converters (int, FP, BCD)
@@ -432,7 +437,7 @@ module MicroSequencer_Extended_BCD (
         microcode_rom[16'h030B] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd1, 15'h030C};      // Call SUB (op=1): A - B
         microcode_rom[16'h030C] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h030D};      // Wait for subtraction
         microcode_rom[16'h030D] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h030E};  // remainder in temp_result
-        microcode_rom[16'h030E] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h030E] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                    // Return
 
         //-------------------------------------------------------------
         // Program 10: FXTRACT - Extract Exponent and Significand
@@ -445,7 +450,7 @@ module MicroSequencer_Extended_BCD (
         microcode_rom[16'h0401] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd23, 15'h0402};     // Call FXTRACT (op=23)
         microcode_rom[16'h0402] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0403};      // Wait for extraction
         microcode_rom[16'h0403] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0404};  // Load significand result
-        microcode_rom[16'h0404] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return (exponent in secondary)
+        microcode_rom[16'h0404] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                    // Return (exponent in secondary)
 
         //-------------------------------------------------------------
         // Program 11: FSCALE - Scale by Power of 2
@@ -459,7 +464,7 @@ module MicroSequencer_Extended_BCD (
         microcode_rom[16'h0502] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd24, 15'h0503};     // Call FSCALE (op=24)
         microcode_rom[16'h0503] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0504};      // Wait for scaling
         microcode_rom[16'h0504] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0505};  // Load scaled result
-        microcode_rom[16'h0505] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h0505] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                    // Return
 
         //-------------------------------------------------------------
         // Program 12: FBLD - Load BCD
@@ -475,7 +480,7 @@ module MicroSequencer_Extended_BCD (
         microcode_rom[16'h0603] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd16, 15'h0604};     // Call UINT64_TO_FP (op=16)
         microcode_rom[16'h0604] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0605};      // Wait for conversion (1 cycle)
         microcode_rom[16'h0605] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0606};  // Load FP80 result to temp_result
-        microcode_rom[16'h0606] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return with FP80 in temp_result
+        microcode_rom[16'h0606] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                    // Return with FP80 in temp_result
 
         //-------------------------------------------------------------
         // Program 13: FBSTP - Store BCD and Pop
@@ -494,7 +499,7 @@ module MicroSequencer_Extended_BCD (
         microcode_rom[16'h0614] = {OPCODE_EXEC, MOP_CALL_BIN2BCD, 8'd0, 15'h0615};    // Start Binary → BCD
         microcode_rom[16'h0615] = {OPCODE_EXEC, MOP_WAIT_BIN2BCD, 8'd0, 15'h0616};    // Wait for conversion (~64 cycles)
         microcode_rom[16'h0616] = {OPCODE_EXEC, MOP_LOAD_BIN2BCD, 8'd0, 15'h0617};    // Load BCD result to data_out
-        microcode_rom[16'h0617] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return with BCD in data_out
+        microcode_rom[16'h0617] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                    // Return with BCD in data_out
 
         //-------------------------------------------------------------
         // Program 14: FPTAN - Partial Tangent
@@ -507,7 +512,7 @@ module MicroSequencer_Extended_BCD (
         microcode_rom[16'h0702] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0703};      // Wait for completion
         microcode_rom[16'h0703] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0704};  // Load tan result
         microcode_rom[16'h0704] = {OPCODE_EXEC, MOP_STORE, 8'd0, 15'h0705};           // Store result
-        microcode_rom[16'h0705] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h0705] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                    // Return
 
         //-------------------------------------------------------------
         // Program 15: FPATAN - Partial Arctangent
@@ -520,7 +525,7 @@ module MicroSequencer_Extended_BCD (
         microcode_rom[16'h0712] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd19, 15'h0713};     // Call ATAN (op=19)
         microcode_rom[16'h0713] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0714};      // Wait for completion
         microcode_rom[16'h0714] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0715};  // Load atan result
-        microcode_rom[16'h0715] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h0715] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                    // Return
 
         //-------------------------------------------------------------
         // Program 16: F2XM1 - 2^x - 1
@@ -532,7 +537,7 @@ module MicroSequencer_Extended_BCD (
         microcode_rom[16'h0721] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd20, 15'h0722};     // Call F2XM1 (op=20)
         microcode_rom[16'h0722] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0723};      // Wait for completion
         microcode_rom[16'h0723] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0724};  // Load result
-        microcode_rom[16'h0724] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h0724] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                    // Return
 
         //-------------------------------------------------------------
         // Program 17: FYL2X - y × log₂(x)
@@ -545,7 +550,7 @@ module MicroSequencer_Extended_BCD (
         microcode_rom[16'h0732] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd21, 15'h0733};     // Call FYL2X (op=21)
         microcode_rom[16'h0733] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0734};      // Wait for completion
         microcode_rom[16'h0734] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0735};  // Load result
-        microcode_rom[16'h0735] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h0735] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                    // Return
 
         //-------------------------------------------------------------
         // Program 18: FYL2XP1 - y × log₂(x+1)
@@ -558,19 +563,22 @@ module MicroSequencer_Extended_BCD (
         microcode_rom[16'h0742] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd22, 15'h0743};     // Call FYL2XP1 (op=22)
         microcode_rom[16'h0743] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0744};      // Wait for completion
         microcode_rom[16'h0744] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0745};  // Load result
-        microcode_rom[16'h0745] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h0745] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                    // Return
 
         //-------------------------------------------------------------
         // Program 19: FSINCOS - Sin and Cos Simultaneously
         // Address: 0x0750-0x0755
         // Computes both sin(ST(0)) and cos(ST(0))
         // Uses hardware OP_SINCOS (15) which returns both results
+		// Implementation note: verify if sin and cos are 
+		// reusing the unit as the algorithm make both converge 
+		// simultaneusly
         //-------------------------------------------------------------
-        microcode_rom[16'h0750] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0751};          // Load angle from data_in
-        microcode_rom[16'h0751] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd15, 15'h0752};     // Call SINCOS (op=15)
-        microcode_rom[16'h0752] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0753};      // Wait for completion
-        microcode_rom[16'h0753] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0754};      // Load sin result (primary)
-        microcode_rom[16'h0754] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES_SEC, 8'd0, 15'h0755};  // Load cos result (secondary) into temp_fp_b
+        microcode_rom[16'h0750] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0751};               // Load angle from data_in
+        microcode_rom[16'h0751] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd15, 15'h0752};          // Call SINCOS (op=15)
+        microcode_rom[16'h0752] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0753};           // Wait for completion
+        microcode_rom[16'h0753] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0754};       // Load sin result (primary)
+        microcode_rom[16'h0754] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES_SEC, 8'd0, 15'h0755};   // Load cos result (secondary) into temp_fp_b
         microcode_rom[16'h0755] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                         // Return
 
         //-------------------------------------------------------------
@@ -600,7 +608,9 @@ module MicroSequencer_Extended_BCD (
         microcode_rom[16'h076A] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd1, 15'h076B};      // Call SUB (op=1)
         microcode_rom[16'h076B] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h076C};      // Wait for subtraction
         microcode_rom[16'h076C] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h076D};  // remainder in temp_result
-        microcode_rom[16'h076D] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h076D] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                    // Return
+
+
 
         //-------------------------------------------------------------
         // Program 21: FRNDINT - Round to Integer
@@ -614,10 +624,10 @@ module MicroSequencer_Extended_BCD (
         // For now, just return the value (placeholder - needs proper implementation)
         microcode_rom[16'h0771] = {OPCODE_EXEC, MOP_MOVE_A_TO_B, 8'd0, 15'h0772};     // Copy to result
         microcode_rom[16'h0772] = {OPCODE_EXEC, MOP_STORE, 8'd0, 15'h0773};           // Store result
-        microcode_rom[16'h0773] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h0773] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                    // Return
 
         //-------------------------------------------------------------
-        // Program 22: Payne-Hanek Range Reduction (Phase 3B - Complete Algorithm)
+        // Program 22: Payne-Hanek Range Reduction
         // Address: 0x0180-0x0198
         // Input: data_in = large angle (FP80)
         // Output: temp_result = reduced angle in [0, π/2)

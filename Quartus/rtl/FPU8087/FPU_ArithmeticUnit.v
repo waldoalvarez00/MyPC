@@ -1,4 +1,6 @@
 // Copyright 2025, Waldo Alvarez, https://pipflow.com
+// License GPL 2.0
+
 `timescale 1ns / 1ps
 
 //=====================================================================
@@ -775,11 +777,4 @@ endmodule
 // 1. Pushing primary result to stack
 // 2. Pushing secondary result to stack (if has_secondary=1)
 // This requires special case logic in FPU_Core state machine.
-//
-// Integration Complete: ✅
-// - Transcendental unit instantiated
-// - Basic operation codes defined (12-15)
-// - Advanced operation codes defined (18-22)
-// - Output multiplexing extended
-// - Ready for FPU_Core instruction integration
 //=====================================================================
