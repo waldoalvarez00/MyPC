@@ -586,13 +586,13 @@ module KF8259_Control_Logic (
     // Output slave id
     always_comb begin
         if (cascade_slave == 1'b1)
-            cascade_out <= 3'b000;
+            cascade_out = 3'b000;
         else if ((control_state != ACK1) && (control_state != ACK2) && (control_state != ACK3))
-            cascade_out <= 3'b000;
+            cascade_out = 3'b000;
         else if (interrupt_from_slave_device == 1'b0)
-            cascade_out <= 3'b000;
+            cascade_out = 3'b000;
         else
-            cascade_out <= bit2num(acknowledge_interrupt);
+            cascade_out = bit2num(acknowledge_interrupt);
     end
      
      

@@ -15,16 +15,26 @@
 // You should have received a copy of the GNU General Public License
 // along with s80x86.  If not, see <http://www.gnu.org/licenses/>.
 
+// FWAIT (WAIT) instruction - Full implementation with FPU polling
+// Polls FPU BUSY pin, then checks ERROR pin, triggers INT 16 on error
 .at 0x9b;
-    jmp do_fwait;
+    jmp fwait_poll_busy;
 
 .auto_address;
-do_fwait:
-    // FWAIT (WAIT) instruction - Poll FPU busy signal
-    // Microcode polling implementation:
-    //   - If fpu_busy=1: jump back to do_fwait (polling loop)
-    //   - If fpu_busy=0: fall through to next_instruction
-    // This allows CPU and FPU to work concurrently on other instructions
-    // CPU only synchronizes when FWAIT is explicitly executed
-    jmp_if_fpu_busy do_fwait;
+fwait_poll_busy:
+    // Poll the FPU BUSY pin - loop here while FPU is busy
+    // ext_int_yield allows interrupts to be serviced while waiting
+    jmp_if_fpu_busy fwait_poll_busy, ext_int_yield;
+
+fwait_check_error:
+    // FPU is no longer busy - check ERROR pin
+    // If fpu_int (ERROR pin) is asserted, jump to exception handler
+    jmp_if_fpu_error fpu_exception;
+    // No error - complete instruction
     next_instruction;
+
+fpu_exception:
+    // FPU exception detected via ERROR pin
+    // Trigger INT 16 (0x10) - coprocessor error interrupt
+    b_sel IMMEDIATE, immediate 0x10, alu_op SELB, tmp_wr_en, jmp do_int;
+

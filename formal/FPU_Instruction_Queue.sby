@@ -1,0 +1,17 @@
+[options]
+mode prove
+depth 20
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -sv FPU_Instruction_Queue.v FPU_Instruction_Queue_formal.sv
+hierarchy -top FPU_Instruction_Queue_formal
+clk2fflogic
+prep -nordff -top FPU_Instruction_Queue_formal
+dffunmap
+
+[files]
+Quartus/rtl/FPU8087/FPU_Instruction_Queue.v
+formal/FPU_Instruction_Queue_formal.sv

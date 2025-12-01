@@ -43,6 +43,7 @@ reg tf;
 reg jump_taken;
 reg rb_zero;
 reg fpu_busy;
+reg fpu_int;
 
 // Microcode outputs
 wire [15:0] microcode_immediate;
@@ -142,6 +143,7 @@ Microcode dut (
     .jump_taken(jump_taken),
     .rb_zero(rb_zero),
     .fpu_busy(fpu_busy),
+    .fpu_int(fpu_int),
     .lock(lock),
     .multibit_shift(multibit_shift),
     .is_hlt(is_hlt),
@@ -410,6 +412,7 @@ initial begin
     jump_taken = 0;
     rb_zero = 0;
     fpu_busy = 0;
+    fpu_int = 0;
     fifo_empty = 1;
     fifo_resetting = 0;
     loop_done = 0;

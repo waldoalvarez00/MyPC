@@ -10,6 +10,14 @@
 
 module harvard_cache_tb;
 
+// Configurable cache size parameters
+// Can be overridden via command line: +define+CACHE_LINES=32
+// Small caches (8-32 lines) reveal replacement/flush bugs faster
+`ifndef CACHE_LINES
+    `define CACHE_LINES 512
+`endif
+parameter CACHE_LINES = `CACHE_LINES;
+
 // Clock and reset
 reg clk;
 reg reset;
@@ -52,8 +60,8 @@ integer mem_delay_counter;
 
 // DUT instantiation
 HarvardCacheSystem #(
-    .ICACHE_LINES(512),
-    .DCACHE_LINES(512)
+    .ICACHE_LINES(CACHE_LINES),
+    .DCACHE_LINES(CACHE_LINES)
 ) dut (
     .clk                (clk),
     .reset              (reset),
@@ -127,16 +135,16 @@ begin
     instr_m_addr = addr;
     instr_m_access = 1'b1;
     $display("  [DEBUG] instr_fetch: addr=0x%05h, access=1", addr);
-    $display("  [DEBUG]   Before clk: ack=%b, data=0x%04h, busy=%b, line_valid=%b",
-             instr_m_ack, instr_m_data_in, dut.icache.busy, dut.icache.line_valid);
+    $display("  [DEBUG]   Before clk: ack=%b, data=0x%04h",
+             instr_m_ack, instr_m_data_in);
     @(posedge clk);
-    $display("  [DEBUG]   After 1st clk: ack=%b, data=0x%04h, busy=%b, line_valid=%b, valid=%b, hit=%b",
-             instr_m_ack, instr_m_data_in, dut.icache.busy, dut.icache.line_valid,
-             dut.icache.valid, dut.icache.hit);
-    $display("  [DEBUG]     fetch_addr=0x%05h [3:1]=%0d, line_valid[%0d]=%b, filling_current=%b",
-             dut.icache.fetch_address, dut.icache.fetch_address[3:1],
-             dut.icache.fetch_address[3:1], dut.icache.line_valid[dut.icache.fetch_address[3:1]],
-             dut.icache.filling_current);
+    $display("  [DEBUG]   After 1st clk: ack=%b, data=0x%04h",
+             instr_m_ack, instr_m_data_in);
+    // Note: Internal signal access removed for 2-way cache compatibility
+    // $display("  [DEBUG]     fetch_addr=0x%05h [3:1]=%0d, line_valid[%0d]=%b, filling_current=%b",
+    //          dut.icache.fetch_address, dut.icache.fetch_address[3:1],
+    //          dut.icache.fetch_address[3:1], dut.icache.line_valid[dut.icache.fetch_address[3:1]],
+    //          dut.icache.filling_current);
 
     while (!instr_m_ack && timeout < 200) begin
         @(posedge clk);
@@ -168,18 +176,18 @@ begin
     data_m_bytesel = 2'b11;
     data_m_access = 1'b1;
     $display("  [DEBUG] data_read: addr=0x%05h, access=1", addr);
-    $display("  [DEBUG]   Before clk: ack=%b, data=0x%04h, busy=%b, line_valid=%b",
-             data_m_ack, data_m_data_in, dut.dcache.busy, dut.dcache.line_valid);
+    $display("  [DEBUG]   Before clk: ack=%b, data=0x%04h",
+             data_m_ack, data_m_data_in);
     @(posedge clk);
-    $display("  [DEBUG]   After 1st clk: ack=%b, data=0x%04h, busy=%b, line_valid=%b, valid=%b, hit=%b, accessing=%b",
-             data_m_ack, data_m_data_in, dut.dcache.busy, dut.dcache.line_valid,
-             dut.dcache.valid, dut.dcache.hit, dut.dcache.accessing);
-    $display("  [DEBUG]     fetch_addr=0x%05h [3:1]=%0d, line_valid[%0d]=%b, filling_current=%b, updating=%b, flushing=%b",
-             dut.dcache.fetch_address, dut.dcache.fetch_address[3:1],
-             dut.dcache.fetch_address[3:1], dut.dcache.line_valid[dut.dcache.fetch_address[3:1]],
-             dut.dcache.filling_current, dut.dcache.updating, dut.dcache.flushing);
-    $display("  [DEBUG]     do_fill=%b, do_flush=%b, dirty=%b",
-             dut.dcache.do_fill, dut.dcache.do_flush, dut.dcache.dirty);
+    $display("  [DEBUG]   After 1st clk: ack=%b, data=0x%04h",
+             data_m_ack, data_m_data_in);
+    // Note: Internal signal access removed for 2-way cache compatibility
+    // $display("  [DEBUG]     fetch_addr=0x%05h [3:1]=%0d, line_valid[%0d]=%b, filling_current=%b, updating=%b, flushing=%b",
+    //          dut.dcache.fetch_address, dut.dcache.fetch_address[3:1],
+    //          dut.dcache.fetch_address[3:1], dut.dcache.line_valid[dut.dcache.fetch_address[3:1]],
+    //          dut.dcache.filling_current, dut.dcache.updating, dut.dcache.flushing);
+    // $display("  [DEBUG]     do_fill=%b, do_flush=%b, dirty=%b",
+    //          dut.dcache.do_fill, dut.dcache.do_flush, dut.dcache.dirty);
 
     while (!data_m_ack && timeout < 200) begin
         @(posedge clk);
@@ -212,24 +220,27 @@ begin
     data_m_bytesel = bytesel;
     data_m_access = 1'b1;
     $display("  [DEBUG] data_write: addr=0x%05h, data=0x%04h, bytesel=%b, wr_en=1", addr, data, bytesel);
-    $display("  [DEBUG]   Before clk: ack=%b, busy=%b, line_valid=%b",
-             data_m_ack, dut.dcache.busy, dut.dcache.line_valid);
+    $display("  [DEBUG]   Before clk: ack=%b",
+             data_m_ack);
     @(posedge clk);
-    $display("  [DEBUG]   After 1st clk: ack=%b, busy=%b, line_valid=%b, valid=%b, hit=%b",
-             data_m_ack, dut.dcache.busy, dut.dcache.line_valid,
-             dut.dcache.valid, dut.dcache.hit);
-    $display("  [DEBUG]     updating=%b, flushing=%b, accessing=%b, do_fill=%b, do_flush=%b, dirty=%b",
-             dut.dcache.updating, dut.dcache.flushing, dut.dcache.accessing,
-             dut.dcache.do_fill, dut.dcache.do_flush, dut.dcache.dirty);
+    $display("  [DEBUG]   After 1st clk: ack=%b",
+             data_m_ack);
+    // Note: Internal signal access removed for 2-way cache compatibility
+    // $display("  [DEBUG]     updating=%b, flushing=%b, accessing=%b, do_fill=%b, do_flush=%b, dirty=%b",
+    //          dut.dcache.updating, dut.dcache.flushing, dut.dcache.accessing,
+    //          dut.dcache.do_fill, dut.dcache.do_flush, dut.dcache.dirty);
 
     while (!data_m_ack && timeout < 200) begin
         @(posedge clk);
         timeout = timeout + 1;
         if (timeout % 10 == 0) begin
-            $display("  [DEBUG]   Cycle %0d: ack=%b, busy=%b, dcache.m_access=%b, icache.m_access=%b, arb.state=%0d, arb.m_access=%b, m_ack=%b",
-                     timeout, data_m_ack, dut.dcache.busy,
-                     dut.dcache.m_access, dut.icache.m_access,
-                     dut.harvard_arbiter.state, dut.mem_m_access, dut.mem_m_ack);
+            $display("  [DEBUG]   Cycle %0d: ack=%b",
+                     timeout, data_m_ack);
+            // Note: Internal signal access removed for 2-way cache compatibility
+            // $display("  [DEBUG]   Cycle %0d: ack=%b, busy=%b, dcache.m_access=%b, icache.m_access=%b, arb.state=%0d, arb.m_access=%b, m_ack=%b",
+            //          timeout, data_m_ack, dut.dcache.busy,
+            //          dut.dcache.m_access, dut.icache.m_access,
+            //          dut.harvard_arbiter.state, dut.mem_m_access, dut.mem_m_ack);
         end
     end
 
@@ -292,6 +303,7 @@ initial begin
 
     $display("========================================");
     $display("Harvard Cache System Testbench");
+    $display("Cache Configuration: LINES = %0d", CACHE_LINES);
     $display("========================================");
 
     // Initialize memory

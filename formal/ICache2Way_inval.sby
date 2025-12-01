@@ -1,0 +1,19 @@
+[options]
+mode prove
+depth 25
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -sv ICache2Way.sv BlockRam.sv DPRam.sv ICache2Way_inval_formal.sv
+hierarchy -top ICache2Way_inval_formal
+clk2fflogic
+prep -nordff -top ICache2Way_inval_formal
+dffunmap
+
+[files]
+Quartus/rtl/common/ICache2Way.sv
+Quartus/rtl/common/BlockRam.sv
+Quartus/rtl/common/DPRam.sv
+formal/ICache2Way_inval_formal.sv

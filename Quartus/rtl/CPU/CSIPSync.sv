@@ -48,18 +48,16 @@ always @(posedge clk or posedge reset) begin
     if (reset) begin
         ip_updated <= 1'b0;
         cs_updated <= 1'b0;
+    end else if (propagate) begin
+        ip_updated <= 1'b0;
+        cs_updated <= 1'b0;
     end else begin
-        if (propagate) begin
-            ip_updated <= 1'b0;
-            cs_updated <= 1'b0;
-        end
-
-        if (ip_update && !ip_updated && !propagate) begin
+        if (ip_update && !ip_updated) begin
             ip <= new_ip;
             ip_updated <= 1'b1;
         end
 
-        if (cs_update && !propagate)
+        if (cs_update)
             cs_updated <= 1'b1;
     end
 end

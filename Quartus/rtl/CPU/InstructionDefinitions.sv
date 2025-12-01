@@ -38,6 +38,7 @@ module Microcode(input logic clk,
                  input logic zf,
                  input logic tf,
                  input logic fpu_busy,
+                 input logic fpu_int,
                  output logic [15:0] microcode_immediate,
                  output logic [8:0] update_flags,
                  output logic modrm_start,
@@ -92,7 +93,7 @@ module Microcode(input logic clk,
                  input logic [7:0] debug_addr,
                  input logic debug_run);
 
-localparam num_instructions = 1231;
+localparam num_instructions = 1233;
 localparam addr_bits = 11;
 localparam reset_address = 11'h129;
 localparam nmi_address = 11'h12a;
@@ -174,12 +175,12 @@ always_comb begin
     4: update_flags = 9'h11b;
     5: update_flags = 9'h1;
     6: update_flags = 9'h1f;
-    7: update_flags = 9'h40;
-    8: update_flags = 9'h80;
-    9: update_flags = 9'h11e;
-    10: update_flags = 9'h60;
-    11: update_flags = 9'h109;
-    12: update_flags = 9'h1ff;
+    7: update_flags = 9'h1ff;
+    8: update_flags = 9'h40;
+    9: update_flags = 9'h80;
+    10: update_flags = 9'h11e;
+    11: update_flags = 9'h60;
+    12: update_flags = 9'h109;
     13: update_flags = 9'h101;
     14: update_flags = 9'h1b;
     default: update_flags = 9'h0;
@@ -308,6 +309,8 @@ always_comb begin
     JumpType_RB_ZERO: jump_target = rb_zero ? current.next : addr + 1'b1;
     JumpType_LOOP_DONE: jump_target = loop_done ? current.next : addr + 1'b1;
     JumpType_JUMP_TAKEN: jump_target = jump_taken ? current.next : addr + 1'b1;
+    JumpType_FPU_BUSY: jump_target = fpu_busy ? current.next : addr + 1'b1;
+    JumpType_FPU_ERROR: jump_target = fpu_int ? current.next : addr + 1'b1;
     default: jump_target = current.next;
     endcase
 end

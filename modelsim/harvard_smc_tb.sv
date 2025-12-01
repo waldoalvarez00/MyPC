@@ -13,6 +13,14 @@
 
 module harvard_smc_tb;
 
+// Configurable cache size parameter
+// Can be overridden via command line: +define+CACHE_SETS=4
+// Small caches (2-4 sets) reveal replacement/flush bugs faster
+`ifndef CACHE_SETS
+    `define CACHE_SETS 256
+`endif
+parameter SETS = `CACHE_SETS;
+
 // Clock and reset
 logic clk;
 logic reset;
@@ -91,7 +99,7 @@ integer fail_count;
 // ---------------------------------------------------------------------------
 
 // Instruction cache: 2-way set associative
-ICache2Way #(.sets(256)) ICacheInst (
+ICache2Way #(.sets(SETS)) ICacheInst (
     .clk(clk),
     .reset(reset),
     .enabled(1'b1),
@@ -119,7 +127,7 @@ ICache2Way #(.sets(256)) ICacheInst (
 );
 
 // Data cache: 2-way set associative, write-back
-DCache2Way #(.sets(256), .DEBUG(1'b1)) DCacheInst (
+DCache2Way #(.sets(SETS), .DEBUG(1'b1)) DCacheInst (
     .clk(clk),
     .reset(reset),
     .enabled(1'b1),
@@ -404,6 +412,7 @@ initial begin
     $display("==================================================");
     $display("Harvard Cache Self-Modifying Code Test");
     $display("ICache2Way + DCache2Way + CacheArbiter + PipelinedMemArbiterExtend");
+    $display("Cache Configuration: SETS = %0d", SETS);
     $display("==================================================");
 
     // 1) Initial I-fetch should see original code (1111)
@@ -424,6 +433,17 @@ initial begin
     check(success && data == 16'hDEAD,
           $sformatf("D-cache readback sees updated code (0x%04h)", data));
 
+    // CRITICAL ASSERTION: D-cache must return the written value before eviction
+    // This isolates D-cache write/read issues from flush/invalidation issues
+    if (!success || data != 16'hDEAD) begin
+        $display("[FATAL] Step 2b FAILED: D-cache readback expected 0xDEAD, got 0x%04h", data);
+        $display("        This indicates a D-cache write/read issue, NOT a flush problem");
+        $display("        SDRAM still has: 0x%04h (write-back deferred is OK)", memory[19'h00300]);
+        $fatal(1, "D-cache readback assertion failed - stopping test");
+    end
+    $display("[ASSERT] Step 2b PASSED: D-cache correctly returns 0xDEAD");
+    $display("         Note: SDRAM may still have 0x%04h (write-back deferred)", memory[19'h00300]);
+
     // 3) Force D-cache dirty line flush by writing two more lines in same set
     //    (pattern reused from dcache2way_tb.sv Test 5: Dirty Line Flush)
     $display("\n[SMC] Step 3: Forcing D-cache dirty line flush for 0x00300");
@@ -440,6 +460,21 @@ initial begin
     // event so ICache2Way drops any stale copy.
     check(memory[19'h00300] == 16'hDEAD,
           $sformatf("SDRAM holds updated code at 0x00300 (0x%04h)", memory[19'h00300]));
+
+    // CRITICAL ASSERTION: SDRAM must have the flushed value after eviction
+    // This isolates D-cache flush issues from I-cache invalidation issues
+    if (memory[19'h00300] != 16'hDEAD) begin
+        $display("[FATAL] Step 3 FAILED: SDRAM at 0x00300 expected 0xDEAD, got 0x%04h", memory[19'h00300]);
+        $display("        This indicates a D-cache FLUSH issue");
+        $display("        The dirty line was NOT written back to SDRAM during eviction");
+        $display("        Check: DCache2Way dirty tracking, write-back state machine, arbiter scheduling");
+        $display("        Other SDRAM locations:");
+        $display("          mem[01300] = 0x%04h (expected 0xBEEF)", memory[19'h01300]);
+        $display("          mem[02300] = 0x%04h (expected 0xCAFE)", memory[19'h02300]);
+        $fatal(1, "SDRAM eviction assertion failed - stopping test");
+    end
+    $display("[ASSERT] Step 3 PASSED: SDRAM correctly holds 0xDEAD after eviction");
+    $display("         D-cache flush mechanism is working correctly");
 
     // 4) Re-fetch instruction and verify new code is observed
     $display("\n[SMC] Step 4: Re-fetch instruction at 0x00300 after modification");

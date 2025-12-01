@@ -178,9 +178,9 @@ module KF8253_Counter (
     //
     always_comb begin
         if (read_count_step == 1'b0)
-            read_counter_data <= count_latched[15:8];
+            read_counter_data = count_latched[15:8];
         else
-            read_counter_data <= count_latched[7:0];
+            read_counter_data = count_latched[7:0];
     end
 
     always_ff @(posedge reset or posedge clock) begin
@@ -302,41 +302,41 @@ module KF8253_Counter (
     end
 
     // Decrement counter
-    function logic [16:0] decrement (input [16:0] count, input is_bcd);
-        if (count == 17'b0_0000_0000_0000_0000)
+    function logic [16:0] decrement (input [16:0] cnt_in, input is_bcd);
+        if (cnt_in == 17'b0_0000_0000_0000_0000)
             decrement = 17'b0_0000_0000_0000_0000;
         else
             if (is_bcd == 1'b0)
-                decrement = count - 17'b0_0000_0000_0000_0001;
+                decrement = cnt_in - 17'b0_0000_0000_0000_0001;
             else begin
-                if (count[3:0] == 4'b0000) begin
-                    if (count[7:4] == 4'b0000) begin
-                        if (count[11:8] == 4'b0000) begin
-                            if (count[15:12] == 4'b0000) begin
+                if (cnt_in[3:0] == 4'b0000) begin
+                    if (cnt_in[7:4] == 4'b0000) begin
+                        if (cnt_in[11:8] == 4'b0000) begin
+                            if (cnt_in[15:12] == 4'b0000) begin
                                 decrement[16]    = 1'b0;
                                 decrement[15:12] = 4'd9;
                             end
                             else begin
-                                decrement[16]    = count[16];
-                                decrement[15:12] = count[15:12] - 4'd1;
+                                decrement[16]    = cnt_in[16];
+                                decrement[15:12] = cnt_in[15:12] - 4'd1;
                             end
                             decrement[11:8]  = 4'd9;
                         end
                         else begin
-                            decrement[16:12] = count[16:12];
-                            decrement[11:8]  = count[11:8]  - 4'd1;
+                            decrement[16:12] = cnt_in[16:12];
+                            decrement[11:8]  = cnt_in[11:8]  - 4'd1;
                         end
                         decrement[7:4]  = 4'd9;
                     end
                     else begin
-                        decrement[16:8] = count[16:8];
-                        decrement[7:4]  = count[7:4] - 4'd1;
+                        decrement[16:8] = cnt_in[16:8];
+                        decrement[7:4]  = cnt_in[7:4] - 4'd1;
                     end
                     decrement[3:0]  = 4'd9;
                 end
                 else begin
-                    decrement[16:4] = count[16:4];
-                    decrement[3:0]  = count[3:0] - 4'd1;
+                    decrement[16:4] = cnt_in[16:4];
+                    decrement[3:0]  = cnt_in[3:0] - 4'd1;
                 end
             end
     endfunction

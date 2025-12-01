@@ -8,7 +8,7 @@
 module flags_tb;
 
     // Include flag definitions
-    import FlagsEnum::*;
+    `include "../Quartus/rtl/CPU/FlagsEnum.sv"
 
     // DUT signals
     logic clk;

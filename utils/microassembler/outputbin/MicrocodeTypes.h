@@ -21,7 +21,9 @@ enum MC_ADriver_t {
     ADriver_RA = 0,
     ADriver_IP = 1,
     ADriver_MAR = 2,
-    ADriver_MDR = 3
+    ADriver_MDR = 3,
+    ADriver_FPU_STATUS = 4,
+    ADriver_FPU_CONTROL = 5
 };
 
 enum MC_BDriver_t {
@@ -81,7 +83,9 @@ enum MC_JumpType_t {
     JumpType_REP_NOT_COMPLETE = 6,
     JumpType_JUMP_TAKEN = 7,
     JumpType_RB_ZERO = 8,
-    JumpType_LOOP_DONE = 9
+    JumpType_LOOP_DONE = 9,
+    JumpType_FPU_BUSY = 10,
+    JumpType_FPU_ERROR = 11
 };
 
 enum MC_RDSelSource_t {

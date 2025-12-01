@@ -15,6 +15,7 @@ Quartus/verilator_lint.log
 modelsim/sim_results_*/
 modelsim/master_test_results_*/
 modelsim/test_output/
+modelsim/output/
 *.vcd
 
 # Compiled test binaries
@@ -89,3 +90,5 @@ docs/8087ApplicationsProgrammingIBM-PC_OtherPCs_RichardStartz.pdf
 docs/MCPDIAG.zip
 .claude/settings.local.json
 .claude/settings.local.json
+modelsim/test_results_*/
+formal/formal_results_*/

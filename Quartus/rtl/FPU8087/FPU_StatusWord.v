@@ -132,22 +132,34 @@ module FPU_StatusWord(
     // Status Word Assembly
     //=================================================================
 
+    // Combinational bypass for clear_exceptions to show immediate effect
+    wire exc_invalid_out     = clear_exceptions ? 1'b0 : exc_invalid;
+    wire exc_denormal_out    = clear_exceptions ? 1'b0 : exc_denormal;
+    wire exc_zero_div_out    = clear_exceptions ? 1'b0 : exc_zero_div;
+    wire exc_overflow_out    = clear_exceptions ? 1'b0 : exc_overflow;
+    wire exc_underflow_out   = clear_exceptions ? 1'b0 : exc_underflow;
+    wire exc_precision_out   = clear_exceptions ? 1'b0 : exc_precision;
+    wire exc_stack_fault_out = clear_exceptions ? 1'b0 : exc_stack_fault;
+
+    wire exception_summary_out = exc_invalid_out | exc_denormal_out | exc_zero_div_out |
+                                 exc_overflow_out | exc_underflow_out | exc_precision_out;
+
     always @(*) begin
         status_word = {
-            busy,               // [15] Busy
-            cond_c3,            // [14] C3
-            stack_ptr,          // [13:11] Stack pointer
-            cond_c2,            // [10] C2
-            cond_c1,            // [9] C1
-            cond_c0,            // [8] C0
-            exception_summary,  // [7] Exception summary
-            exc_stack_fault,    // [6] Stack fault
-            exc_precision,      // [5] Precision
-            exc_underflow,      // [4] Underflow
-            exc_overflow,       // [3] Overflow
-            exc_zero_div,       // [2] Zero divide
-            exc_denormal,       // [1] Denormalized
-            exc_invalid         // [0] Invalid
+            busy,                   // [15] Busy
+            cond_c3,                // [14] C3
+            stack_ptr,              // [13:11] Stack pointer
+            cond_c2,                // [10] C2
+            cond_c1,                // [9] C1
+            cond_c0,                // [8] C0
+            exception_summary_out,  // [7] Exception summary
+            exc_stack_fault_out,    // [6] Stack fault
+            exc_precision_out,      // [5] Precision
+            exc_underflow_out,      // [4] Underflow
+            exc_overflow_out,       // [3] Overflow
+            exc_zero_div_out,       // [2] Zero divide
+            exc_denormal_out,       // [1] Denormalized
+            exc_invalid_out         // [0] Invalid
         };
     end
 

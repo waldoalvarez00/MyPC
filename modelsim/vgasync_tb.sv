@@ -5,6 +5,9 @@
 
 `timescale 1ns/1ps
 
+// Include VGA types before module for proper type definitions
+`include "../Quartus/rtl/VGA/VGATypes.sv"
+
 module vgasync_tb;
 
     // DUT signals
@@ -18,9 +21,6 @@ module vgasync_tb;
     logic [10:0] col;
     logic V_BLANK;
     logic H_BLANK;
-
-    // Include VGA types
-    `include "../Quartus/rtl/VGA/VGATypes.sv"
 
     // Instantiate DUT
     VGASync dut (

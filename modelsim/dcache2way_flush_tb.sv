@@ -32,6 +32,14 @@ module dcache2way_flush_tb;
     logic        m_wr_en;
     logic [1:0]  m_bytesel;
 
+    // Victim writeback port (non-blocking)
+    logic [18:0] vwb_addr;      // Standard [18:0] indexing
+    logic [15:0] vwb_data_out;
+    logic        vwb_access;
+    logic        vwb_ack;
+    logic        vwb_wr_en;
+    logic [1:0]  vwb_bytesel;
+
     // Simple SDRAM model - 128K words to avoid aliasing with different tags
     logic [15:0] mem [0:131071];  // 128K words (256KB) for this test
 
@@ -53,6 +61,13 @@ module dcache2way_flush_tb;
         .m_ack(m_ack),
         .m_wr_en(m_wr_en),
         .m_bytesel(m_bytesel),
+        // victim writeback port
+        .vwb_addr(vwb_addr),
+        .vwb_data_out(vwb_data_out),
+        .vwb_access(vwb_access),
+        .vwb_ack(vwb_ack),
+        .vwb_wr_en(vwb_wr_en),
+        .vwb_bytesel(vwb_bytesel),
         // coherence ports unused
         .coh_wr_valid(),
         .coh_wr_addr(),
@@ -83,6 +98,41 @@ module dcache2way_flush_tb;
         end
     end
 
+    // Victim writeback memory model (write-only, single-cycle)
+    logic [16:0] vwb_addr_latched;  // Word address for mem[] array
+    logic [15:0] vwb_data_latched;
+    logic [1:0]  vwb_be_latched;
+    logic        vwb_busy;
+
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            vwb_ack <= 1'b0;
+            vwb_busy <= 1'b0;
+        end else begin
+            // Victim writeback: capture request, then process next cycle
+            if (vwb_access && vwb_wr_en && !vwb_busy && !vwb_ack) begin
+                // Capture new VWB write request
+                // vwb_addr is [18:0] and is ALREADY word-indexed (flush_beat is word offset)
+                // Just use lower 17 bits to match mem[] array size
+                vwb_addr_latched <= vwb_addr[16:0];
+                vwb_data_latched <= vwb_data_out;
+                vwb_be_latched <= vwb_bytesel;
+                vwb_busy <= 1'b1;
+                vwb_ack <= 1'b0;
+            end else if (vwb_busy) begin
+                // Process captured VWB write
+                if (vwb_be_latched[0]) mem[vwb_addr_latched][7:0]  <= vwb_data_latched[7:0];
+                if (vwb_be_latched[1]) mem[vwb_addr_latched][15:8] <= vwb_data_latched[15:8];
+                $display("[%0t][VWB_MODEL] WRITE mem[%h] <= %h (be=%b)",
+                         $time, vwb_addr_latched, vwb_data_latched, vwb_be_latched);
+                vwb_ack <= 1'b1;
+                vwb_busy <= 1'b0;
+            end else begin
+                vwb_ack <= 1'b0;
+            end
+        end
+    end
+
     task automatic cpu_store(input [19:1] addr, input [15:0] data, input [1:0] be);
         integer t;
         begin
@@ -96,7 +146,7 @@ module dcache2way_flush_tb;
             while (!c_ack && t < 50) begin t++; @(posedge clk); end
             c_access   = 1'b0;
             c_wr_en    = 1'b0;
-            repeat(1) @(posedge clk);
+            @(posedge clk); // Wait one cycle for clean signal transition
         end
     endtask
 
@@ -110,9 +160,11 @@ module dcache2way_flush_tb;
             t = 0;
             @(posedge clk);
             while (!c_ack && t < 50) begin t++; @(posedge clk); end
+            #1; // Wait for non-blocking assignments to settle
+            $display("[%0t][LOAD] addr=%h c_data_in=%h c_ack=%b", $time, addr, c_data_in, c_ack);
             data = c_data_in;
             c_access = 1'b0;
-            repeat(1) @(posedge clk);
+            @(posedge clk); // Wait one cycle for clean signal transition
         end
     endtask
 
@@ -145,11 +197,15 @@ module dcache2way_flush_tb;
         $display("=== DCache2Way Flush/Write-back Test (sets=%0d) ===", SETS);
 
         // Dirty multiple words in the target line
+        $display("[TEST] Store DEAD at A0=%h (word offset=%d)", A0, A0[3:1]);
         cpu_store(A0, 16'hDEAD, 2'b11); // word 0
-        cpu_store(A0_plus_2, 16'hBEEF, 2'b11); // word 2 (addr offset +2 words)
+        $display("[TEST] Store BEEF at A0+2=%h (word offset=%d)", A0_plus_2, A0_plus_2[3:1]);
+        cpu_store(A0_plus_2, 16'hBEEF, 2'b11); // word 1 (addr offset +1 word)
 
         // Confirm cache hit returns updated data before eviction
+        $display("[TEST] Load from A0=%h (word offset=%d)", A0, A0[3:1]);
         cpu_load(A0, r);
+        $display("[TEST] Got data=%h", r);
         if (r != 16'hDEAD) begin
             $display("FAIL: Hit read expected DEAD, got %h", r);
             failures++;

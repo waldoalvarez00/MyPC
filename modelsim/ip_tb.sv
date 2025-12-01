@@ -145,13 +145,10 @@ module ip_tb;
         // Set IP and mark instruction start
         wr_en = 1;
         wr_val = 16'h0200;
+        next_instruction = 1;
         @(posedge clk);
         wr_en = 0;
-
-        start_instruction = 1;
-        inc = 4'd0;
-        @(posedge clk);
-        start_instruction = 0;
+        next_instruction = 0;
         @(posedge clk);
 
         // Increment IP several times

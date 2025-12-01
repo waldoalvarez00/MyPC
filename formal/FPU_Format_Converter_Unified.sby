@@ -1,0 +1,17 @@
+[options]
+mode prove
+depth 15
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -sv FPU_Format_Converter_Unified.v FPU_Format_Converter_Unified_formal.sv
+hierarchy -top FPU_Format_Converter_Unified_formal
+clk2fflogic
+prep -nordff -top FPU_Format_Converter_Unified_formal
+dffunmap
+
+[files]
+Quartus/rtl/FPU8087/FPU_Format_Converter_Unified.v
+formal/FPU_Format_Converter_Unified_formal.sv

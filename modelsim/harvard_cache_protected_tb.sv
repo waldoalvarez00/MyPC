@@ -33,7 +33,7 @@ module harvard_cache_protected_tb;
     logic        ic_m_access;
     logic        ic_m_ack;
 
-    // D-cache backend
+    // D-cache backend - main port
     logic [19:1] dc_m_addr;
     logic [15:0] dc_m_data_in;
     logic [15:0] dc_m_data_out;
@@ -41,6 +41,14 @@ module harvard_cache_protected_tb;
     logic        dc_m_ack;
     logic        dc_m_wr_en;
     logic [1:0]  dc_m_bytesel;
+
+    // D-cache backend - victim writeback port
+    logic [19:1] dc_vwb_addr;
+    logic [15:0] dc_vwb_data_out;
+    logic        dc_vwb_access;
+    logic        dc_vwb_ack;
+    logic        dc_vwb_wr_en;
+    logic [1:0]  dc_vwb_bytesel;
 
     // Memory bus
     logic [19:1] mem_addr;
@@ -81,12 +89,15 @@ module harvard_cache_protected_tb;
         .m_addr(dc_m_addr), .m_data_in(dc_m_data_in),
         .m_data_out(dc_m_data_out), .m_access(dc_m_access),
         .m_ack(dc_m_ack), .m_wr_en(dc_m_wr_en), .m_bytesel(dc_m_bytesel),
+        .vwb_addr(dc_vwb_addr), .vwb_data_out(dc_vwb_data_out),
+        .vwb_access(dc_vwb_access), .vwb_ack(dc_vwb_ack),
+        .vwb_wr_en(dc_vwb_wr_en), .vwb_bytesel(dc_vwb_bytesel),
         .coh_wr_valid(), .coh_wr_addr(), .coh_wr_data(),
         .coh_wr_bytesel(), .coh_probe_valid(), .coh_probe_addr(),
         .coh_probe_present(1'b0)
     );
 
-    CacheArbiter arb (
+    HarvardArbiter3Way arb (
         .clk(clk), .reset(reset),
         .icache_m_addr(ic_m_addr), .icache_m_data_in(ic_m_data_in),
         .icache_m_access(ic_m_access), .icache_m_ack(ic_m_ack),
@@ -94,25 +105,42 @@ module harvard_cache_protected_tb;
         .dcache_m_data_out(dc_m_data_out), .dcache_m_access(dc_m_access),
         .dcache_m_ack(dc_m_ack), .dcache_m_wr_en(dc_m_wr_en),
         .dcache_m_bytesel(dc_m_bytesel),
+        .dcache_vwb_addr(dc_vwb_addr), .dcache_vwb_data_out(dc_vwb_data_out),
+        .dcache_vwb_access(dc_vwb_access), .dcache_vwb_ack(dc_vwb_ack),
+        .dcache_vwb_wr_en(dc_vwb_wr_en), .dcache_vwb_bytesel(dc_vwb_bytesel),
         .mem_m_addr(mem_addr), .mem_m_data_in(mem_data_in),
         .mem_m_data_out(mem_data_out), .mem_m_access(mem_access),
         .mem_m_ack(mem_ack), .mem_m_wr_en(mem_wr_en),
         .mem_m_bytesel(mem_bytesel)
     );
 
-    // Simple SDRAM
+    // Simple SDRAM with comprehensive address tracking
+    // FIX: Use combinatorial read to avoid one-cycle data latency
+    localparam logic [19:1] PROT_ADDR = 19'h00100;
+
+    // Combinatorial read path for zero-latency data
+    assign mem_data_in = sdram[mem_addr[9:1]];
+
     always_ff @(posedge clk) begin
         mem_ack <= 1'b0;
         if (reset) begin
             mem_ack <= 1'b0;
-            mem_data_in <= 16'h0000;
         end else if (mem_access) begin
             mem_ack <= 1'b1;
             if (mem_wr_en) begin
                 if (mem_bytesel[0]) sdram[mem_addr[9:1]][7:0]  <= mem_data_out[7:0];
                 if (mem_bytesel[1]) sdram[mem_addr[9:1]][15:8] <= mem_data_out[15:8];
+                // DEBUG: Track writes to PROT address line (0x00100-0x00107)
+                if (mem_addr[19:4] == PROT_ADDR[19:4]) begin
+                    $display("[%0t][SDRAM] WRITE addr=%h data=%h->%h be=%b idx=%0d",
+                             $time, mem_addr, sdram[mem_addr[9:1]], mem_data_out, mem_bytesel, mem_addr[9:1]);
+                end
             end else begin
-                mem_data_in <= sdram[mem_addr[9:1]];
+                // DEBUG: Track reads from PROT address line (0x00100-0x00107)
+                if (mem_addr[19:4] == PROT_ADDR[19:4]) begin
+                    $display("[%0t][SDRAM] READ addr=%h data=%h idx=%0d",
+                             $time, mem_addr, sdram[mem_addr[9:1]], mem_addr[9:1]);
+                end
             end
         end
     end
@@ -120,8 +148,12 @@ module harvard_cache_protected_tb;
     // Helpers
     task automatic golden_write(input [19:1] addr, input [15:0] data, input [1:0] be);
         begin
+            // Write to golden array for verification
             if (be[0]) golden[addr[9:1]][7:0]  = data[7:0];
             if (be[1]) golden[addr[9:1]][15:8] = data[15:8];
+            // ALSO write to SDRAM to initialize test data!
+            if (be[0]) sdram[addr[9:1]][7:0]  = data[7:0];
+            if (be[1]) sdram[addr[9:1]][15:8] = data[15:8];
         end
     endtask
 
@@ -133,6 +165,7 @@ module harvard_cache_protected_tb;
             t = 0;
             @(posedge clk);
             while (!i_ack && t < 50) begin t++; @(posedge clk); end
+            #1; // Wait for non-blocking assignments to settle
             data = i_data_in;
             i_access = 1'b0;
             repeat(1) @(posedge clk);
@@ -167,6 +200,7 @@ module harvard_cache_protected_tb;
             t = 0;
             @(posedge clk);
             while (!d_ack && t < 50) begin t++; @(posedge clk); end
+            #1; // Wait for non-blocking assignments to settle
             data = d_data_in;
             d_access = 1'b0;
             repeat(1) @(posedge clk);

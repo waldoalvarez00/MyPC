@@ -55,6 +55,15 @@ module harvard_cache_random_tb;
     logic        ic_inval_valid;
     logic [19:1] ic_inval_addr;
 
+    // Coherence signals between D-cache and I-cache
+    logic        coh_wr_valid;
+    logic [19:1] coh_wr_addr;
+    logic [15:0] coh_wr_data;
+    logic [1:0]  coh_wr_bytesel;
+    logic        coh_probe_valid;
+    logic [19:1] coh_probe_addr;
+    logic        coh_probe_present;
+
     // SDRAM model and golden memory
     logic [15:0] sdram [0:MEM_DEPTH-1];
     logic [15:0] golden[0:MEM_DEPTH-1];
@@ -67,10 +76,10 @@ module harvard_cache_random_tb;
         .m_addr(ic_m_addr), .m_data_in(ic_m_data_in),
         .m_access(ic_m_access), .m_ack(ic_m_ack),
         .inval_valid(ic_inval_valid), .inval_addr(ic_inval_addr),
-        .coh_wr_valid(1'b0), .coh_wr_addr(19'b0),
-        .coh_wr_data(16'b0), .coh_wr_bytesel(2'b00),
-        .coh_probe_valid(1'b0), .coh_probe_addr(19'b0),
-        .coh_probe_present()
+        .coh_wr_valid(coh_wr_valid), .coh_wr_addr(coh_wr_addr),
+        .coh_wr_data(coh_wr_data), .coh_wr_bytesel(coh_wr_bytesel),
+        .coh_probe_valid(coh_probe_valid), .coh_probe_addr(coh_probe_addr),
+        .coh_probe_present(coh_probe_present)
     );
 
     DCache2Way #(.sets(SETS)) dcache (
@@ -81,9 +90,9 @@ module harvard_cache_random_tb;
         .m_addr(dc_m_addr), .m_data_in(dc_m_data_in),
         .m_data_out(dc_m_data_out), .m_access(dc_m_access),
         .m_ack(dc_m_ack), .m_wr_en(dc_m_wr_en), .m_bytesel(dc_m_bytesel),
-        .coh_wr_valid(), .coh_wr_addr(), .coh_wr_data(),
-        .coh_wr_bytesel(), .coh_probe_valid(), .coh_probe_addr(),
-        .coh_probe_present(1'b0)
+        .coh_wr_valid(coh_wr_valid), .coh_wr_addr(coh_wr_addr), .coh_wr_data(coh_wr_data),
+        .coh_wr_bytesel(coh_wr_bytesel), .coh_probe_valid(coh_probe_valid), .coh_probe_addr(coh_probe_addr),
+        .coh_probe_present(coh_probe_present)
     );
 
     CacheArbiter arb (
@@ -133,6 +142,7 @@ module harvard_cache_random_tb;
             t = 0;
             @(posedge clk);
             while (!i_ack && t < 50) begin t++; @(posedge clk); end
+            #1; // Wait for non-blocking assignments to settle
             data = i_data_in;
             i_access = 1'b0;
             repeat(1) @(posedge clk);
@@ -167,6 +177,7 @@ module harvard_cache_random_tb;
             t = 0;
             @(posedge clk);
             while (!d_ack && t < 50) begin t++; @(posedge clk); end
+            #1; // Wait for non-blocking assignments to settle
             data = d_data_in;
             d_access = 1'b0;
             repeat(1) @(posedge clk);
@@ -188,6 +199,8 @@ module harvard_cache_random_tb;
         d_access = 1'b0;
         d_wr_en  = 1'b0;
         d_bytesel= 2'b11;
+        ic_inval_valid = 1'b0;
+        ic_inval_addr = 19'b0;
         repeat(4) @(posedge clk);
         reset = 1'b0;
         repeat(4) @(posedge clk);

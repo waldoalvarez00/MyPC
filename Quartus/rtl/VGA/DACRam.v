@@ -78,6 +78,35 @@ module DACRam (
 	wire [17:0] q_a = sub_wire0[17:0];
 	wire [17:0] q_b = sub_wire1[17:0];
 
+`ifdef SIMULATION
+	// Simulation model for dual-port RAM
+	reg [17:0] mem [0:255];
+	reg [17:0] q_a_reg, q_b_reg;
+
+	assign sub_wire0 = q_a_reg;
+	assign sub_wire1 = q_b_reg;
+
+	// Port A
+	always @(posedge clock_a) begin
+		q_a_reg <= mem[address_a];
+		if (wren_a)
+			mem[address_a] <= data_a;
+	end
+
+	// Port B
+	always @(posedge clock_b) begin
+		q_b_reg <= mem[address_b];
+		if (wren_b)
+			mem[address_b] <= data_b;
+	end
+
+	// Initialize memory
+	integer i;
+	initial begin
+		for (i = 0; i < 256; i = i + 1)
+			mem[i] = 18'h00000;
+	end
+`else
 	altsyncram	altsyncram_component (
 				.address_a (address_a),
 				.address_b (address_b),
@@ -129,7 +158,7 @@ module DACRam (
 		altsyncram_component.width_byteena_a = 1,
 		altsyncram_component.width_byteena_b = 1,
 		altsyncram_component.wrcontrol_wraddress_reg_b = "CLOCK1";
-
+`endif
 
 endmodule
 

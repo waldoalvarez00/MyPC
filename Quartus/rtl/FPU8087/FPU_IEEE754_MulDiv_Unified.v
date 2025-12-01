@@ -36,7 +36,7 @@ module FPU_IEEE754_MulDiv_Unified(
 
     // Result
     output reg [79:0] result,          // Result (80-bit)
-    output reg        done,            // Operation complete
+    output wire       done,            // Operation complete
 
     // Exception flags
     output reg        flag_invalid,    // Invalid operation
@@ -59,6 +59,11 @@ module FPU_IEEE754_MulDiv_Unified(
 
     reg [2:0] state;
     reg       is_multiply;  // Latched operation type
+    reg       done_reg;     // Internal done register
+    reg       started;      // Have we started an operation since enable went high?
+
+    // done is simply the done_reg - we use the started flag to prevent retriggering
+    assign done = done_reg;
 
     //=================================================================
     // Unpacked Operands (SHARED)
@@ -67,8 +72,8 @@ module FPU_IEEE754_MulDiv_Unified(
     reg        sign_a, sign_b;
     reg [14:0] exp_a, exp_b;
     reg [63:0] mant_a, mant_b;
-    reg        is_zero_a, is_inf_a, is_nan_a;
-    reg        is_zero_b, is_inf_b, is_nan_b;
+    reg        is_zero_a, is_inf_a, is_nan_a, is_unnormal_a;
+    reg        is_zero_b, is_inf_b, is_nan_b, is_unnormal_b;
 
     //=================================================================
     // Working Registers (SHARED)
@@ -112,11 +117,16 @@ module FPU_IEEE754_MulDiv_Unified(
             is_zero_a = (exp_a == 15'd0) && (mant_a == 64'd0);
             is_inf_a = (exp_a == 15'h7FFF) && (mant_a[62:0] == 63'd0) && (mant_a[63] == 1'b1);
             is_nan_a = (exp_a == 15'h7FFF) && ((mant_a[62:0] != 63'd0) || (mant_a[63] == 1'b0));
+            // Pseudo-normal (unnormal): non-zero/non-max exponent but integer bit = 0
+            // This is an unsupported format that should raise IE
+            is_unnormal_a = (exp_a != 15'd0) && (exp_a != 15'h7FFF) && (mant_a[63] == 1'b0);
 
             // Operand B
             is_zero_b = (exp_b == 15'd0) && (mant_b == 64'd0);
             is_inf_b = (exp_b == 15'h7FFF) && (mant_b[62:0] == 63'd0) && (mant_b[63] == 1'b1);
             is_nan_b = (exp_b == 15'h7FFF) && ((mant_b[62:0] != 63'd0) || (mant_b[63] == 1'b0));
+            // Pseudo-normal (unnormal): non-zero/non-max exponent but integer bit = 0
+            is_unnormal_b = (exp_b != 15'd0) && (exp_b != 15'h7FFF) && (mant_b[63] == 1'b0);
         end
     endtask
 
@@ -127,7 +137,8 @@ module FPU_IEEE754_MulDiv_Unified(
     always @(posedge clk or posedge reset) begin
         if (reset) begin
             state <= STATE_IDLE;
-            done <= 1'b0;
+            done_reg <= 1'b0;
+            started <= 1'b0;
             result <= 80'd0;
             flag_invalid <= 1'b0;
             flag_div_by_zero <= 1'b0;
@@ -140,17 +151,25 @@ module FPU_IEEE754_MulDiv_Unified(
                 // IDLE State
                 //=========================================================
                 STATE_IDLE: begin
-                    done <= 1'b0;
-                    flag_invalid <= 1'b0;
-                    flag_div_by_zero <= 1'b0;
-                    flag_overflow <= 1'b0;
-                    flag_underflow <= 1'b0;
-                    flag_inexact <= 1'b0;
-
-                    if (enable) begin
+                    if (!enable) begin
+                        // Master acknowledged result or no request - reset for next operation
+                        started <= 1'b0;
+                        done_reg <= 1'b0;
+                        flag_invalid <= 1'b0;
+                        flag_div_by_zero <= 1'b0;
+                        flag_overflow <= 1'b0;
+                        flag_underflow <= 1'b0;
+                        flag_inexact <= 1'b0;
+                    end else if (!started) begin
+                        // Start new operation only if we haven't already started one
+                        `ifdef ICARUS
+                        $display("[MULDIV] Starting op=%b, A=%h, B=%h", operation, operand_a, operand_b);
+                        `endif
+                        started <= 1'b1;
                         is_multiply <= ~operation;  // Latch operation
                         state <= STATE_UNPACK;
                     end
+                    // else: enable high but already started - wait for master to lower enable
                 end
 
                 //=========================================================
@@ -172,11 +191,11 @@ module FPU_IEEE754_MulDiv_Unified(
                     result_sign = sign_a ^ sign_b;
 
                     // Handle special cases
-                    if (is_nan_a || is_nan_b) begin
-                        // NaN propagation
+                    if (is_nan_a || is_nan_b || is_unnormal_a || is_unnormal_b) begin
+                        // NaN or unsupported format (pseudo-normal) -> return QNaN
                         result <= {1'b0, 15'h7FFF, 1'b1, 63'h4000000000000000};
                         flag_invalid <= 1'b1;
-                        done <= 1'b1;
+                        done_reg <= 1'b1;
                         state <= STATE_IDLE;
                     end else if (is_multiply) begin
                         // MULTIPLY special cases
@@ -184,17 +203,17 @@ module FPU_IEEE754_MulDiv_Unified(
                             // 0 × ∞ = NaN
                             result <= {1'b0, 15'h7FFF, 1'b1, 63'h4000000000000000};
                             flag_invalid <= 1'b1;
-                            done <= 1'b1;
+                            done_reg <= 1'b1;
                             state <= STATE_IDLE;
                         end else if (is_inf_a || is_inf_b) begin
                             // ∞ × finite = ∞
                             result <= {result_sign, 15'h7FFF, 1'b1, 63'd0};
-                            done <= 1'b1;
+                            done_reg <= 1'b1;
                             state <= STATE_IDLE;
                         end else if (is_zero_a || is_zero_b) begin
                             // 0 × anything = 0
                             result <= {result_sign, 79'd0};
-                            done <= 1'b1;
+                            done_reg <= 1'b1;
                             state <= STATE_IDLE;
                         end else begin
                             state <= STATE_COMPUTE;
@@ -205,23 +224,26 @@ module FPU_IEEE754_MulDiv_Unified(
                             // 0÷0 or ∞÷∞ = NaN
                             result <= {1'b0, 15'h7FFF, 1'b1, 63'h4000000000000000};
                             flag_invalid <= 1'b1;
-                            done <= 1'b1;
+                            done_reg <= 1'b1;
                             state <= STATE_IDLE;
                         end else if (is_zero_b) begin
                             // x÷0 = ±∞
                             result <= {result_sign, 15'h7FFF, 1'b1, 63'd0};
                             flag_div_by_zero <= 1'b1;
-                            done <= 1'b1;
+                            done_reg <= 1'b1;
+                            `ifdef ICARUS
+                            $display("[MULDIV] Divide by zero detected: A=%h, B=%h, result=%h", operand_a, operand_b, {result_sign, 15'h7FFF, 1'b1, 63'd0});
+                            `endif
                             state <= STATE_IDLE;
                         end else if (is_inf_a) begin
                             // ∞÷finite = ±∞
                             result <= {result_sign, 15'h7FFF, 1'b1, 63'd0};
-                            done <= 1'b1;
+                            done_reg <= 1'b1;
                             state <= STATE_IDLE;
                         end else if (is_zero_a || is_inf_b) begin
                             // 0÷finite = ±0 or finite÷∞ = ±0
                             result <= {result_sign, 79'd0};
-                            done <= 1'b1;
+                            done_reg <= 1'b1;
                             state <= STATE_IDLE;
                         end else begin
                             state <= STATE_COMPUTE;
@@ -242,7 +264,7 @@ module FPU_IEEE754_MulDiv_Unified(
                             // Underflow
                             result <= {result_sign, 79'd0};
                             flag_underflow <= 1'b1;
-                            done <= 1'b1;
+                            done_reg <= 1'b1;
                             state <= STATE_IDLE;
                         end else begin
                             result_exp = {1'b0, exp_a} + {1'b0, exp_b} - 17'd16383;
@@ -259,7 +281,7 @@ module FPU_IEEE754_MulDiv_Unified(
                             // Underflow
                             result <= {result_sign, 79'd0};
                             flag_underflow <= 1'b1;
-                            done <= 1'b1;
+                            done_reg <= 1'b1;
                             state <= STATE_IDLE;
                         end else begin
                             result_exp = {2'b00, exp_a} - {2'b00, exp_b} + 17'sd16383;
@@ -328,12 +350,12 @@ module FPU_IEEE754_MulDiv_Unified(
                         if (result_exp >= 17'sd32767) begin
                             result <= {result_sign, 15'h7FFF, 1'b1, 63'd0};
                             flag_overflow <= 1'b1;
-                            done <= 1'b1;
+                            done_reg <= 1'b1;
                             state <= STATE_IDLE;
                         end else if (result_exp[16]) begin  // Negative
                             result <= {result_sign, 79'd0};
                             flag_underflow <= 1'b1;
-                            done <= 1'b1;
+                            done_reg <= 1'b1;
                             state <= STATE_IDLE;
                         end else begin
                             state <= STATE_ROUND;
@@ -374,6 +396,11 @@ module FPU_IEEE754_MulDiv_Unified(
 
                             result_mant = quotient;
 
+                            // Set sticky bit if remainder is non-zero (inexact division)
+                            if (remainder != 129'd0) begin
+                                result_mant[0] = 1'b1;
+                            end
+
                             // Normalize quotient
                             if (result_mant[66]) begin
                                 // Already normalized
@@ -402,12 +429,12 @@ module FPU_IEEE754_MulDiv_Unified(
                             if (result_exp > 17'sd32766) begin
                                 result <= {result_sign, 15'h7FFF, 1'b1, 63'd0};
                                 flag_overflow <= 1'b1;
-                                done <= 1'b1;
+                                done_reg <= 1'b1;
                                 state <= STATE_IDLE;
                             end else if (result_exp < 17'sd1) begin
                                 result <= {result_sign, 79'd0};
                                 flag_underflow <= 1'b1;
-                                done <= 1'b1;
+                                done_reg <= 1'b1;
                                 state <= STATE_IDLE;
                             end else begin
                                 state <= STATE_ROUND;
@@ -468,7 +495,7 @@ module FPU_IEEE754_MulDiv_Unified(
                         if (result_exp >= 17'sd32767) begin
                             result <= {result_sign, 15'h7FFF, 1'b1, 63'd0};
                             flag_overflow <= 1'b1;
-                            done <= 1'b1;
+                            done_reg <= 1'b1;
                             state <= STATE_IDLE;
                         end else begin
                             state <= STATE_PACK;
@@ -483,7 +510,7 @@ module FPU_IEEE754_MulDiv_Unified(
                 //=========================================================
                 STATE_PACK: begin
                     result <= {result_sign, result_exp[14:0], result_mant[63:0]};
-                    done <= 1'b1;
+                    done_reg <= 1'b1;
                     state <= STATE_IDLE;
                 end
 

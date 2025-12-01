@@ -1,0 +1,17 @@
+[options]
+mode prove
+depth 20
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -sv FPU_RegisterStack.v FPU_RegisterStack_formal.sv
+hierarchy -top FPU_RegisterStack_formal
+clk2fflogic
+prep -nordff -top FPU_RegisterStack_formal
+dffunmap
+
+[files]
+Quartus/rtl/FPU8087/FPU_RegisterStack.v
+formal/FPU_RegisterStack_formal.sv

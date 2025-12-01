@@ -1,0 +1,17 @@
+[options]
+mode prove
+depth 20
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -sv FPU_Exception_Handler.v FPU_Exception_Handler_formal.sv
+hierarchy -top FPU_Exception_Handler_formal
+clk2fflogic
+prep -nordff -top FPU_Exception_Handler_formal
+dffunmap
+
+[files]
+Quartus/rtl/FPU8087/FPU_Exception_Handler.v
+formal/FPU_Exception_Handler_formal.sv

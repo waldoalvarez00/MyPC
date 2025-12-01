@@ -38,6 +38,10 @@ logic [width-1:0] ram[0:words-1] /* synthesis syn_ramstyle = "no_rw_check,M9K"*/
 logic [width-1:0] ram[0:words-1] /* synthesis syn_ramstyle = "no_rw_check"*/;
 `endif
 
+// Declare registers BEFORE initial block for Icarus Verilog compatibility
+logic [width-1:0] r_a, r_b, bypass_a_val, bypass_b_val;
+logic bypass_a, bypass_b;
+
 // Initialize RAM to 0 for simulation.
 // Note: Some formal tool flows (Yosys/SMTBMC) have limitations around
 // non-constant memory initialization enables. Guard this out under
@@ -56,9 +60,6 @@ initial begin
     bypass_b = 1'b0;
 end
 `endif
-
-logic [width-1:0] r_a, r_b, bypass_a_val, bypass_b_val;
-logic bypass_a, bypass_b;
 
 assign q_a = bypass_a ? bypass_a_val : r_a;
 assign q_b = bypass_b ? bypass_b_val : r_b;

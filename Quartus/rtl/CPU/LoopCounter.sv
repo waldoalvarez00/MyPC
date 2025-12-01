@@ -24,6 +24,9 @@ module LoopCounter(input logic clk,
 
 reg [4:0] count;
 
+// Initialize for simulation
+initial count = 5'b0;
+
 assign done = ~|count;
 
 always_ff @(posedge clk)

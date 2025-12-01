@@ -255,10 +255,15 @@ always_comb begin
     line_address = {latched_address[index_end:index_start], c_m_addr[3:1]};
 end
 
-always_ff @(posedge clk) begin
-    if (!busy)
-        latched_address <= c_addr;
-    fetch_address <= c_addr;
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        latched_address <= 19'b0;
+        fetch_address <= 19'b0;
+    end else begin
+        if (!busy)
+            latched_address <= c_addr;
+        fetch_address <= c_addr;
+    end
 end
 
 always_ff @(posedge clk or posedge reset) begin
@@ -286,6 +291,7 @@ always_ff @(posedge clk or posedge reset) begin
         line_idx <= 3'b0;
         line_valid <= 8'b0;
         busy <= 1'b0;
+        c_m_addr <= 19'b0;
     end else if (enabled && m_ack) begin
         c_m_addr <= {c_m_addr[19:4], c_m_addr[3:1] + 1'b1};
         line_idx <= line_idx + 1'b1;

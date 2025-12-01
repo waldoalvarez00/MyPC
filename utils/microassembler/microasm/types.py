@@ -123,6 +123,7 @@ class JumpType(Enum):
     RB_ZERO = 8
     LOOP_DONE = 9
     FPU_BUSY = 10
+    FPU_ERROR = 11
 
 class MARWrSel(Enum):
     EA = 0

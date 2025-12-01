@@ -30,6 +30,9 @@ sby -t -f formal/PipelinedMemArbiterExtend.sby
 echo "Running ICache2Way formal..."
 sby -t -f formal/ICache2Way.sby
 
+echo "Running ICache2Way invalidation formal..."
+sby -t -f formal/ICache2Way_inval.sby
+
 echo "Running DCache2Way formal..."
 sby -t -f formal/DCache2Way.sby
 
@@ -56,5 +59,35 @@ sby -t -f formal/Flags.sby
 
 echo "Running RegisterFile formal..."
 sby -t -f formal/RegisterFile.sby
+
+echo "Running FPU_Instruction_Queue formal..."
+sby -t -f formal/FPU_Instruction_Queue.sby
+
+echo "Running FPU_RegisterStack formal..."
+sby -t -f formal/FPU_RegisterStack.sby
+
+echo "Running FPU_Exception_Handler formal..."
+sby -t -f formal/FPU_Exception_Handler.sby
+
+echo "Running FPU_CPU_Interface formal..."
+sby -t -f formal/FPU_CPU_Interface.sby
+
+echo "Running FPU_IEEE754_AddSub formal..."
+sby -t -f formal/FPU_IEEE754_AddSub.sby
+
+echo "Running FPU_IEEE754_MulDiv_Unified formal..."
+sby -t -f formal/FPU_IEEE754_MulDiv_Unified.sby
+
+echo "Running FPU_SQRT_Newton formal..."
+sby -t -f formal/FPU_SQRT_Newton.sby
+
+echo "Running FPU_Format_Converter_Unified formal..."
+sby -t -f formal/FPU_Format_Converter_Unified.sby
+
+echo "Running FPU_Range_Reduction formal..."
+sby -t -f formal/FPU_Range_Reduction.sby
+
+echo "Running FPU_Polynomial_Evaluator formal..."
+sby -t -f formal/FPU_Polynomial_Evaluator.sby
 
 echo "All formal runs completed."

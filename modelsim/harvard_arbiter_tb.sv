@@ -144,6 +144,7 @@ module harvard_arbiter_tb;
         check_result("Memory access is read (wr_en low)", !mem_m_wr_en);
 
         @(posedge clk);
+        @(posedge clk);  // Extra cycle for registered ack
         check_result("I-cache receives ack", icache_m_ack);
         check_result("I-cache receives data", icache_m_data_in == {icache_m_addr[19:5], 1'b0});
 
@@ -166,6 +167,7 @@ module harvard_arbiter_tb;
         check_result("Memory access is read", !mem_m_wr_en);
 
         @(posedge clk);
+        @(posedge clk);  // Extra cycle for registered ack
         check_result("D-cache receives ack", dcache_m_ack);
 
         dcache_m_access = 0;
@@ -191,6 +193,7 @@ module harvard_arbiter_tb;
         check_result("Memory bytesel matches D-cache", mem_m_bytesel == 2'b11);
 
         @(posedge clk);
+        @(posedge clk);  // Extra cycle for registered ack
         check_result("D-cache write receives ack", dcache_m_ack);
 
         dcache_m_access = 0;
@@ -216,6 +219,7 @@ module harvard_arbiter_tb;
         check_result("Memory write enable for D-cache", mem_m_wr_en);
 
         @(posedge clk);
+        @(posedge clk);  // Extra cycle for registered ack
         check_result("D-cache write acked first", dcache_m_ack);
         check_result("I-cache not yet acked", !icache_m_ack);
 
@@ -224,7 +228,11 @@ module harvard_arbiter_tb;
         @(posedge clk);
 
         // I-cache should be served next
+        // Need 4 cycles: state transition + mem_access + mem_ack + arbiter ack_reg
         @(posedge clk);
+        @(posedge clk);
+        @(posedge clk);
+        @(posedge clk);  // Extra cycle for registered ack
         check_result("I-cache served after D-cache write", icache_m_ack);
 
         icache_m_access = 0;
@@ -244,6 +252,7 @@ module harvard_arbiter_tb;
         @(posedge clk);
         @(posedge clk);
         @(posedge clk);
+        @(posedge clk);  // Extra cycle for registered ack
 
         first_served_icache = icache_m_ack;
 
@@ -260,6 +269,7 @@ module harvard_arbiter_tb;
         @(posedge clk);
         @(posedge clk);
         @(posedge clk);
+        @(posedge clk);  // Extra cycle for registered ack
 
         check_result("Round-robin alternates between caches",
                      first_served_icache && dcache_m_ack);
@@ -278,6 +288,7 @@ module harvard_arbiter_tb;
         @(posedge clk);
         @(posedge clk);
         @(posedge clk);
+        @(posedge clk);  // Extra cycle for registered ack
 
         check_result("First I-cache request acked", icache_m_ack);
 
@@ -285,6 +296,7 @@ module harvard_arbiter_tb;
         icache_m_addr = 19'h88888;
         @(posedge clk);
         @(posedge clk);
+        @(posedge clk);  // Extra cycle for registered ack
 
         check_result("Second I-cache request acked", icache_m_ack);
 
@@ -302,6 +314,7 @@ module harvard_arbiter_tb;
         @(posedge clk);
         @(posedge clk);
         @(posedge clk);
+        @(posedge clk);  // Extra cycle for registered ack
 
         check_result("First D-cache request acked", dcache_m_ack);
 
@@ -309,6 +322,7 @@ module harvard_arbiter_tb;
         dcache_m_addr = 19'hAAAAA;
         @(posedge clk);
         @(posedge clk);
+        @(posedge clk);  // Extra cycle for registered ack
 
         check_result("Second D-cache request acked", dcache_m_ack);
 

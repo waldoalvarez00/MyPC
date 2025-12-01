@@ -1,0 +1,20 @@
+[options]
+mode prove
+depth 30
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -sv FPU_SQRT_Newton.v FPU_IEEE754_Divide.v FPU_IEEE754_AddSub.v FPU_IEEE754_Multiply.v FPU_SQRT_Newton_formal.sv
+hierarchy -top FPU_SQRT_Newton_formal
+clk2fflogic
+prep -nordff -top FPU_SQRT_Newton_formal
+dffunmap
+
+[files]
+Quartus/rtl/FPU8087/FPU_SQRT_Newton.v
+Quartus/rtl/FPU8087/FPU_IEEE754_Divide.v
+Quartus/rtl/FPU8087/FPU_IEEE754_AddSub.v
+Quartus/rtl/FPU8087/FPU_IEEE754_Multiply.v
+formal/FPU_SQRT_Newton_formal.sv

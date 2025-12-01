@@ -37,6 +37,7 @@ module FPU_Transcendental(
 
     output reg done,
     output reg error,
+    output reg flag_inexact,  // Inexact result (from rounding)
 
     //=================================================================
     // STRATEGY 1: Shared Arithmetic Unit Interface
@@ -108,8 +109,56 @@ module FPU_Transcendental(
     // Constants
     //=================================================================
 
-    localparam FP80_ZERO = 80'h0000_0000000000000000;
-    localparam FP80_ONE  = 80'h3FFF_8000000000000000;
+    localparam FP80_ZERO    = 80'h0000_0000000000000000;
+    localparam FP80_ONE     = 80'h3FFF_8000000000000000;
+    localparam FP80_NEG_INF = 80'hFFFF_8000000000000000;  // -Infinity
+    localparam FP80_POS_INF = 80'h7FFF_8000000000000000;  // +Infinity
+    localparam FP80_QNAN    = 80'h7FFF_C000000000000000;  // Quiet NaN
+
+    //=================================================================
+    // Helper Functions for Special Value Detection
+    //=================================================================
+
+    // Check if FP80 value is zero (positive or negative)
+    function automatic is_zero;
+        input [79:0] val;
+        begin
+            is_zero = (val[78:0] == 79'd0);  // All bits except sign are zero
+        end
+    endfunction
+
+    // Check if FP80 value is negative (sign bit = 1)
+    function automatic is_negative;
+        input [79:0] val;
+        begin
+            is_negative = val[79];
+        end
+    endfunction
+
+    // Check if FP80 value is a NaN
+    function automatic is_nan;
+        input [79:0] val;
+        begin
+            is_nan = (val[78:64] == 15'h7FFF) && (val[62:0] != 63'd0);
+        end
+    endfunction
+
+    // Check if FP80 value is infinity
+    function automatic is_infinity;
+        input [79:0] val;
+        begin
+            is_infinity = (val[78:64] == 15'h7FFF) && (val[62:0] == 63'd0);
+        end
+    endfunction
+
+    // Check if |FP80 value| >= 1.0 (for F2XM1 domain checking)
+    // 1.0 has exponent 0x3FFF (bias of 16383)
+    function automatic is_abs_ge_one;
+        input [79:0] val;
+        begin
+            is_abs_ge_one = (val[78:64] >= 15'h3FFF);
+        end
+    endfunction
 
     //=================================================================
     // Module Instantiations
@@ -265,73 +314,99 @@ module FPU_Transcendental(
     reg        local_muldiv_op;
     reg [79:0] local_muldiv_a, local_muldiv_b;
 
-    // Arbitrated result routing
+    // Arbitrated result routing - grants persist until done
     reg [1:0]  addsub_grant;  // 00=none, 01=local, 10=cordic, 11=poly
     reg [1:0]  muldiv_grant;  // 00=none, 01=local, 10=cordic, 11=poly
 
-    // AddSub Arbiter
+    // AddSub Arbiter - combinational request routing
     always @(*) begin
         if (local_addsub_req) begin
-            // Priority 1: Local state machine requests
             ext_addsub_req = 1'b1;
             ext_addsub_a = local_addsub_a;
             ext_addsub_b = local_addsub_b;
             ext_addsub_sub = local_addsub_sub;
-            addsub_grant = 2'd1;
         end else if (cordic_addsub_req) begin
-            // Priority 2: CORDIC correction
             ext_addsub_req = 1'b1;
             ext_addsub_a = cordic_addsub_a;
             ext_addsub_b = cordic_addsub_b;
             ext_addsub_sub = cordic_addsub_sub;
-            addsub_grant = 2'd2;
         end else if (ext_poly_addsub_req) begin
-            // Priority 3: Polynomial evaluator
             ext_addsub_req = 1'b1;
             ext_addsub_a = ext_poly_addsub_a;
             ext_addsub_b = ext_poly_addsub_b;
-            ext_addsub_sub = 1'b0;  // Polynomial only does additions
-            addsub_grant = 2'd3;
+            ext_addsub_sub = 1'b0;
         end else begin
-            // No requests
             ext_addsub_req = 1'b0;
             ext_addsub_a = FP80_ZERO;
             ext_addsub_b = FP80_ZERO;
             ext_addsub_sub = 1'b0;
-            addsub_grant = 2'd0;
         end
     end
 
-    // MulDiv Arbiter
+    // AddSub Grant - registered, persists until done
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            addsub_grant <= 2'd0;
+        end else begin
+            if (ext_addsub_done) begin
+                // Clear grant when done received
+                addsub_grant <= 2'd0;
+            end else if (addsub_grant == 2'd0) begin
+                // Capture new grant when idle
+                if (local_addsub_req)
+                    addsub_grant <= 2'd1;
+                else if (cordic_addsub_req)
+                    addsub_grant <= 2'd2;
+                else if (ext_poly_addsub_req)
+                    addsub_grant <= 2'd3;
+            end
+            // Otherwise keep current grant
+        end
+    end
+
+    // MulDiv Arbiter - combinational request routing
     always @(*) begin
         if (local_muldiv_req) begin
-            // Priority 1: Local state machine requests
             ext_muldiv_req = 1'b1;
             ext_muldiv_op = local_muldiv_op;
             ext_muldiv_a = local_muldiv_a;
             ext_muldiv_b = local_muldiv_b;
-            muldiv_grant = 2'd1;
         end else if (cordic_muldiv_req) begin
-            // Priority 2: CORDIC correction
             ext_muldiv_req = 1'b1;
             ext_muldiv_op = cordic_muldiv_op;
             ext_muldiv_a = cordic_muldiv_a;
             ext_muldiv_b = cordic_muldiv_b;
-            muldiv_grant = 2'd2;
         end else if (ext_poly_muldiv_req) begin
-            // Priority 3: Polynomial evaluator
             ext_muldiv_req = 1'b1;
-            ext_muldiv_op = 1'b0;  // Polynomial only multiplies
+            ext_muldiv_op = 1'b0;
             ext_muldiv_a = ext_poly_muldiv_a;
             ext_muldiv_b = ext_poly_muldiv_b;
-            muldiv_grant = 2'd3;
         end else begin
-            // No requests
             ext_muldiv_req = 1'b0;
             ext_muldiv_op = 1'b0;
             ext_muldiv_a = FP80_ZERO;
             ext_muldiv_b = FP80_ZERO;
-            muldiv_grant = 2'd0;
+        end
+    end
+
+    // MulDiv Grant - registered, persists until done
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            muldiv_grant <= 2'd0;
+        end else begin
+            if (ext_muldiv_done) begin
+                // Clear grant when done received
+                muldiv_grant <= 2'd0;
+            end else if (muldiv_grant == 2'd0) begin
+                // Capture new grant when idle
+                if (local_muldiv_req)
+                    muldiv_grant <= 2'd1;
+                else if (cordic_muldiv_req)
+                    muldiv_grant <= 2'd2;
+                else if (ext_poly_muldiv_req)
+                    muldiv_grant <= 2'd3;
+            end
+            // Otherwise keep current grant
         end
     end
 
@@ -375,6 +450,7 @@ module FPU_Transcendental(
             state <= STATE_IDLE;
             done <= 1'b0;
             error <= 1'b0;
+            flag_inexact <= 1'b0;
             result_primary <= FP80_ZERO;
             result_secondary <= FP80_ZERO;
             has_secondary <= 1'b0;
@@ -397,10 +473,33 @@ module FPU_Transcendental(
 
             current_operation <= 4'd0;
         end else begin
+            // Debug: show state when enable arrives
+            `ifdef ICARUS
+            if (enable && state != STATE_IDLE) begin
+                $display("[TRANS WARN] enable=1 but state=%0d (not IDLE!)", state);
+            end
+            `endif
+
+            // Accumulate inexact flag from internal arithmetic operations
+            // This captures inexact from any internal operation during the transcendental computation
+            if (state != STATE_IDLE && state != STATE_DONE) begin
+                // Check if any internal operation completed with inexact result
+                if (ext_addsub_done && ext_addsub_inexact)
+                    flag_inexact <= 1'b1;
+                if (ext_muldiv_done && ext_muldiv_inexact)
+                    flag_inexact <= 1'b1;
+                if (ext_poly_addsub_done && ext_poly_addsub_inexact)
+                    flag_inexact <= 1'b1;
+                if (ext_poly_muldiv_done && ext_poly_muldiv_inexact)
+                    flag_inexact <= 1'b1;
+            end
+
             case (state)
                 STATE_IDLE: begin
                     done <= 1'b0;
-                    error <= 1'b0;
+                    // Don't clear error here - preserve it for FPU_Core to sample
+                    // Error will be cleared when a new operation starts
+                    flag_inexact <= 1'b0;
                     has_secondary <= 1'b0;
                     cordic_enable <= 1'b0;
                     poly_enable <= 1'b0;
@@ -411,6 +510,10 @@ module FPU_Transcendental(
                     local_muldiv_req <= 1'b0;
 
                     if (enable) begin
+                        error <= 1'b0;  // Clear error only at start of new operation
+                        `ifdef ICARUS
+                        $display("[TRANS] STATE_IDLE: enable=1, op=%0d, A=%h B=%h", operation, operand_a, operand_b);
+                        `endif
                         current_operation <= operation;
                         state <= STATE_ROUTE_OP;
                     end
@@ -465,18 +568,88 @@ module FPU_Transcendental(
 
                         OP_F2XM1: begin
                             // 2^x - 1 via polynomial approximation
-                            poly_enable <= 1'b1;
-                            poly_select <= 4'd0;  // F2XM1 polynomial
-                            poly_input <= operand_a;
-                            state <= STATE_WAIT_POLY;
+                            // Valid domain: -1 <= x <= 1
+                            `ifdef ICARUS
+                            $display("[TRANS F2XM1] A=%h is_nan=%b is_abs_ge_one=%b",
+                                operand_a, is_nan(operand_a), is_abs_ge_one(operand_a));
+                            `endif
+                            if (is_nan(operand_a)) begin
+                                // NaN propagation
+                                `ifdef ICARUS
+                                $display("[TRANS F2XM1] NaN detected -> STATE_DONE");
+                                `endif
+                                result_primary <= FP80_QNAN;
+                                error <= 1'b1;
+                                state <= STATE_DONE;
+                            end else if (is_abs_ge_one(operand_a)) begin
+                                // Domain error: |x| >= 1
+                                `ifdef ICARUS
+                                $display("[TRANS F2XM1] |x| >= 1 detected -> STATE_DONE (domain error)");
+                                `endif
+                                result_primary <= FP80_QNAN;
+                                error <= 1'b1;
+                                state <= STATE_DONE;
+                            end else begin
+                                // Valid input, use polynomial approximation
+                                poly_enable <= 1'b1;
+                                poly_select <= 4'd0;  // F2XM1 polynomial
+                                poly_input <= operand_a;
+                                state <= STATE_WAIT_POLY;
+                            end
                         end
 
                         OP_FYL2X: begin
-                            // y × log₂(x): First compute log₂(x)
-                            poly_enable <= 1'b1;
-                            poly_select <= 4'd1;  // LOG2 polynomial
-                            poly_input <= operand_a;
-                            state <= STATE_WAIT_POLY;
+                            // y × log₂(x): First check for special cases
+                            // operand_a = x, operand_b = y
+                            `ifdef ICARUS
+                            $display("[TRANS FYL2X] A=%h B=%h is_zero_a=%b is_neg_a=%b is_nan_a=%b",
+                                operand_a, operand_b, is_zero(operand_a),
+                                is_negative(operand_a), is_nan(operand_a));
+                            `endif
+                            if (is_nan(operand_a) || is_nan(operand_b)) begin
+                                // NaN propagation
+                                `ifdef ICARUS
+                                $display("[TRANS FYL2X] NaN detected -> STATE_DONE");
+                                `endif
+                                result_primary <= FP80_QNAN;
+                                error <= 1'b1;
+                                state <= STATE_DONE;
+                            end else if (is_zero(operand_a)) begin
+                                // log₂(0) = -∞
+                                // Result = y × -∞
+                                `ifdef ICARUS
+                                $display("[TRANS FYL2X] x=0 detected -> STATE_DONE");
+                                `endif
+                                if (is_zero(operand_b)) begin
+                                    // 0 × -∞ is undefined
+                                    result_primary <= FP80_QNAN;
+                                    error <= 1'b1;
+                                end else if (is_negative(operand_b)) begin
+                                    // negative × -∞ = +∞
+                                    result_primary <= FP80_POS_INF;
+                                end else begin
+                                    // positive × -∞ = -∞
+                                    result_primary <= FP80_NEG_INF;
+                                end
+                                state <= STATE_DONE;
+                            end else if (is_negative(operand_a) && !is_zero(operand_a)) begin
+                                // log₂(negative) is undefined
+                                `ifdef ICARUS
+                                $display("[TRANS FYL2X] x<0 detected -> STATE_DONE");
+                                `endif
+                                result_primary <= FP80_QNAN;
+                                error <= 1'b1;
+                                state <= STATE_DONE;
+                            end else begin
+                                // Normal case: compute log₂(x)
+                                `ifdef ICARUS
+                                $display("[TRANS FYL2X] Normal case -> poly eval");
+                                `endif
+                                poly_enable <= 1'b1;
+                                poly_select <= 4'd1;  // LOG2 polynomial
+                                poly_input <= operand_a;
+                                state <= STATE_WAIT_POLY;
+                            end
                         end
 
                         OP_FYL2XP1: begin
@@ -631,6 +804,8 @@ module FPU_Transcendental(
 
                 STATE_DONE: begin
                     done <= 1'b1;
+                    // Wait for enable to go low before returning to IDLE
+                    // This ensures proper handshaking with the microsequencer
                     if (~enable) begin
                         state <= STATE_IDLE;
                     end

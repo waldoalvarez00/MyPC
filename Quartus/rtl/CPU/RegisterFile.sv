@@ -36,11 +36,13 @@ reg [15:0] gprs[8];
 wire wr_sel_low_byte = ~wr_sel[2];
 wire [2:0] wr_8_bit_sel = {1'b0, wr_sel[1:0]};
 
-always_ff @(posedge reset)
-    ; // Reset is handled by the microcode.
-
-always_ff @(posedge clk) begin
-    if (wr_en) begin
+// Initialize registers on reset for simulation
+integer i;
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        for (i = 0; i < 8; i = i + 1)
+            gprs[i] <= 16'h0000;
+    end else if (wr_en) begin
         if (is_8_bit) begin
             if (wr_sel_low_byte)
                 gprs[wr_8_bit_sel][7:0] <= wr_val[7:0];
@@ -66,24 +68,42 @@ always_ff @(posedge clk) begin
         bx <= {wr_val[7:0], gprs[BX][7:0]};
 end
 
-genvar rd_port;
-
-generate
-for (rd_port = 0; rd_port < 2; ++rd_port) begin: read_port
-    wire rd_sel_low_byte = ~rd_sel[rd_port][2];
-    wire [2:0] rd_8_bit_sel = {1'b0, rd_sel[rd_port][1:0]};
-    wire bypass = wr_en && wr_sel == rd_sel[rd_port];
-
-    always_ff @(posedge clk) begin
-        if (is_8_bit)
-            rd_val[rd_port] <= bypass ? {8'b0, wr_val[7:0]} :
-                {8'b0, rd_sel_low_byte ?
-                    gprs[rd_8_bit_sel][7:0] : gprs[rd_8_bit_sel][15:8]};
+// Read port 0
+always_ff @(posedge clk or posedge reset) begin
+    if (reset)
+        rd_val[0] <= 16'h0000;
+    else if (is_8_bit) begin
+        if (wr_en && wr_sel == rd_sel[0])
+            rd_val[0] <= {8'b0, wr_val[7:0]};
+        else if (~rd_sel[0][2])
+            rd_val[0] <= {8'b0, gprs[{1'b0, rd_sel[0][1:0]}][7:0]};
         else
-            rd_val[rd_port] <= bypass ? wr_val :
-                gprs[rd_sel[rd_port]];
+            rd_val[0] <= {8'b0, gprs[{1'b0, rd_sel[0][1:0]}][15:8]};
+    end else begin
+        if (wr_en && wr_sel == rd_sel[0])
+            rd_val[0] <= wr_val;
+        else
+            rd_val[0] <= gprs[rd_sel[0]];
     end
 end
-endgenerate
+
+// Read port 1
+always_ff @(posedge clk or posedge reset) begin
+    if (reset)
+        rd_val[1] <= 16'h0000;
+    else if (is_8_bit) begin
+        if (wr_en && wr_sel == rd_sel[1])
+            rd_val[1] <= {8'b0, wr_val[7:0]};
+        else if (~rd_sel[1][2])
+            rd_val[1] <= {8'b0, gprs[{1'b0, rd_sel[1][1:0]}][7:0]};
+        else
+            rd_val[1] <= {8'b0, gprs[{1'b0, rd_sel[1][1:0]}][15:8]};
+    end else begin
+        if (wr_en && wr_sel == rd_sel[1])
+            rd_val[1] <= wr_val;
+        else
+            rd_val[1] <= gprs[rd_sel[1]];
+    end
+end
 
 endmodule

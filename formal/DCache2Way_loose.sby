@@ -6,7 +6,7 @@ depth 40
 smtbmc yices
 
 [script]
-read -formal -sv ../../../Quartus/rtl/common/DCache2Way.sv ../../../Quartus/rtl/common/BlockRam.sv ../../../Quartus/rtl/common/DPRam.sv DCache2Way_formal.sv
+read -formal -sv DCache2Way.sv BlockRam.sv DPRam.sv DCache2Way_formal.sv
 chformal -assume -remove \\FORMAL_TIGHT_ENV 0
 hierarchy -top DCache2Way_formal
 clk2fflogic
@@ -14,7 +14,7 @@ prep -nordff -top DCache2Way_formal
 dffunmap
 
 [files]
-../Quartus/rtl/common/DCache2Way.sv
-../Quartus/rtl/common/BlockRam.sv
-../Quartus/rtl/common/DPRam.sv
-DCache2Way_formal.sv
+Quartus/rtl/common/DCache2Way.sv
+Quartus/rtl/common/BlockRam.sv
+Quartus/rtl/common/DPRam.sv
+formal/DCache2Way_formal.sv

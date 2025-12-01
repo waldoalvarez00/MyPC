@@ -46,6 +46,7 @@ module Microcode(input logic clk,
                  input logic jump_taken,
                  input logic rb_zero,
                  input logic fpu_busy,            // FPU busy signal for FWAIT
+                 input logic fpu_int,             // FPU error signal for FWAIT
                  output logic lock,
                  output logic multibit_shift,
                  output logic is_hlt,
@@ -334,6 +335,7 @@ always_comb begin
     JumpType_LOOP_DONE: jump_target = loop_done ? current.next : addr + 1'b1;
     JumpType_JUMP_TAKEN: jump_target = jump_taken ? current.next : addr + 1'b1;
     JumpType_FPU_BUSY: jump_target = fpu_busy ? current.next : addr + 1'b1;
+    JumpType_FPU_ERROR: jump_target = fpu_int ? current.next : addr + 1'b1;
     default: jump_target = current.next;
     endcase
 end

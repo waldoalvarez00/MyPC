@@ -33,10 +33,8 @@ assign val = cur_val;
 always_ff @(posedge clk or posedge reset)
     if (reset)
         instruction_start_addr <= 16'b0;
-    else if (start_instruction || next_instruction)
-        instruction_start_addr <= wr_en ? wr_val : cur_val;
     else if (next_instruction)
-        instruction_start_addr <= cur_val;
+        instruction_start_addr <= wr_en ? wr_val : cur_val;
 
 always @(posedge clk or posedge reset)
     if (reset)

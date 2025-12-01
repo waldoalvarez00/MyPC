@@ -1,0 +1,18 @@
+[options]
+mode prove
+depth 40
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -sv -D FORMAL FPU_Range_Reduction.v FPU_Payne_Hanek.v FPU_Range_Reduction_formal.sv
+hierarchy -top FPU_Range_Reduction_formal
+clk2fflogic
+prep -nordff -top FPU_Range_Reduction_formal
+dffunmap
+
+[files]
+Quartus/rtl/FPU8087/FPU_Range_Reduction.v
+Quartus/rtl/FPU8087/FPU_Payne_Hanek.v
+formal/FPU_Range_Reduction_formal.sv

@@ -127,7 +127,7 @@ module MicroSequencer_Extended_BCD (
     localparam MOP_CALL_ARITH     = 5'h10; // Start arithmetic operation
     localparam MOP_WAIT_ARITH     = 5'h11; // Wait for arithmetic completion
     localparam MOP_LOAD_ARITH_RES = 5'h12; // Load result from arithmetic unit
-    localparam MOP_LOAD_ARITH_RES_SEC = 5'd26; // Load secondary result from arithmetic unit
+    localparam MOP_LOAD_ARITH_RES_SEC = 5'h13; // Load secondary result from arithmetic unit
 
     // BCD conversion operations (0x1A-0x1F)
     localparam MOP_CALL_BCD2BIN   = 5'h1A; // Start BCD → Binary conversion
@@ -407,37 +407,16 @@ module MicroSequencer_Extended_BCD (
 
         //-------------------------------------------------------------
         // Program 9: FPREM - Partial Remainder (8087 style)
-        // Address: 0x0300-0x031F
-        // Computes remainder: ST(0) = ST(0) - Q*ST(1)
-        // Where Q = truncate(ST(0)/ST(1)) toward zero
-        // Similar to FPREM1 but uses truncation instead of round-to-nearest
+        // Address: 0x0300-0x0304
+        // Computes remainder: ST(0) = ST(0) - truncate(ST(0)/ST(1)) * ST(1)
+        // Uses hardware OP_FPREM (25) which handles truncation toward zero
         //-------------------------------------------------------------
-        // Step 1: Compute quotient = ST(0) / ST(1)
         microcode_rom[16'h0300] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0301};          // Load dividend (ST(0))
         microcode_rom[16'h0301] = {OPCODE_EXEC, MOP_LOAD_B, 8'd0, 15'h0302};          // Load divisor (ST(1))
-        microcode_rom[16'h0302] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd3, 15'h0303};      // Call DIV (op=3)
-        microcode_rom[16'h0303] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0304};      // Wait for division
-        microcode_rom[16'h0304] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0305};  // quotient in temp_result
-
-        // Step 2: Truncate quotient to integer (toward zero)
-        // For FPREM (vs FPREM1), we truncate instead of rounding to nearest
-        microcode_rom[16'h0305] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h0306};   // Move quotient to temp_fp_a
-        // Truncation is handled by setting rounding mode, or we can use temp value as-is
-        // For simplicity, assuming quotient is small enough to be directly used
-
-        // Step 3: Multiply truncated quotient by divisor
-        microcode_rom[16'h0306] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h0307};      // Call MUL (op=2)
-        microcode_rom[16'h0307] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0308};      // Wait for multiplication
-        microcode_rom[16'h0308] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0309};  // product in temp_result
-
-        // Step 4: Subtract product from original dividend
-        // Need to reload dividend and subtract
-        microcode_rom[16'h0309] = {OPCODE_EXEC, MOP_MOVE_RES_TO_B, 8'd0, 15'h030A};   // Move product to temp_fp_b
-        microcode_rom[16'h030A] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h030B};          // Reload dividend
-        microcode_rom[16'h030B] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd1, 15'h030C};      // Call SUB (op=1): A - B
-        microcode_rom[16'h030C] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h030D};      // Wait for subtraction
-        microcode_rom[16'h030D] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h030E};  // remainder in temp_result
-        microcode_rom[16'h030E] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                    // Return
+        microcode_rom[16'h0302] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd25, 15'h0303};     // Call FPREM (op=25)
+        microcode_rom[16'h0303] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0304};      // Wait for completion
+        microcode_rom[16'h0304] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0305};  // Load remainder result
+        microcode_rom[16'h0305] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                    // Return
 
         //-------------------------------------------------------------
         // Program 10: FXTRACT - Extract Exponent and Significand
@@ -835,10 +814,12 @@ module MicroSequencer_Extended_BCD (
             waiting_for_bin2bcd <= 1'b0;
 
         end else begin
-            // Default: clear pulse signals
-            arith_enable <= 1'b0;
-            bcd2bin_enable <= 1'b0;
-            bin2bcd_enable <= 1'b0;
+            // Default: clear pulse signals only when not waiting
+            // This fixes the issue where combinational done signals (like FXTRACT)
+            // were not seen because enable was cleared before WAIT could check done
+            if (!waiting_for_arith) arith_enable <= 1'b0;
+            if (!waiting_for_bcd2bin) bcd2bin_enable <= 1'b0;
+            if (!waiting_for_bin2bcd) bin2bcd_enable <= 1'b0;
 
             case (state)
                 STATE_IDLE: begin
@@ -961,7 +942,7 @@ module MicroSequencer_Extended_BCD (
                                     waiting_for_arith <= 1'b1;
                                     pc <= next_addr;
                                     state <= STATE_FETCH;
-                                    $display("[MICROSEQ_BCD] CALL_ARITH: op=%0d", immediate[4:0]);
+                                    $display("[MICROSEQ_BCD] CALL_ARITH: op=%0d arith_done=%b", immediate[4:0], arith_done);
                                 end
 
                                 MOP_WAIT_ARITH: begin

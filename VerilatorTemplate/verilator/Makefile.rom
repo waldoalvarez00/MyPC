@@ -1,0 +1,58 @@
+# Makefile for ROM Loader Model Verilator Test
+#
+# Build: make -f Makefile.rom
+# Run: ./obj_dir/Vrom_transfer_sim
+
+# Use verilator_bin directly
+VERILATOR_ROOT = /tmp/verilator_install/usr/share/verilator
+V = /tmp/verilator_install/usr/bin/verilator_bin
+V_INC_DIR = $(VERILATOR_ROOT)/include
+
+# Directories
+RTL = ../rtl
+SIM = sim
+
+# Verilator options
+V_OPT = -O3 --x-assign fast --x-initial fast --noassert
+V_OPT += --trace --Mdir ./obj_dir
+V_OPT += -Wno-MULTIDRIVEN -Wno-WIDTH -Wno-CASEINCOMPLETE -Wno-INITIALDLY
+V_OPT += -CFLAGS "-I../sim -I$(V_INC_DIR) -O2 -std=c++14"
+V_OPT += -LDFLAGS "-lpthread"
+
+# Source files
+V_SRC = $(RTL)/rom_transfer_sim.sv
+
+# C++ sources
+C_SRC = rom_loader_tb.cpp
+
+# Top module
+TOP = --top-module rom_transfer_sim
+
+# Executable
+EXE = ./obj_dir/Vrom_transfer_sim
+
+# Targets
+all: $(EXE)
+
+$(EXE): $(V_SRC) $(C_SRC) Makefile.rom
+	$(V) -cc $(V_OPT) $(TOP) --exe $(V_SRC) $(C_SRC)
+	$(MAKE) -C obj_dir -f Vrom_transfer_sim.mk
+
+run: $(EXE)
+	$(EXE)
+
+trace: $(EXE)
+	$(EXE) --trace
+	@echo "Waveform saved to rom_test.vcd"
+
+debug: $(EXE)
+	$(EXE) --trace --debug
+
+wave: trace
+	gtkwave rom_test.vcd &
+
+clean:
+	rm -rf obj_dir
+	rm -f rom_test.vcd
+
+.PHONY: all run trace debug wave clean

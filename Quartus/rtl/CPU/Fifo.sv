@@ -39,12 +39,14 @@ reg [data_width-1:0] mem[depth-1:0] /* synthesis syn_ramstyle = "no_rw_check"*/;
 reg [ptr_bits-1:0] rd_ptr;
 reg [ptr_bits-1:0] wr_ptr;
 reg [ptr_bits:0] count;
+reg [data_width-1:0] rd_data_hold;
 
 assign empty = count == 0;
 assign full = count == depth;
 assign nearly_full = count >= depth - full_threshold;
 
-assign rd_data = mem[rd_ptr];
+// Read data from hold register
+assign rd_data = rd_data_hold;
 
 always_ff @(posedge clk or posedge reset) begin
     if (reset) begin
@@ -64,14 +66,22 @@ end
 always_ff @(posedge clk or posedge reset) begin
     if (reset) begin
         rd_ptr <= {ptr_bits{1'b0}};
+        rd_data_hold <= {data_width{1'b0}};
     end else begin
-        if (flush)
+        if (flush) begin
             rd_ptr <= {ptr_bits{1'b0}};
-        else if (rd_en && !empty) begin
+            rd_data_hold <= {data_width{1'b0}};
+        end else if (rd_en && !empty) begin
+            // Capture current data before advancing pointer
+            rd_data_hold <= mem[rd_ptr];
             rd_ptr <= rd_ptr + 1'b1;
             if (rd_ptr == depth[ptr_bits-1:0] - 1'b1)
                 rd_ptr <= {ptr_bits{1'b0}};
+        end else if (!empty) begin
+            // FWFT: show data at current read pointer (only when not empty)
+            rd_data_hold <= mem[rd_ptr];
         end
+        // When empty, hold the last read value
     end
 end
 

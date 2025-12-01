@@ -1,0 +1,44 @@
+# MiSTer Generic SDRAM Model Makefile
+
+# Use verilator_bin directly
+VERILATOR_ROOT = /tmp/verilator_install/usr/share/verilator
+VERILATOR = /tmp/verilator_install/usr/bin/verilator_bin
+VERILATOR_FLAGS = -cc -O3 --x-assign fast --x-initial fast --noassert --trace
+VERILATOR_FLAGS += --Mdir ./obj_dir
+VERILATOR_FLAGS += -Wno-MULTIDRIVEN -Wno-WIDTH -Wno-CASEINCOMPLETE -Wno-INITIALDLY -Wno-BLKSEQ -Wno-UNOPTFLAT
+
+# Include paths (../../sim because g++ runs from obj_dir)
+CFLAGS = -I../../sim -I$(VERILATOR_ROOT)/include -O2 -std=c++14
+LDFLAGS = -lpthread
+
+# Source files
+RTL_SOURCES = ../rtl/mister_sdram_ctrl_sim.sv
+TB_SOURCE = mister_sdram_tb.cpp
+
+# Target
+TARGET = obj_dir/Vmister_sdram_ctrl_sim
+
+.PHONY: all clean run
+
+all: $(TARGET)
+
+$(TARGET): $(RTL_SOURCES) $(TB_SOURCE)
+	$(VERILATOR) $(VERILATOR_FLAGS) \
+		-CFLAGS "$(CFLAGS)" \
+		-LDFLAGS "$(LDFLAGS)" \
+		--top-module mister_sdram_ctrl_sim \
+		--exe $(RTL_SOURCES) $(TB_SOURCE)
+	make -C obj_dir -f Vmister_sdram_ctrl_sim.mk
+
+run: $(TARGET)
+	./$(TARGET)
+
+debug: $(TARGET)
+	./$(TARGET) --debug
+
+trace: $(TARGET)
+	./$(TARGET) --trace
+
+clean:
+	rm -rf obj_dir
+	rm -f mister_sdram_test.vcd

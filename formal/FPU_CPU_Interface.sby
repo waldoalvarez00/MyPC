@@ -1,0 +1,17 @@
+[options]
+mode prove
+depth 25
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -sv FPU_CPU_Interface.v FPU_CPU_Interface_formal.sv
+hierarchy -top FPU_CPU_Interface_formal
+clk2fflogic
+prep -nordff -top FPU_CPU_Interface_formal
+dffunmap
+
+[files]
+Quartus/rtl/FPU8087/FPU_CPU_Interface.v
+formal/FPU_CPU_Interface_formal.sv

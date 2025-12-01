@@ -84,7 +84,8 @@ enum MC_JumpType_t {
     JumpType_JUMP_TAKEN = 7,
     JumpType_RB_ZERO = 8,
     JumpType_LOOP_DONE = 9,
-    JumpType_FPU_BUSY = 10
+    JumpType_FPU_BUSY = 10,
+    JumpType_FPU_ERROR = 11
 };
 
 enum MC_RDSelSource_t {

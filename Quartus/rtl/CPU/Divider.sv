@@ -330,17 +330,20 @@ reg [3:0] idx;
 reg [15:0] restored_quotient;
 wire [15:0] negative_quotient = ~quotient + 1'b1;
 
+// Extract P sign bit to avoid Icarus Verilog constant select issue
+wire p_sign = P[63];
+
 // Error condition
 wire raise_error = div_by_zero | overflow;
 
-assign busy = (start || (state != INIT) && !complete);
+assign busy = start || ((state != INIT) && !complete);
 
 always_comb begin
     if (is_8_bit) begin
-        restored_quotient = {8'b0, P[63] ?
+        restored_quotient = {8'b0, p_sign ?
             quotient[7:0] - ~quotient[7:0] - 8'b1 : quotient[7:0] - ~quotient[7:0]};
     end else begin
-        restored_quotient = P[63] ?
+        restored_quotient = p_sign ?
             quotient - ~quotient - 16'b1 : quotient - ~quotient;
     end
 end
@@ -350,9 +353,9 @@ end
 
 always_comb begin
     case (state)
-    INIT: next_state = start && !error && !raise_error ? WORKING : INIT;
-    WORKING: next_state = idx == 4'b0 ? RESTORE : WORKING;
-    RESTORE: next_state = is_signed ? FIX_SIGN : INIT;
+    INIT: next_state = DivState_t'(start && !error && !raise_error ? WORKING : INIT);
+    WORKING: next_state = DivState_t'(idx == 4'b0 ? RESTORE : WORKING);
+    RESTORE: next_state = DivState_t'(is_signed ? FIX_SIGN : INIT);
     FIX_SIGN: next_state = INIT;
     endcase
 
@@ -382,7 +385,7 @@ always_ff @(posedge clk or posedge reset) begin
             complete <= start && raise_error;
         end
         WORKING: begin
-            if (!P[63]) begin
+            if (!p_sign) begin
                 quotient[idx] <= 1'b1;
                 P <= (P * 2) - {32'b0, D};
             end else begin
@@ -392,7 +395,7 @@ always_ff @(posedge clk or posedge reset) begin
         end
         RESTORE: begin
             quotient <= restored_quotient;
-            if (P[63])
+            if (p_sign)
                 P <= P + {{32{D[31]}}, D};
             complete <= ~is_signed;
         end
@@ -413,7 +416,11 @@ always_ff @(posedge clk or posedge reset) begin
     end
 end
 
-always_ff @(posedge clk)
-    state <= next_state;
+always_ff @(posedge clk or posedge reset) begin
+    if (reset)
+        state <= INIT;
+    else
+        state <= next_state;
+end
 
 endmodule

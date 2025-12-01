@@ -88,7 +88,8 @@ typedef enum bit [3:0] {
     JumpType_JUMP_TAKEN = 4'd7,
     JumpType_RB_ZERO = 4'd8,
     JumpType_LOOP_DONE = 4'd9,
-    JumpType_FPU_BUSY = 4'd10
+    JumpType_FPU_BUSY = 4'd10,
+    JumpType_FPU_ERROR = 4'd11
 } MC_JumpType_t;
 `define MC_JumpType_t_BITS 4
 

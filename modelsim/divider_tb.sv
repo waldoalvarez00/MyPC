@@ -147,10 +147,17 @@ module divider_tb;
             @(posedge clk);
             start = 0;
 
-            // Wait for completion or error (max 50 cycles)
+            // Wait for busy to go high (operation started)
+            for (i = 0; i < 5; i = i + 1) begin
+                @(posedge clk);
+                if (busy)
+                    i = 5;
+            end
+
+            // Wait for busy to go low (operation complete) or error
             for (i = 0; i < 50; i = i + 1) begin
                 @(posedge clk);
-                if (complete || error)
+                if (!busy || error)
                     i = 50;  // Exit loop condition
             end
 

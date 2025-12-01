@@ -410,6 +410,7 @@ class MicroAssembler(object):
         'jmp_rb_zero': (0, partial(_jump, jump_type=JumpType.RB_ZERO), False),
         'jmp_loop_done': (0, partial(_jump, jump_type=JumpType.LOOP_DONE), False),
         'jmp_if_fpu_busy': (0, partial(_jump, jump_type=JumpType.FPU_BUSY), False),
+        'jmp_if_fpu_error': (0, partial(_jump, jump_type=JumpType.FPU_ERROR), False),
         'jmp': (0, partial(_jump, jump_type=JumpType.UNCONDITIONAL), False),
     }
 

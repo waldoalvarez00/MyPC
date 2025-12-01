@@ -8,7 +8,7 @@
 module segment_register_file_tb;
 
     // Include register definitions
-    import RegisterEnum::*;
+    `include "../Quartus/rtl/CPU/RegisterEnum.sv"
 
     // DUT signals
     logic clk;

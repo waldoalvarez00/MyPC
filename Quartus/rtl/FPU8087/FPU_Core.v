@@ -120,9 +120,9 @@ module FPU_Core(
     localparam INST_FXAM        = 8'h64;  // Examine ST(0) and set condition codes
 
     // Reverse arithmetic (decoder provides these)
-    localparam INST_FSUBR       = 8'h14;  // ST(0) = ST(i) - ST(0) (reverse subtract)
-    localparam INST_FSUBRP      = 8'h15;  // ST(1) = ST(1) - ST(0), pop
-    localparam INST_FDIVR       = 8'h1A;  // ST(0) = ST(i) / ST(0) (reverse divide)
+    localparam INST_FSUBR       = 8'h18;  // ST(0) = ST(i) - ST(0) (reverse subtract)
+    localparam INST_FSUBRP      = 8'h1A;  // ST(1) = ST(1) - ST(0), pop
+    localparam INST_FDIVR       = 8'h19;  // ST(0) = ST(i) / ST(0) (reverse divide)
     localparam INST_FDIVRP      = 8'h1B;  // ST(1) = ST(1) / ST(0), pop
 
     // Unordered compare
@@ -176,6 +176,33 @@ module FPU_Core(
     wire [2:0]  stack_pointer;
     wire [15:0] tag_word;
     wire        stack_overflow, stack_underflow;
+
+    // Stack fault detection helpers
+    // Tag = 2'b11 means empty register
+    wire st0_empty = (tag_word[1:0] == 2'b11);
+    wire st1_empty = (tag_word[3:2] == 2'b11);
+    wire st7_empty = (tag_word[15:14] == 2'b11);
+
+    // For push overflow: check if ST(7) would overflow (currently not empty)
+    wire push_would_overflow = !st7_empty;
+
+    // Function to check if ST(i) is empty based on stack_index
+    function automatic reg is_sti_empty;
+        input [15:0] tw;
+        input [2:0] idx;
+        begin
+            case (idx)
+                3'd0: is_sti_empty = (tw[1:0] == 2'b11);
+                3'd1: is_sti_empty = (tw[3:2] == 2'b11);
+                3'd2: is_sti_empty = (tw[5:4] == 2'b11);
+                3'd3: is_sti_empty = (tw[7:6] == 2'b11);
+                3'd4: is_sti_empty = (tw[9:8] == 2'b11);
+                3'd5: is_sti_empty = (tw[11:10] == 2'b11);
+                3'd6: is_sti_empty = (tw[13:12] == 2'b11);
+                3'd7: is_sti_empty = (tw[15:14] == 2'b11);
+            endcase
+        end
+    endfunction
 
     reg         stack_push, stack_pop;
     reg [79:0]  stack_data_in;
@@ -529,11 +556,6 @@ module FPU_Core(
     // Debug: observe muxed arith control when microsequencer is active
     // synthesis translate_off
     always @(posedge clk) begin
-        if (microseq_active) begin
-            $display("[DBG FINAL] microseq_active=%b final_en=%b op=%0d microseq_en=%b core_en=%b",
-                     microseq_active, final_arith_enable, final_arith_operation,
-                     microseq_arith_enable, arith_enable);
-        end
         if (microseq_start) begin
             $display("[DBG CORE] microseq start program=%0d data_in=%h", microseq_program_index, microseq_data_in_source);
         end
@@ -1166,6 +1188,10 @@ module FPU_Core(
             status_set_busy <= 1'b0;
             status_clear_busy <= 1'b0;
             status_clear_exc <= 1'b0;
+            // Note: Exception signals (status_invalid, etc.) are NOT cleared here
+            // They must persist through STATE_WRITEBACK and STATE_DONE for the
+            // status word to capture them. They are cleared at the start of
+            // the next instruction in STATE_DECODE.
             internal_control_write <= 1'b0;
             stack_push <= 1'b0;
             stack_pop <= 1'b0;
@@ -1241,7 +1267,8 @@ module FPU_Core(
                                 temp_fp64 <= data_in[63:0];
                             end
                             2'd3: begin                                                 // 80-bit
-                                // 80-bit operand - already in correct format
+                                // 80-bit operand - assign directly to temp_operand_b
+                                temp_operand_b <= data_in;
                             end
                         endcase
 
@@ -1279,17 +1306,27 @@ module FPU_Core(
                             // Check for NaN propagation or invalid operation
                             if (~arith_done) begin
                                 if (~arith_enable) begin
-                                    // Pre-operation checks
-                                    preop_nan_detected <= is_nan(temp_operand_a) || is_nan(temp_operand_b);
-                                    preop_invalid <= is_invalid_add_sub(temp_operand_a, temp_operand_b, 1'b0);
-
-                                    if (preop_nan_detected || preop_invalid) begin
+                                    // Stack fault check: verify operands are not empty
+                                    if (st0_empty || is_sti_empty(tag_word, current_index)) begin
+                                        // Stack underflow - operand register is empty
+                                        status_stack_fault <= 1'b1;
+                                        status_c1 <= 1'b0;  // C1=0 for underflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                        status_invalid <= 1'b1;  // IE=1
+                                        error <= !mask_invalid;
+                                        temp_result <= 80'h7FFF_C000_0000_0000_0000;  // QNaN
+                                        state <= STATE_WRITEBACK;
+                                    end
+                                    // Pre-operation checks - use direct function calls for immediate evaluation
+                                    else begin
+                                    if (is_nan(temp_operand_a) || is_nan(temp_operand_b) ||
+                                        is_invalid_add_sub(temp_operand_a, temp_operand_b, 1'b0)) begin
                                         // Short-circuit: return NaN immediately
                                         temp_result <= propagate_nan(temp_operand_a, temp_operand_b, 1'b1);
-                                        if (preop_nan_detected && (is_snan(temp_operand_a) || is_snan(temp_operand_b)))
+                                        if (is_snan(temp_operand_a) || is_snan(temp_operand_b))
                                             status_invalid <= 1'b1;  // SNaN triggers invalid
-                                        else if (preop_invalid)
-                                            status_invalid <= 1'b1;  // Inf - Inf triggers invalid
+                                        else if (is_invalid_add_sub(temp_operand_a, temp_operand_b, 1'b0))
+                                            status_invalid <= 1'b1;  // Inf + (-Inf) triggers invalid
                                         error <= !mask_invalid;  // Error if unmasked
                                         state <= STATE_WRITEBACK;
                                     end else begin
@@ -1300,6 +1337,7 @@ module FPU_Core(
                                         arith_enable <= 1'b1;
                                         fpu_busy <= 1'b1;
                                     end
+                                    end  // end else (stack fault check passed)
                                 end
                             end else begin
                                 // Apply exception response handling
@@ -1349,16 +1387,23 @@ module FPU_Core(
                             // Check for NaN propagation or invalid operation
                             if (~arith_done) begin
                                 if (~arith_enable) begin
-                                    // Pre-operation checks
-                                    preop_nan_detected <= is_nan(temp_operand_a) || is_nan(temp_operand_b);
-                                    preop_invalid <= is_invalid_add_sub(temp_operand_a, temp_operand_b, 1'b1);
-
-                                    if (preop_nan_detected || preop_invalid) begin
+                                    // Stack fault check
+                                    if (st0_empty || is_sti_empty(tag_word, current_index)) begin
+                                        status_stack_fault <= 1'b1;
+                                        status_c1 <= 1'b0;
+                                        status_invalid <= 1'b1;
+                                        error <= !mask_invalid;
+                                        temp_result <= 80'h7FFF_C000_0000_0000_0000;
+                                        state <= STATE_WRITEBACK;
+                                    end else begin
+                                    // Pre-operation checks - use direct function calls for immediate evaluation
+                                    if (is_nan(temp_operand_a) || is_nan(temp_operand_b) ||
+                                        is_invalid_add_sub(temp_operand_a, temp_operand_b, 1'b1)) begin
                                         // Short-circuit: return NaN immediately
                                         temp_result <= propagate_nan(temp_operand_a, temp_operand_b, 1'b1);
-                                        if (preop_nan_detected && (is_snan(temp_operand_a) || is_snan(temp_operand_b)))
+                                        if (is_snan(temp_operand_a) || is_snan(temp_operand_b))
                                             status_invalid <= 1'b1;  // SNaN triggers invalid
-                                        else if (preop_invalid)
+                                        else if (is_invalid_add_sub(temp_operand_a, temp_operand_b, 1'b1))
                                             status_invalid <= 1'b1;  // Inf - Inf (same sign) triggers invalid
                                         error <= !mask_invalid;  // Error if unmasked
                                         state <= STATE_WRITEBACK;
@@ -1370,6 +1415,7 @@ module FPU_Core(
                                         arith_enable <= 1'b1;
                                         fpu_busy <= 1'b1;
                                     end
+                                    end  // end else (stack fault check passed)
                                 end
                             end else begin
                                 // Apply exception response handling
@@ -1379,6 +1425,8 @@ module FPU_Core(
                                     arith_result, arith_result[79]
                                 );
                                 status_invalid <= arith_invalid;
+                                status_denormal <= arith_denormal;
+                                status_zero_div <= arith_zero_div;
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
@@ -1398,16 +1446,23 @@ module FPU_Core(
                             // Check for NaN propagation or invalid operation (0 × Inf)
                             if (~arith_done) begin
                                 if (~arith_enable) begin
-                                    // Pre-operation checks
-                                    preop_nan_detected <= is_nan(temp_operand_a) || is_nan(temp_operand_b);
-                                    preop_invalid <= is_invalid_mul(temp_operand_a, temp_operand_b);
-
-                                    if (preop_nan_detected || preop_invalid) begin
+                                    // Stack fault check
+                                    if (st0_empty || is_sti_empty(tag_word, current_index)) begin
+                                        status_stack_fault <= 1'b1;
+                                        status_c1 <= 1'b0;
+                                        status_invalid <= 1'b1;
+                                        error <= !mask_invalid;
+                                        temp_result <= 80'h7FFF_C000_0000_0000_0000;
+                                        state <= STATE_WRITEBACK;
+                                    end else begin
+                                    // Pre-operation checks - use direct function calls for immediate evaluation
+                                    if (is_nan(temp_operand_a) || is_nan(temp_operand_b) ||
+                                        is_invalid_mul(temp_operand_a, temp_operand_b)) begin
                                         // Short-circuit: return NaN immediately
                                         temp_result <= propagate_nan(temp_operand_a, temp_operand_b, 1'b1);
-                                        if (preop_nan_detected && (is_snan(temp_operand_a) || is_snan(temp_operand_b)))
+                                        if (is_snan(temp_operand_a) || is_snan(temp_operand_b))
                                             status_invalid <= 1'b1;  // SNaN triggers invalid
-                                        else if (preop_invalid)
+                                        else if (is_invalid_mul(temp_operand_a, temp_operand_b))
                                             status_invalid <= 1'b1;  // 0 × Inf triggers invalid
                                         error <= !mask_invalid;  // Error if unmasked
                                         state <= STATE_WRITEBACK;
@@ -1419,6 +1474,7 @@ module FPU_Core(
                                         arith_enable <= 1'b1;
                                         fpu_busy <= 1'b1;
                                     end
+                                    end  // end else (stack fault check passed)
                                 end
                             end else begin
                                 // Apply exception response handling
@@ -1428,6 +1484,8 @@ module FPU_Core(
                                     arith_result, arith_result[79]
                                 );
                                 status_invalid <= arith_invalid;
+                                status_denormal <= arith_denormal;
+                                status_zero_div <= arith_zero_div;
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
@@ -1445,18 +1503,27 @@ module FPU_Core(
 
                         INST_FDIV, INST_FDIVP: begin
                             // Check for NaN propagation or invalid operation
-                            if (~arith_done) begin
+                            // Guard: only capture result when arith_enable is high (we started this operation)
+                            // This prevents capturing stale results from previous operations
+                            if (~arith_done || ~arith_enable) begin
                                 if (~arith_enable) begin
-                                    // Pre-operation checks
-                                    preop_nan_detected <= is_nan(temp_operand_a) || is_nan(temp_operand_b);
-                                    preop_invalid <= is_invalid_div(temp_operand_a, temp_operand_b);
-
-                                    if (preop_nan_detected || preop_invalid) begin
+                                    // Stack fault check
+                                    if (st0_empty || is_sti_empty(tag_word, current_index)) begin
+                                        status_stack_fault <= 1'b1;
+                                        status_c1 <= 1'b0;
+                                        status_invalid <= 1'b1;
+                                        error <= !mask_invalid;
+                                        temp_result <= 80'h7FFF_C000_0000_0000_0000;
+                                        state <= STATE_WRITEBACK;
+                                    end else begin
+                                    // Pre-operation checks - use direct function calls for immediate evaluation
+                                    if (is_nan(temp_operand_a) || is_nan(temp_operand_b) ||
+                                        is_invalid_div(temp_operand_a, temp_operand_b)) begin
                                         // Short-circuit: return NaN immediately
                                         temp_result <= propagate_nan(temp_operand_a, temp_operand_b, 1'b1);
-                                        if (preop_nan_detected && (is_snan(temp_operand_a) || is_snan(temp_operand_b)))
+                                        if (is_snan(temp_operand_a) || is_snan(temp_operand_b))
                                             status_invalid <= 1'b1;  // SNaN triggers invalid
-                                        else if (preop_invalid)
+                                        else if (is_invalid_div(temp_operand_a, temp_operand_b))
                                             status_invalid <= 1'b1;  // 0/0 or Inf/Inf triggers invalid
                                         error <= !mask_invalid;  // Error if unmasked
                                         state <= STATE_WRITEBACK;
@@ -1468,7 +1535,9 @@ module FPU_Core(
                                         arith_enable <= 1'b1;
                                         fpu_busy <= 1'b1;
                                     end
+                                    end  // end else (stack fault check passed)
                                 end
+                                // else: arith_enable=1 but arith_done=0, waiting for completion
                             end else begin
                                 // Apply exception response handling (especially for zero divide)
                                 temp_result <= handle_exception_response(
@@ -1477,10 +1546,15 @@ module FPU_Core(
                                     arith_result, arith_result[79]
                                 );
                                 status_invalid <= arith_invalid;
+                                status_denormal <= arith_denormal;
                                 status_zero_div <= arith_zero_div;
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
                                 status_precision <= arith_inexact;
+                                `ifdef ICARUS
+                                $display("[FPU_CORE] FDIV done: result=%h, zero_div=%b, inexact=%b, A=%h, B=%h",
+                                    arith_result, arith_zero_div, arith_inexact, temp_operand_a, temp_operand_b);
+                                `endif
 
                                 // Latch exceptions into exception handler
                                 exception_latch <= 1'b1;
@@ -1527,7 +1601,15 @@ module FPU_Core(
                         end
 
                         INST_FIST16, INST_FISTP16: begin
-                            if (~arith_done) begin
+                            // Stack underflow check
+                            if (st0_empty) begin
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b0;  // C1=0 for underflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                state <= STATE_DONE;
+                            end else if (~arith_done) begin
                                 if (~arith_enable) begin
                                     arith_operation <= 4'd6;  // OP_FP_TO_INT16
                                     arith_operand_a <= temp_operand_a;
@@ -1550,7 +1632,15 @@ module FPU_Core(
                         end
 
                         INST_FIST32, INST_FISTP32: begin
-                            if (~arith_done) begin
+                            // Stack underflow check
+                            if (st0_empty) begin
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b0;  // C1=0 for underflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                state <= STATE_DONE;
+                            end else if (~arith_done) begin
                                 if (~arith_enable) begin
                                     arith_operation <= 4'd7;  // OP_FP_TO_INT32
                                     arith_operand_a <= temp_operand_a;
@@ -1605,27 +1695,45 @@ module FPU_Core(
                         end
 
                         INST_FST, INST_FSTP: begin
-                            // Store FP80 value
-                            if (captured_has_memory_op) begin
-                                // Memory store: always store ST(0) to memory
-                                data_out <= temp_operand_a;  // ST(0) → data_out
-                                state <= STATE_STACK_OP;
-                            end else begin
-                                // Register-only store used by unit testbench:
-                                //   FST ST(0) or FST ST(i) should return the selected stack register
-                                //   without modifying the stack.
-                                // temp_operand_a holds ST(0), temp_operand_b holds ST(i) from STATE_DECODE.
-                                // synthesis translate_off
-                                $display("[FST REG] index=%0d temp_a(ST0)=%h temp_b(STi)=%h",
-                                         current_index, temp_operand_a, temp_operand_b);
-                                // synthesis translate_on
-                                data_out <= (current_index == 0) ? temp_operand_a : temp_operand_b;
+                            // Stack underflow check
+                            if (st0_empty) begin
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b0;  // C1=0 for underflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
                                 state <= STATE_DONE;
+                            end else begin
+                                // Store FP80 value
+                                if (captured_has_memory_op) begin
+                                    // Memory store: always store ST(0) to memory
+                                    data_out <= temp_operand_a;  // ST(0) → data_out
+                                    state <= STATE_STACK_OP;
+                                end else begin
+                                    // Register-only store used by unit testbench:
+                                    //   FST ST(0) or FST ST(i) should return the selected stack register
+                                    //   without modifying the stack.
+                                    // temp_operand_a holds ST(0), temp_operand_b holds ST(i) from STATE_DECODE.
+                                    // synthesis translate_off
+                                    $display("[FST REG] index=%0d temp_a(ST0)=%h temp_b(STi)=%h",
+                                             current_index, temp_operand_a, temp_operand_b);
+                                    // synthesis translate_on
+                                    data_out <= (current_index == 0) ? temp_operand_a : temp_operand_b;
+                                    state <= STATE_DONE;
+                                end
                             end
                         end
 
                         INST_FST32, INST_FSTP32: begin
-                            if (~arith_done) begin
+                            // Stack underflow check
+                            if (st0_empty) begin
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b0;  // C1=0 for underflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                state <= STATE_DONE;
+                            end else if (~arith_done) begin
                                 if (~arith_enable) begin
                                     arith_operation <= 4'd10;  // OP_FP80_TO_FP32
                                     arith_operand_a <= temp_operand_a;
@@ -1649,7 +1757,15 @@ module FPU_Core(
                         end
 
                         INST_FST64, INST_FSTP64: begin
-                            if (~arith_done) begin
+                            // Stack underflow check
+                            if (st0_empty) begin
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b0;  // C1=0 for underflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                state <= STATE_DONE;
+                            end else if (~arith_done) begin
                                 if (~arith_enable) begin
                                     arith_operation <= 4'd11;  // OP_FP80_TO_FP64
                                     arith_operand_a <= temp_operand_a;
@@ -1674,11 +1790,18 @@ module FPU_Core(
 
                         // Transcendental instructions
                         INST_FSQRT: begin
+                            // Stack underflow check
+                            if (st0_empty) begin
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b0;  // C1=0 for underflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                state <= STATE_DONE;
+                            end else begin
                             // Pre-check for NaN/invalid (sqrt of negative) and zero shortcut
-                            preop_nan_detected <= is_nan(temp_operand_a);
-                            preop_invalid <= is_invalid_sqrt(temp_operand_a);
-
-                            if (preop_nan_detected || preop_invalid) begin
+                            // Use function results directly in condition (non-blocking assignments don't take effect until end of cycle)
+                            if (is_nan(temp_operand_a) || is_invalid_sqrt(temp_operand_a)) begin
                                 // Propagate NaN/invalid without invoking microcode
                                 if (is_snan(temp_operand_a)) begin
                                     temp_result <= propagate_nan(temp_operand_a, 80'd0, 1'b0);
@@ -1704,10 +1827,19 @@ module FPU_Core(
                                 microseq_active <= 1'b1;
                                 state <= STATE_WAIT_MICROSEQ;
                             end
+                            end  // end else (not st0_empty)
                         end
 
                         INST_FSIN: begin
-                            if (~arith_done) begin
+                            // Stack underflow check
+                            if (st0_empty) begin
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b0;  // C1=0 for underflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                state <= STATE_DONE;
+                            end else if (~arith_done) begin
                                 if (~arith_enable) begin
                                     arith_operation <= 4'd13;  // OP_SIN
                                     arith_operand_a <= temp_operand_a;
@@ -1719,6 +1851,7 @@ module FPU_Core(
                                 temp_result <= arith_result;
                                 has_secondary_result <= 1'b0;
                                 status_invalid <= arith_invalid;
+                                status_denormal <= arith_denormal;
                                 arith_enable <= 1'b0;
                                 fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_WRITEBACK;
@@ -1726,7 +1859,15 @@ module FPU_Core(
                         end
 
                         INST_FCOS: begin
-                            if (~arith_done) begin
+                            // Stack underflow check
+                            if (st0_empty) begin
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b0;  // C1=0 for underflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                state <= STATE_DONE;
+                            end else if (~arith_done) begin
                                 if (~arith_enable) begin
                                     arith_operation <= 4'd14;  // OP_COS
                                     arith_operand_a <= temp_operand_a;
@@ -1818,7 +1959,7 @@ module FPU_Core(
 
                         INST_FYL2X: begin
                             // y × log₂(x): Use microcode program 17
-                            microseq_data_in_source <= temp_operand_b;  // x (ST(0))
+                            microseq_data_in_source <= temp_operand_b;  // y (ST(1))
                             microseq_program_index <= 5'd17;  // Program 17: FYL2X at 0x0730
                             microseq_start <= 1'b1;
                             microseq_active <= 1'b1;
@@ -1865,10 +2006,12 @@ module FPU_Core(
 
                         INST_FPREM: begin
                             // Partial remainder: ST(0) = remainder(ST(0), ST(1))
-                            // This is a complex operation that may require multiple iterations
-                            // For now, return error (unsupported operation)
-                            status_invalid <= 1'b1;
-                            state <= STATE_DONE;
+                            // Uses microcode program 9 which computes: ST(0) - truncate(ST(0)/ST(1)) * ST(1)
+                            microseq_data_in_source <= temp_operand_a;  // Dividend (ST(0))
+                            microseq_program_index <= 5'd9;  // Program 9: FPREM at 0x0300
+                            microseq_start <= 1'b1;
+                            microseq_active <= 1'b1;
+                            state <= STATE_WAIT_MICROSEQ;
                         end
 
                         INST_FPREM1: begin
@@ -1892,18 +2035,36 @@ module FPU_Core(
                         end
 
                         INST_FBSTP: begin
-                            // BCD Store and Pop: Use microcode program 13 (FP80 → Binary → BCD)
-                            // This replaces ~37 lines of FSM orchestration logic with a single microcode call
-                            microseq_data_in_source <= temp_operand_a;  // FP80 value from ST(0)
-                            microseq_program_index <= 5'd13;  // Program 13: FBSTP at 0x0610
-                            microseq_start <= 1'b1;
-                            microseq_active <= 1'b1;
-                            state <= STATE_WAIT_MICROSEQ;
+                            // Stack underflow check
+                            if (st0_empty) begin
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b0;  // C1=0 for underflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                state <= STATE_DONE;
+                            end else begin
+                                // BCD Store and Pop: Use microcode program 13 (FP80 → Binary → BCD)
+                                // This replaces ~37 lines of FSM orchestration logic with a single microcode call
+                                microseq_data_in_source <= temp_operand_a;  // FP80 value from ST(0)
+                                microseq_program_index <= 5'd13;  // Program 13: FBSTP at 0x0610
+                                microseq_start <= 1'b1;
+                                microseq_active <= 1'b1;
+                                state <= STATE_WAIT_MICROSEQ;
+                            end
                         end
 
                         // Non-arithmetic instructions
                         INST_FLD: begin
-                            if ((captured_has_memory_op === 1'b1) && (captured_operand_size != 2'd3 || captured_is_bcd)) begin
+                            // Stack overflow check before push
+                            if (push_would_overflow) begin
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b1;  // C1=1 for overflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                state <= STATE_DONE;
+                            end else if ((captured_has_memory_op === 1'b1) && (captured_operand_size != 2'd3 || captured_is_bcd)) begin
                                 // Memory operand that needs format conversion
                                 // Set up conversion and transition to STATE_MEM_CONVERT
                                 $display("[DEBUG] INST_FLD: Memory op, needs conversion. operand_size=%d, is_integer=%b, is_bcd=%b",
@@ -1946,27 +2107,43 @@ module FPU_Core(
 
                         INST_FXCH: begin
                             // Exchange ST(0) with ST(i)
-                            // temp_operand_a = ST(0), temp_operand_b = ST(i)
-                            // Swap them for writeback
-                            temp_result <= temp_operand_b;            // ST(i) → will write to ST(0)
-                            temp_result_secondary <= temp_operand_a;  // ST(0) → will write to ST(i)
-                            has_secondary_result <= 1'b1;
-                            state <= STATE_WRITEBACK;
+                            // Stack fault check: verify both operands are not empty
+                            if (st0_empty || is_sti_empty(tag_word, current_index)) begin
+                                // Stack underflow - operand register is empty
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b0;  // C1=0 for underflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;  // IE=1
+                                error <= !mask_invalid;
+                                state <= STATE_DONE;
+                            end else begin
+                                // temp_operand_a = ST(0), temp_operand_b = ST(i)
+                                // Swap them for writeback
+                                temp_result <= temp_operand_b;            // ST(i) → will write to ST(0)
+                                temp_result_secondary <= temp_operand_a;  // ST(0) → will write to ST(i)
+                                has_secondary_result <= 1'b1;
+                                state <= STATE_WRITEBACK;
+                            end
                         end
 
                         INST_FCLEX: begin
                             // Clear exceptions (wait version)
-                            // Check for unmasked exceptions first (wait behavior)
-                            if (exception_pending) begin
-                                // Unmasked exception pending - assert error and block
-                                error <= 1'b1;
-                                state <= STATE_DONE;
-                            end else begin
-                                // No unmasked exceptions - proceed with clear
-                                status_clear_exc <= 1'b1;
-                                exception_clear <= 1'b1;  // Clear exception handler
-                                state <= STATE_DONE;
-                            end
+                            // FCLEX always clears all exception flags in status word
+                            status_clear_exc <= 1'b1;
+                            exception_clear <= 1'b1;  // Clear exception handler
+                            // Also clear the exception trigger signals to prevent
+                            // them from immediately re-setting the sticky flags
+                            status_invalid <= 1'b0;
+                            status_denormal <= 1'b0;
+                            status_zero_div <= 1'b0;
+                            status_overflow <= 1'b0;
+                            status_underflow <= 1'b0;
+                            status_precision <= 1'b0;
+                            status_stack_fault <= 1'b0;
+                            `ifdef ICARUS
+                            $display("[FPU_CORE] FCLEX: Clearing exceptions");
+                            `endif
+                            state <= STATE_DONE;
                         end
 
                         INST_FNCLEX: begin
@@ -1974,6 +2151,15 @@ module FPU_Core(
                             // No exception checking - execute immediately
                             status_clear_exc <= 1'b1;
                             exception_clear <= 1'b1;  // Clear exception handler
+                            // Also clear the exception trigger signals to prevent
+                            // them from immediately re-setting the sticky flags
+                            status_invalid <= 1'b0;
+                            status_denormal <= 1'b0;
+                            status_zero_div <= 1'b0;
+                            status_overflow <= 1'b0;
+                            status_underflow <= 1'b0;
+                            status_precision <= 1'b0;
+                            status_stack_fault <= 1'b0;
                             state <= STATE_DONE;
                         end
 
@@ -1991,6 +2177,18 @@ module FPU_Core(
                                 // 2. Clear all status exceptions
                                 status_clear_exc <= 1'b1;
                                 exception_clear <= 1'b1;  // Also clear exception handler
+                                // Also clear the exception trigger signals to prevent
+                                // them from immediately re-setting the sticky flags
+                                status_invalid <= 1'b0;
+                                status_denormal <= 1'b0;
+                                status_zero_div <= 1'b0;
+                                status_overflow <= 1'b0;
+                                status_underflow <= 1'b0;
+                                status_precision <= 1'b0;
+                                status_stack_fault <= 1'b0;
+                                `ifdef ICARUS
+                                $display("[FPU_CORE] FINIT: Clearing exceptions, status_precision was %b", status_precision);
+                                `endif
                                 // 3. Set control word to 0x037F (all exceptions masked, round to nearest, extended precision)
                                 internal_control_in <= 16'h037F;
                                 internal_control_write <= 1'b1;
@@ -2005,6 +2203,16 @@ module FPU_Core(
                             stack_init_stack <= 1'b1;
                             // 2. Clear all status exceptions
                             status_clear_exc <= 1'b1;
+                            exception_clear <= 1'b1;  // Also clear exception handler
+                            // Also clear the exception trigger signals to prevent
+                            // them from immediately re-setting the sticky flags
+                            status_invalid <= 1'b0;
+                            status_denormal <= 1'b0;
+                            status_zero_div <= 1'b0;
+                            status_overflow <= 1'b0;
+                            status_underflow <= 1'b0;
+                            status_precision <= 1'b0;
+                            status_stack_fault <= 1'b0;
                             // 3. Set control word to 0x037F (all exceptions masked, round to nearest, extended precision)
                             internal_control_in <= 16'h037F;
                             internal_control_write <= 1'b1;
@@ -2086,9 +2294,23 @@ module FPU_Core(
 
                         // Comparison instructions
                         INST_FCOM, INST_FCOMP: begin
+                            // Stack underflow check
+                            if (st0_empty || is_sti_empty(tag_word, current_index)) begin
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b0;  // C1=0 for underflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                state <= STATE_DONE;
+                            end
                             // Compare ST(0) with ST(i) or memory operand
-                            if (~arith_done) begin
+                            else if (~arith_done) begin
                                 if (~arith_enable) begin
+                                    // Check for SNaN - FCOM with SNaN sets IE
+                                    if (is_snan(temp_operand_a) || is_snan(temp_operand_b)) begin
+                                        status_invalid <= 1'b1;
+                                        error <= !mask_invalid;
+                                    end
                                     // Use ADD operation for comparison (SUB would flip sign of operand_b!)
                                     arith_operation <= 5'd0;  // OP_ADD (comparison uses same logic, no sign flip)
                                     arith_operand_a <= temp_operand_a;  // ST(0)
@@ -2113,6 +2335,9 @@ module FPU_Core(
                                     status_c2 <= 1'b0;
                                     status_c0 <= arith_cc_less;
                                 end
+                                // Capture exception flags from comparison
+                                status_denormal <= arith_denormal;
+                                status_invalid <= arith_invalid;
                                 arith_enable <= 1'b0;
                                 fpu_busy <= 1'b0;  // Clear busy when operation completes
                                 state <= STATE_STACK_OP;
@@ -2120,8 +2345,17 @@ module FPU_Core(
                         end
 
                         INST_FCOMPP: begin
+                            // Stack underflow check - need both ST(0) and ST(1)
+                            if (st0_empty || st1_empty) begin
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b0;  // C1=0 for underflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                state <= STATE_DONE;
+                            end
                             // Compare ST(0) with ST(1) and pop twice
-                            if (~arith_done) begin
+                            else if (~arith_done) begin
                                 if (~arith_enable) begin
                                     // Use ADD for comparison (no sign flip)
                                     arith_operation <= 5'd0;  // OP_ADD
@@ -2263,50 +2497,127 @@ module FPU_Core(
                         // ===== Constant Loading Instructions =====
 
                         INST_FLD1: begin
-                            // Push +1.0: sign=0, exp=16383 (0x3FFF), mantissa=0x8000000000000000
-                            temp_result <= 80'h3FFF8000000000000000;
-                            state <= STATE_WRITEBACK;
+                            // Stack overflow check before push
+                            // synthesis translate_off
+                            $display("[FLD1 EXECUTE] tag_word=%h st7_empty=%b push_would_overflow=%b sp=%d",
+                                     tag_word, st7_empty, push_would_overflow, stack_pointer);
+                            // synthesis translate_on
+                            if (push_would_overflow) begin
+                                `ifdef ICARUS
+                                $display("[FLD1 DEBUG] Stack overflow detected! Setting IE flag");
+                                `endif
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b1;  // C1=1 for overflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                state <= STATE_DONE;
+                            end else begin
+                                // Push +1.0: sign=0, exp=16383 (0x3FFF), mantissa=0x8000000000000000
+                                temp_result <= 80'h3FFF8000000000000000;
+                                state <= STATE_WRITEBACK;
+                            end
                         end
 
                         INST_FLDZ: begin
-                            // Push +0.0: All zeros
-                            temp_result <= 80'h00000000000000000000;
-                            state <= STATE_WRITEBACK;
+                            // Stack overflow check before push
+                            if (push_would_overflow) begin
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b1;  // C1=1 for overflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                state <= STATE_DONE;
+                            end else begin
+                                // Push +0.0: All zeros
+                                temp_result <= 80'h00000000000000000000;
+                                state <= STATE_WRITEBACK;
+                            end
                         end
 
                         INST_FLDPI: begin
-                            // Push π ≈ 3.141592653589793238
-                            // FP80: sign=0, exp=16384 (0x4000), mantissa=0xC90FDAA22168C235
-                            temp_result <= 80'h4000C90FDAA22168C235;
-                            state <= STATE_WRITEBACK;
+                            // Stack overflow check before push
+                            if (push_would_overflow) begin
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b1;  // C1=1 for overflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                state <= STATE_DONE;
+                            end else begin
+                                // Push π ≈ 3.141592653589793238
+                                // FP80: sign=0, exp=16384 (0x4000), mantissa=0xC90FDAA22168C235
+                                temp_result <= 80'h4000C90FDAA22168C235;
+                                state <= STATE_WRITEBACK;
+                            end
                         end
 
                         INST_FLDL2E: begin
-                            // Push log₂(e) ≈ 1.442695040888963407
-                            // FP80: sign=0, exp=16383 (0x3FFF), mantissa=0xB8AA3B295C17F0BC
-                            temp_result <= 80'h3FFFB8AA3B295C17F0BC;
-                            state <= STATE_WRITEBACK;
+                            // Stack overflow check before push
+                            if (push_would_overflow) begin
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b1;  // C1=1 for overflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                state <= STATE_DONE;
+                            end else begin
+                                // Push log₂(e) ≈ 1.442695040888963407
+                                // FP80: sign=0, exp=16383 (0x3FFF), mantissa=0xB8AA3B295C17F0BC
+                                temp_result <= 80'h3FFFB8AA3B295C17F0BC;
+                                state <= STATE_WRITEBACK;
+                            end
                         end
 
                         INST_FLDL2T: begin
-                            // Push log₂(10) ≈ 3.321928094887362347
-                            // FP80: sign=0, exp=16384 (0x4000), mantissa=0xD49A784BCD1B8AFE
-                            temp_result <= 80'h4000D49A784BCD1B8AFE;
-                            state <= STATE_WRITEBACK;
+                            // Stack overflow check before push
+                            if (push_would_overflow) begin
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b1;  // C1=1 for overflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                state <= STATE_DONE;
+                            end else begin
+                                // Push log₂(10) ≈ 3.321928094887362347
+                                // FP80: sign=0, exp=16384 (0x4000), mantissa=0xD49A784BCD1B8AFE
+                                temp_result <= 80'h4000D49A784BCD1B8AFE;
+                                state <= STATE_WRITEBACK;
+                            end
                         end
 
                         INST_FLDLG2: begin
-                            // Push log₁₀(2) ≈ 0.301029995663981195
-                            // FP80: sign=0, exp=16382 (0x3FFD), mantissa=0x9A209A84FBCFF799
-                            temp_result <= 80'h3FFD9A209A84FBCFF799;
-                            state <= STATE_WRITEBACK;
+                            // Stack overflow check before push
+                            if (push_would_overflow) begin
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b1;  // C1=1 for overflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                state <= STATE_DONE;
+                            end else begin
+                                // Push log₁₀(2) ≈ 0.301029995663981195
+                                // FP80: sign=0, exp=16382 (0x3FFD), mantissa=0x9A209A84FBCFF799
+                                temp_result <= 80'h3FFD9A209A84FBCFF799;
+                                state <= STATE_WRITEBACK;
+                            end
                         end
 
                         INST_FLDLN2: begin
-                            // Push ln(2) ≈ 0.693147180559945309
-                            // FP80: sign=0, exp=16382 (0x3FFE), mantissa=0xB17217F7D1CF79AC
-                            temp_result <= 80'h3FFEB17217F7D1CF79AC;
-                            state <= STATE_WRITEBACK;
+                            // Stack overflow check before push
+                            if (push_would_overflow) begin
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b1;  // C1=1 for overflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                state <= STATE_DONE;
+                            end else begin
+                                // Push ln(2) ≈ 0.693147180559945309
+                                // FP80: sign=0, exp=16382 (0x3FFE), mantissa=0xB17217F7D1CF79AC
+                                temp_result <= 80'h3FFEB17217F7D1CF79AC;
+                                state <= STATE_WRITEBACK;
+                            end
                         end
 
                         // ===== Reverse Arithmetic Operations =====
@@ -2352,6 +2663,7 @@ module FPU_Core(
                             end else begin
                                 temp_result <= arith_result;
                                 status_invalid <= arith_invalid;
+                                status_denormal <= arith_denormal;
                                 status_zero_div <= arith_zero_div;
                                 status_overflow <= arith_overflow;
                                 status_underflow <= arith_underflow;
@@ -2630,7 +2942,9 @@ module FPU_Core(
 
                 STATE_WAIT_MICROSEQ: begin
                     // Wait for microsequencer to complete BCD operation
-                    if (microseq_complete) begin
+                    // Note: Ignore microseq_complete on the first cycle (when microseq_start is high)
+                    // because it may still be high from the previous operation
+                    if (microseq_complete && !microseq_start) begin
                         // Microcode execution complete
                         microseq_active <= 1'b0;
 
@@ -2652,6 +2966,11 @@ module FPU_Core(
                             INST_FSQRT: begin
                                 temp_result <= microseq_temp_result;
                                 has_secondary_result <= 1'b0;
+                                // Check for domain errors (e.g., sqrt of negative)
+                                if (arith_invalid) begin
+                                    status_invalid <= 1'b1;
+                                    error <= !mask_invalid;
+                                end
                                 state <= STATE_WRITEBACK;
                             end
 
@@ -2659,6 +2978,24 @@ module FPU_Core(
                                 temp_result <= microseq_temp_result;            // sin
                                 temp_result_secondary <= microseq_temp_fp_b;    // cos
                                 has_secondary_result <= 1'b1;
+                                // Check for domain errors from transcendental unit
+                                if (arith_invalid) begin
+                                    status_invalid <= 1'b1;
+                                    error <= !mask_invalid;
+                                end
+                                state <= STATE_WRITEBACK;
+                            end
+
+                            // Transcendental operations that return single result
+                            INST_FPTAN, INST_FPATAN, INST_F2XM1, INST_FYL2X, INST_FYL2XP1,
+                            INST_FRNDINT, INST_FSCALE, INST_FXTRACT: begin
+                                temp_result <= microseq_temp_result;
+                                has_secondary_result <= 1'b0;
+                                // Check for domain errors from transcendental unit
+                                if (arith_invalid) begin
+                                    status_invalid <= 1'b1;
+                                    error <= !mask_invalid;
+                                end
                                 state <= STATE_WRITEBACK;
                             end
 
@@ -2677,21 +3014,50 @@ module FPU_Core(
                         // Load operations: push result onto stack
                         INST_FLD, INST_FILD16, INST_FILD32, INST_FBLD,
                         INST_FLD32, INST_FLD64: begin
-                            stack_push <= 1'b1;
-                            stack_write_reg <= 3'd0;
-                            stack_data_in <= temp_result;
-                            stack_write_enable <= 1'b1;
-                            state <= STATE_DONE;
+                            // Stack overflow check before push
+                            if (push_would_overflow) begin
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b1;  // C1=1 for overflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                // Don't push, go to done
+                                state <= STATE_DONE;
+                            end else begin
+                                stack_push <= 1'b1;
+                                stack_write_reg <= 3'd0;
+                                stack_data_in <= temp_result;
+                                stack_write_enable <= 1'b1;
+                                state <= STATE_DONE;
+                            end
                         end
 
                         // Constant loading: push constant onto stack
                         INST_FLD1, INST_FLDZ, INST_FLDPI, INST_FLDL2E,
                         INST_FLDL2T, INST_FLDLG2, INST_FLDLN2: begin
-                            stack_push <= 1'b1;
-                            stack_write_reg <= 3'd0;
-                            stack_data_in <= temp_result;
-                            stack_write_enable <= 1'b1;
-                            state <= STATE_DONE;
+                            // Stack overflow check before push
+                            // synthesis translate_off
+                            $display("[FLD1 STACK_OP] tag_word=%h st7_empty=%b push_would_overflow=%b sp=%d",
+                                     tag_word, st7_empty, push_would_overflow, stack_pointer);
+                            // synthesis translate_on
+                            if (push_would_overflow) begin
+                                `ifdef ICARUS
+                                $display("[WRITEBACK CONST DEBUG] Stack overflow detected! Setting IE flag");
+                                `endif
+                                status_stack_fault <= 1'b1;
+                                status_c1 <= 1'b1;  // C1=1 for overflow
+                                status_cc_write <= 1'b1;  // Enable C1 latch
+                                status_invalid <= 1'b1;
+                                error <= !mask_invalid;
+                                // Don't push, go to done
+                                state <= STATE_DONE;
+                            end else begin
+                                stack_push <= 1'b1;
+                                stack_write_reg <= 3'd0;
+                                stack_data_in <= temp_result;
+                                stack_write_enable <= 1'b1;
+                                state <= STATE_DONE;
+                            end
                         end
 
                         // Arithmetic operations: write to ST(0)
@@ -2852,7 +3218,13 @@ module FPU_Core(
                 STATE_DONE: begin
                     ready <= 1'b1;
                     status_clear_busy <= 1'b1;
-                    status_stack_fault <= stack_overflow | stack_underflow;
+                    // Only overwrite stack_fault if RegisterStack reports it
+                    // (allows pre-set stack fault from STATE_EXECUTE to persist)
+                    if (stack_overflow | stack_underflow) begin
+                        status_stack_fault <= 1'b1;
+                        status_c1 <= stack_overflow;  // C1=1 for overflow, 0 for underflow
+                        status_cc_write <= 1'b1;  // Enable C1 latch
+                    end
 
                     // Check for unmasked exceptions
                     error <= (status_invalid & ~mask_invalid) |

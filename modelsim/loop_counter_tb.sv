@@ -34,9 +34,10 @@ module loop_counter_tb;
         forever #10 clk = ~clk;
     end
 
-    task check_result(input string test_name, input logic condition);
+    task check_done(input string test_name, input logic expected);
+        #1;  // Small delay to let non-blocking assignments settle
         test_count++;
-        if (condition) begin
+        if (done === expected) begin
             $display("[PASS] Test %0d: %s", test_count, test_name);
             pass_count++;
         end else begin
@@ -63,7 +64,7 @@ module loop_counter_tb;
         // ================================================================
         $display("--- Test 1: Initial State ---");
 
-        check_result("Done true when count=0", done == 1);
+        check_done("Done true when count=0", 1);
 
         // ================================================================
         // TEST 2: Load Count
@@ -76,7 +77,7 @@ module loop_counter_tb;
         load = 0;
         @(posedge clk);
 
-        check_result("Done false after loading 5", done == 0);
+        check_done("Done false after loading 5", 0);
 
         // ================================================================
         // TEST 3: Decrement Counter
@@ -85,21 +86,21 @@ module loop_counter_tb;
 
         next = 1;
         @(posedge clk);  // count = 4
-        check_result("After 1st decrement, done=0", done == 0);
+        check_done("After 1st decrement, done=0", 0);
 
         @(posedge clk);  // count = 3
-        check_result("After 2nd decrement, done=0", done == 0);
+        check_done("After 2nd decrement, done=0", 0);
 
         @(posedge clk);  // count = 2
-        check_result("After 3rd decrement, done=0", done == 0);
+        check_done("After 3rd decrement, done=0", 0);
 
         @(posedge clk);  // count = 1
-        check_result("After 4th decrement, done=0", done == 0);
+        check_done("After 4th decrement, done=0", 0);
 
         @(posedge clk);  // count = 0
         next = 0;
         @(posedge clk);
-        check_result("After 5th decrement, done=1", done == 1);
+        check_done("After 5th decrement, done=1", 1);
 
         // ================================================================
         // TEST 4: Load While Counting
@@ -123,7 +124,7 @@ module loop_counter_tb;
         next = 0;
         @(posedge clk);
 
-        check_result("Reloaded count, done=0", done == 0);
+        check_done("Reloaded count, done=0", 0);
 
         // ================================================================
         // TEST 5: Count Down to Zero
@@ -142,7 +143,7 @@ module loop_counter_tb;
         next = 0;
         @(posedge clk);
 
-        check_result("Full countdown complete", done == 1);
+        check_done("Full countdown complete", 1);
 
         // ================================================================
         // TEST 6: Load Zero
@@ -155,7 +156,7 @@ module loop_counter_tb;
         load = 0;
         @(posedge clk);
 
-        check_result("Loaded zero, done=1", done == 1);
+        check_done("Loaded zero, done=1", 1);
 
         // ================================================================
         // TEST 7: Load Maximum Value
@@ -168,7 +169,7 @@ module loop_counter_tb;
         load = 0;
         @(posedge clk);
 
-        check_result("Loaded max value, done=0", done == 0);
+        check_done("Loaded max value, done=0", 0);
 
         // Decrement a few times
         next = 1;
@@ -178,7 +179,7 @@ module loop_counter_tb;
         next = 0;
         @(posedge clk);
 
-        check_result("After partial countdown, done=0", done == 0);
+        check_done("After partial countdown, done=0", 0);
 
         // ================================================================
         // TEST 8: Next Without Load
@@ -199,7 +200,7 @@ module loop_counter_tb;
         next = 0;
         @(posedge clk);
 
-        check_result("Next at zero doesn't underflow", done == 1);
+        check_done("Next at zero doesn't underflow", 1);
 
         // ================================================================
         // TEST 9: Rapid Load/Next
@@ -216,7 +217,7 @@ module loop_counter_tb;
         next = 0;
         @(posedge clk);
 
-        check_result("Rapid load/next operations", done == 1);
+        check_done("Rapid load/next operations", 1);
 
         // ================================================================
         // TEST 10: Single Count
@@ -229,14 +230,14 @@ module loop_counter_tb;
         load = 0;
         @(posedge clk);
 
-        check_result("Loaded 1, done=0", done == 0);
+        check_done("Loaded 1, done=0", 0);
 
         next = 1;
         @(posedge clk);  // Decrement to 0
         next = 0;
         @(posedge clk);
 
-        check_result("After single decrement, done=1", done == 1);
+        check_done("After single decrement, done=1", 1);
 
         // ================================================================
         // Summary

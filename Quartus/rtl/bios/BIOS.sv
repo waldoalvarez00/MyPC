@@ -67,10 +67,39 @@ end
 
 
 
+`ifdef SIMULATION
+// Simulation model for altsyncram
+reg [15:0] mem [0:depth-1];
+reg [15:0] q_reg;
+
+assign q = q_reg;
+
+always_ff @(posedge clk) begin
+    // Read (unregistered output)
+    q_reg <= mem[ram_addr];
+
+    // Write with byte enables
+    if (wr_en) begin
+        if (ram_bytesel[0])
+            mem[ram_addr][7:0] <= ram_data[7:0];
+        if (ram_bytesel[1])
+            mem[ram_addr][15:8] <= ram_data[15:8];
+    end
+end
+
+// Initialize memory to zero for simulation
+initial begin
+    integer i;
+    for (i = 0; i < depth; i = i + 1)
+        mem[i] = 16'h0000;
+end
+
+`else
+// Altera FPGA implementation
 /*
 always_ff @(posedge clk)
     data_m_ack <= cs & data_m_access;
-	*/ 
+	*/
 
 altsyncram	altsyncram_component(.address_a(ram_addr),
                                      .byteena_a(ram_bytesel),
@@ -111,5 +140,6 @@ defparam
         altsyncram_component.width_a = 16,
         altsyncram_component.width_byteena_a = 2,
         altsyncram_component.init_file = "bios.mif";
+`endif
 
 endmodule

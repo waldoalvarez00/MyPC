@@ -1,0 +1,17 @@
+[options]
+mode prove
+depth 30
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -sv FPU_IEEE754_MulDiv_Unified.v FPU_IEEE754_MulDiv_Unified_formal.sv
+hierarchy -top FPU_IEEE754_MulDiv_Unified_formal
+clk2fflogic
+prep -nordff -top FPU_IEEE754_MulDiv_Unified_formal
+dffunmap
+
+[files]
+Quartus/rtl/FPU8087/FPU_IEEE754_MulDiv_Unified.v
+formal/FPU_IEEE754_MulDiv_Unified_formal.sv

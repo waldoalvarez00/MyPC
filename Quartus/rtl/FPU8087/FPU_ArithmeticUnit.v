@@ -105,17 +105,18 @@ module FPU_ArithmeticUnit(
     // Bit manipulation operations
     localparam OP_FXTRACT  = 5'd23;  // Extract exponent and significand
     localparam OP_FSCALE   = 5'd24;  // Scale by power of 2
+    localparam OP_FPREM    = 5'd25;  // Partial remainder (8087 style, truncate toward zero)
 
-// Debug: monitor enable/done
+// Debug: monitor enable/done (commented out - too verbose)
 // synthesis translate_off
-always @(posedge clk) begin
-    if (enable) begin
-        $display("[DBG ARITH UNIT] enable op=%0d A=%h B=%h", operation, operand_a, operand_b);
-    end
-    if (done) begin
-        $display("[DBG ARITH UNIT] done op=%0d res=%h sec=%h has_sec=%b", operation, result, result_secondary, has_secondary);
-    end
-end
+// always @(posedge clk) begin
+//     if (enable) begin
+//         $display("[DBG ARITH UNIT] enable op=%0d A=%h B=%h", operation, operand_a, operand_b);
+//     end
+//     if (done) begin
+//         $display("[DBG ARITH UNIT] done op=%0d res=%h sec=%h has_sec=%b", operation, result, result_secondary, has_secondary);
+//     end
+// end
 // synthesis translate_on
 
 //=================================================================
@@ -334,7 +335,7 @@ end
 
     wire [79:0] trans_result_primary, trans_result_secondary;
     wire trans_has_secondary;
-    wire trans_done, trans_error;
+    wire trans_done, trans_error, trans_inexact;
 
     FPU_Transcendental trans_unit (
         .clk(clk),
@@ -348,6 +349,7 @@ end
         .has_secondary(trans_has_secondary),
         .done(trans_done),
         .error(trans_error),
+        .flag_inexact(trans_inexact),
 
         // Strategy 1: Shared AddSub unit interface
         .ext_addsub_req(trans_addsub_req),
@@ -501,9 +503,15 @@ end
     reg [79:0] fxtract_significand;
     reg [79:0] fxtract_exponent;
     reg        fxtract_done;
+    reg        fxtract_invalid;  // Invalid exception for special cases
 
     always @(*) begin
         fxtract_done = enable && (operation == OP_FXTRACT);
+        // Set invalid for special cases (zero produces -inf, inf/NaN are invalid)
+        // Don't require enable here so the flag persists after enable goes low
+        // (the case statement in the output mux will only select this when operation == OP_FXTRACT)
+        fxtract_invalid = (operation == OP_FXTRACT) &&
+                          (is_zero_helper(operand_a) || is_infinity_helper(operand_a) || is_nan_helper(operand_a));
 
         // Extract significand (mantissa normalized to [1.0, 2.0))
         if (is_zero_helper(operand_a) || is_infinity_helper(operand_a) || is_nan_helper(operand_a)) begin
@@ -597,6 +605,152 @@ end
         end
     end
 
+    // FPREM: Partial Remainder (8087 style - truncate toward zero)
+    // Computes: ST(0) = ST(0) - truncate(ST(0)/ST(1)) * ST(1)
+    reg [79:0] fprem_result;
+    reg        fprem_done;
+    reg        fprem_invalid;
+    reg        fprem_zero_divide;
+    reg signed [31:0] exp_diff;
+    reg signed [31:0] quotient_int;
+    reg [79:0] quotient_fp;
+    reg [79:0] product_approx;
+
+    // Variables for normalization
+    reg [63:0] fprem_raw_sig;
+    reg [14:0] fprem_raw_exp;
+    reg        fprem_raw_sign;
+    reg [5:0]  fprem_lzc;  // Leading zero count (0-63)
+    reg [63:0] fprem_norm_sig;
+    reg [14:0] fprem_norm_exp;
+
+    // Count leading zeros in 64-bit value (simplified priority encoder)
+    function automatic [5:0] count_leading_zeros_64;
+        input [63:0] val;
+        integer i;
+        reg [5:0] count;
+        begin
+            count = 6'd0;
+            if (val == 64'd0) begin
+                count = 6'd64;
+            end else begin
+                // Priority encoder - find first 1
+                for (i = 63; i >= 0; i = i - 1) begin
+                    if (val[i] && count == 6'd0) begin
+                        count = 6'd63 - i[5:0];
+                    end
+                end
+            end
+            count_leading_zeros_64 = count;
+        end
+    endfunction
+
+    always @(*) begin
+        fprem_done = enable && (operation == OP_FPREM);
+        fprem_invalid = 1'b0;
+        fprem_zero_divide = 1'b0;
+        fprem_result = 80'd0;
+        exp_diff = 0;
+        quotient_int = 0;
+        quotient_fp = 80'd0;
+        product_approx = 80'd0;
+
+        // Initialize normalization variables
+        fprem_raw_sig = 64'd0;
+        fprem_raw_exp = 15'd0;
+        fprem_raw_sign = 1'b0;
+        fprem_lzc = 6'd0;
+        fprem_norm_sig = 64'd0;
+        fprem_norm_exp = 15'd0;
+
+        // Special cases
+        if (is_nan_helper(operand_a) || is_nan_helper(operand_b)) begin
+            // NaN propagation
+            fprem_result = is_nan_helper(operand_a) ? operand_a : operand_b;
+            fprem_invalid = 1'b1;
+        end else if (is_infinity_helper(operand_a) || is_zero_helper(operand_b)) begin
+            // Infinity dividend or zero divisor → Invalid
+            fprem_result = 80'h7FFF_C000_0000_0000_0000;  // QNaN indefinite
+            fprem_invalid = 1'b1;
+            if (is_zero_helper(operand_b)) fprem_zero_divide = 1'b1;
+        end else if (is_zero_helper(operand_a) || is_infinity_helper(operand_b)) begin
+            // Zero dividend or infinite divisor → Result is dividend
+            fprem_result = operand_a;
+        end else begin
+            // Normal case: compute remainder
+            // exp_diff = exp_a - exp_b
+            exp_diff = $signed({1'b0, operand_a[78:64]}) - $signed({1'b0, operand_b[78:64]});
+
+            if (exp_diff < 0) begin
+                // |dividend| < |divisor|, remainder = dividend
+                fprem_result = operand_a;
+            end else if (exp_diff > 63) begin
+                // Exponent difference too large for single reduction
+                // In real 8087, this would set C2=1 and do partial reduction
+                // For simplicity, we'll do a rough reduction by adjusting exponent
+                // Reduce by at most 63 bits
+                fprem_result = {operand_a[79], operand_a[78:64] - 15'd63, operand_a[63:0]};
+            end else begin
+                // Compute exact remainder using direct computation
+                // rem = dividend - floor(dividend/divisor) * divisor
+
+                fprem_raw_sign = operand_a[79];
+                fprem_raw_exp = operand_b[78:64];
+
+                begin : fprem_calc
+                    reg [127:0] aligned_div;   // Dividend aligned to divisor's exponent
+                    reg [63:0]  divisor;       // Divisor significand
+                    reg [127:0] quotient;      // Integer quotient
+                    reg [127:0] product;       // quotient * divisor
+                    reg [127:0] remainder;     // Final remainder
+
+                    // Align dividend: shift left by exp_diff to bring to divisor's exponent space
+                    // This represents: dividend_value / 2^exp_divisor
+                    aligned_div = {64'd0, operand_a[63:0]} << exp_diff;
+                    divisor = operand_b[63:0];
+
+                    // Compute quotient = aligned_div / divisor (integer division)
+                    if (divisor != 0) begin
+                        quotient = aligned_div / {64'd0, divisor};
+                    end else begin
+                        quotient = 0;
+                    end
+
+                    // Compute product = quotient * divisor
+                    product = quotient * {64'd0, divisor};
+
+                    // Compute remainder = aligned_div - product
+                    remainder = aligned_div - product;
+
+                    // The remainder should fit in 64 bits since it's less than divisor
+                    fprem_raw_sig = remainder[63:0];
+                end
+
+                // Normalize the result
+                if (fprem_raw_sig == 64'd0) begin
+                    // Result is zero
+                    fprem_result = {fprem_raw_sign, 79'd0};
+                end else if (fprem_raw_sig[63]) begin
+                    // Already normalized (integer bit is 1)
+                    fprem_result = {fprem_raw_sign, fprem_raw_exp, fprem_raw_sig};
+                end else begin
+                    // Need to normalize: count leading zeros and shift
+                    fprem_lzc = count_leading_zeros_64(fprem_raw_sig);
+
+                    // Shift significand left and decrease exponent
+                    if (fprem_raw_exp > {9'd0, fprem_lzc}) begin
+                        fprem_norm_sig = fprem_raw_sig << fprem_lzc;
+                        fprem_norm_exp = fprem_raw_exp - {9'd0, fprem_lzc};
+                        fprem_result = {fprem_raw_sign, fprem_norm_exp, fprem_norm_sig};
+                    end else begin
+                        // Would underflow to denormal or zero
+                        fprem_result = {fprem_raw_sign, 79'd0};
+                    end
+                end
+            end
+        end
+    end
+
     //=================================================================
     // Output Multiplexing
     //=================================================================
@@ -631,7 +785,7 @@ end
                       operation == OP_SIN || operation == OP_COS || operation == OP_SINCOS ||
                       operation == OP_TAN || operation == OP_ATAN || operation == OP_F2XM1 ||
                       operation == OP_FYL2X || operation == OP_FYL2XP1 ||
-                      operation == OP_FXTRACT || operation == OP_FSCALE)) begin
+                      operation == OP_FXTRACT || operation == OP_FSCALE || operation == OP_FPREM)) begin
             if (is_denormal_helper(operand_a) || is_denormal_helper(operand_b)) begin
                 flag_denormal = 1'b1;
             end
@@ -726,6 +880,7 @@ end
                 has_secondary = trans_has_secondary;
                 done = trans_done;
                 flag_invalid = trans_error;
+                flag_inexact = trans_inexact;
                 // Note: OP_SINCOS sets has_secondary=1 with cos(θ) in result_secondary
                 // Note: OP_TAN may set has_secondary for special implementations
             end
@@ -736,11 +891,19 @@ end
                 result_secondary = fxtract_exponent;
                 has_secondary = 1'b1;  // FXTRACT returns two values
                 done = fxtract_done;
+                flag_invalid = fxtract_invalid;  // Invalid for zero/inf/NaN
             end
 
             OP_FSCALE: begin
                 result = fscale_result;
                 done = fscale_done;
+            end
+
+            OP_FPREM: begin
+                result = fprem_result;
+                done = fprem_done;
+                flag_invalid = fprem_invalid;
+                flag_zero_divide = fprem_zero_divide;
             end
 
             default: begin

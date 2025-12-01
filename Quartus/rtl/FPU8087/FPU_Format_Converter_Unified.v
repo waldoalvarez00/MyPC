@@ -440,8 +440,8 @@ module FPU_Format_Converter_Unified(
                             src_exp_unbiased = {2'b00, src_exp} - 17'sd16383;
 
                             if (src_exp_unbiased > 17'sd15) begin
-                                // Overflow
-                                flag_overflow = 1'b1;
+                                // Overflow - too large for int16, set invalid (not overflow)
+                                flag_invalid = 1'b1;
                                 int16_out = src_sign ? 16'sh8000 : 16'sh7FFF;
                             end else if (src_exp_unbiased < -17'sd1) begin
                                 // Fractional value
@@ -465,9 +465,9 @@ module FPU_Format_Converter_Unified(
                                 if (src_sign)
                                     signed_int_value = -signed_int_value;
 
-                                // Check overflow
+                                // Check overflow after rounding
                                 if (signed_int_value > 64'sd32767 || signed_int_value < -64'sd32768) begin
-                                    flag_overflow = 1'b1;
+                                    flag_invalid = 1'b1;  // Set invalid for integer overflow
                                     int16_out = src_sign ? 16'sh8000 : 16'sh7FFF;
                                 end else begin
                                     int16_out = signed_int_value[15:0];
@@ -501,8 +501,8 @@ module FPU_Format_Converter_Unified(
                             src_exp_unbiased = {2'b00, src_exp} - 17'sd16383;
 
                             if (src_exp_unbiased > 17'sd31) begin
-                                // Overflow
-                                flag_overflow = 1'b1;
+                                // Overflow - too large for int32, set invalid (not overflow)
+                                flag_invalid = 1'b1;
                                 int32_out = src_sign ? 32'sh80000000 : 32'sh7FFFFFFF;
                             end else if (src_exp_unbiased < -17'sd1) begin
                                 // Fractional value
@@ -526,9 +526,9 @@ module FPU_Format_Converter_Unified(
                                 if (src_sign)
                                     signed_int_value = -signed_int_value;
 
-                                // Check overflow
+                                // Check overflow after rounding
                                 if (signed_int_value > 64'sd2147483647 || signed_int_value < -64'sd2147483648) begin
-                                    flag_overflow = 1'b1;
+                                    flag_invalid = 1'b1;  // Set invalid for integer overflow
                                     int32_out = src_sign ? 32'sh80000000 : 32'sh7FFFFFFF;
                                 end else begin
                                     int32_out = signed_int_value[31:0];

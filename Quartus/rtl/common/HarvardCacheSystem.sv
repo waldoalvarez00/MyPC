@@ -93,9 +93,26 @@ logic dcache_mem_ack;
 logic dcache_mem_wr_en;
 logic [1:0] dcache_mem_bytesel;
 
-// Instruction Cache
-ICache #(
-    .lines(ICACHE_LINES)
+// D-cache victim writeback port (non-blocking)
+logic [19:1] dcache_vwb_addr;
+logic [15:0] dcache_vwb_data_out;
+logic dcache_vwb_access;
+logic dcache_vwb_ack;
+logic dcache_vwb_wr_en;
+logic [1:0] dcache_vwb_bytesel;
+
+// Coherence interface between D-cache and I-cache
+logic        coh_wr_valid;
+logic [19:1] coh_wr_addr;
+logic [15:0] coh_wr_data;
+logic [1:0]  coh_wr_bytesel;
+logic        coh_probe_valid;
+logic [19:1] coh_probe_addr;
+logic        coh_probe_present;
+
+// Instruction Cache - 2-way set-associative with coherence support
+ICache2Way #(
+    .sets(ICACHE_LINES / 2)  // 256 sets × 2 ways = 512 lines = 8 KB
 ) icache (
     .clk(clk),
     .reset(reset),
@@ -111,12 +128,25 @@ ICache #(
     .m_addr(icache_mem_addr),
     .m_data_in(icache_mem_data_in),
     .m_access(icache_mem_access),
-    .m_ack(icache_mem_ack)
+    .m_ack(icache_mem_ack),
+
+    // Coherence interface from D-cache
+    .coh_wr_valid(coh_wr_valid),
+    .coh_wr_addr(coh_wr_addr),
+    .coh_wr_data(coh_wr_data),
+    .coh_wr_bytesel(coh_wr_bytesel),
+    .coh_probe_valid(coh_probe_valid),
+    .coh_probe_addr(coh_probe_addr),
+    .coh_probe_present(coh_probe_present),
+
+    // Invalidation interface (tie off for now)
+    .inval_valid(1'b0),
+    .inval_addr(19'b0)
 );
 
-// Data Cache
-DCache #(
-    .lines(DCACHE_LINES)
+// Data Cache - 2-way set-associative with non-blocking victim writeback
+DCache2Way #(
+    .sets(DCACHE_LINES / 2)  // 256 sets × 2 ways = 512 lines = 8 KB
 ) dcache (
     .clk(clk),
     .reset(reset),
@@ -131,18 +161,35 @@ DCache #(
     .c_wr_en(data_m_wr_en),
     .c_bytesel(data_m_bytesel),
 
-    // Memory-facing interface (to arbiter)
+    // Memory-facing interface - main port (fills and flushes)
     .m_addr(dcache_mem_addr),
     .m_data_in(dcache_mem_data_in),
     .m_data_out(dcache_mem_data_out),
     .m_access(dcache_mem_access),
     .m_ack(dcache_mem_ack),
     .m_wr_en(dcache_mem_wr_en),
-    .m_bytesel(dcache_mem_bytesel)
+    .m_bytesel(dcache_mem_bytesel),
+
+    // Memory-facing interface - victim writeback port (non-blocking)
+    .vwb_addr(dcache_vwb_addr),
+    .vwb_data_out(dcache_vwb_data_out),
+    .vwb_access(dcache_vwb_access),
+    .vwb_ack(dcache_vwb_ack),
+    .vwb_wr_en(dcache_vwb_wr_en),
+    .vwb_bytesel(dcache_vwb_bytesel),
+
+    // Coherence interface to I-cache (for self-modifying code support)
+    .coh_wr_valid(coh_wr_valid),
+    .coh_wr_addr(coh_wr_addr),
+    .coh_wr_data(coh_wr_data),
+    .coh_wr_bytesel(coh_wr_bytesel),
+    .coh_probe_valid(coh_probe_valid),
+    .coh_probe_addr(coh_probe_addr),
+    .coh_probe_present(coh_probe_present)
 );
 
-// Harvard Arbiter
-HarvardArbiter harvard_arbiter (
+// Harvard 3-Way Arbiter - supports non-blocking victim writeback
+HarvardArbiter3Way harvard_arbiter (
     .clk(clk),
     .reset(reset),
 
@@ -152,7 +199,7 @@ HarvardArbiter harvard_arbiter (
     .icache_m_access(icache_mem_access),
     .icache_m_ack(icache_mem_ack),
 
-    // D-cache interface
+    // D-cache main interface (fills and flushes)
     .dcache_m_addr(dcache_mem_addr),
     .dcache_m_data_in(dcache_mem_data_in),
     .dcache_m_data_out(dcache_mem_data_out),
@@ -160,6 +207,14 @@ HarvardArbiter harvard_arbiter (
     .dcache_m_ack(dcache_mem_ack),
     .dcache_m_wr_en(dcache_mem_wr_en),
     .dcache_m_bytesel(dcache_mem_bytesel),
+
+    // D-cache victim writeback interface (non-blocking)
+    .dcache_vwb_addr(dcache_vwb_addr),
+    .dcache_vwb_data_out(dcache_vwb_data_out),
+    .dcache_vwb_access(dcache_vwb_access),
+    .dcache_vwb_ack(dcache_vwb_ack),
+    .dcache_vwb_wr_en(dcache_vwb_wr_en),
+    .dcache_vwb_bytesel(dcache_vwb_bytesel),
 
     // Memory interface
     .mem_m_addr(mem_m_addr),
