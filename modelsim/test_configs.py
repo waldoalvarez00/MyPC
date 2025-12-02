@@ -1739,6 +1739,150 @@ TEST_CONFIGS["ps2_mouse_verilator"] = TestConfig(
 
 
 # =============================================================================
+# NEW COVERAGE GAP TESTS
+# =============================================================================
+
+# Simple utility modules
+TEST_CONFIGS["posedge_to_pulse"] = TestConfig(
+    name="posedge_to_pulse",
+    testbench="posedge_to_pulse_tb.sv",
+    sources=[
+        "Quartus/rtl/CPU/PosedgeToPulse.sv",
+    ],
+    includes=[
+        "Quartus/rtl/CPU",
+    ],
+    category="core",
+    description="PosedgeToPulse edge detector tests"
+)
+
+TEST_CONFIGS["bios_control_register"] = TestConfig(
+    name="bios_control_register",
+    testbench="bios_control_register_tb.sv",
+    sources=[
+        "Quartus/rtl/bios/BIOSControlRegister.sv",
+    ],
+    includes=[
+        "Quartus/rtl/bios",
+    ],
+    category="bios",
+    description="BIOS control register tests"
+)
+
+TEST_CONFIGS["three_bit_mux"] = TestConfig(
+    name="three_bit_mux",
+    testbench="three_bit_mux_tb.sv",
+    sources=[
+        "Quartus/rtl/FPU8087/three_bit_4x1_mux.v",
+    ],
+    includes=[
+        "Quartus/rtl/FPU8087",
+    ],
+    category="fpu",
+    description="3-bit 4:1 mux tests"
+)
+
+TEST_CONFIGS["fpu_abs_unit"] = TestConfig(
+    name="fpu_abs_unit",
+    testbench="fpu_abs_unit_tb.sv",
+    sources=[
+        "Quartus/rtl/FPU8087/absunit.sv",
+    ],
+    includes=[
+        "Quartus/rtl/FPU8087",
+    ],
+    category="fpu",
+    description="FPU absolute value unit tests"
+)
+
+TEST_CONFIGS["fpu_tag_register"] = TestConfig(
+    name="fpu_tag_register",
+    testbench="fpu_tag_register_tb.sv",
+    sources=[
+        "Quartus/rtl/FPU8087/tagRegister.v",
+    ],
+    includes=[
+        "Quartus/rtl/FPU8087",
+    ],
+    category="fpu",
+    description="FPU tag register tests"
+)
+
+TEST_CONFIGS["fpu_stack_registers"] = TestConfig(
+    name="fpu_stack_registers",
+    testbench="fpu_stack_registers_tb.sv",
+    sources=[
+        "Quartus/rtl/FPU8087/StackRegister.v",
+    ],
+    includes=[
+        "Quartus/rtl/FPU8087",
+    ],
+    category="fpu",
+    description="FPU stack register file tests"
+)
+
+TEST_CONFIGS["tandy_scancode_converter"] = TestConfig(
+    name="tandy_scancode_converter",
+    testbench="tandy_scancode_converter_tb.sv",
+    sources=[
+        "Quartus/rtl/Keyboard/Tandy_Scancode_Converter.sv",
+    ],
+    includes=[
+        "Quartus/rtl/Keyboard",
+    ],
+    category="input",
+    description="Tandy scancode converter tests"
+)
+
+TEST_CONFIGS["dac_ram"] = TestConfig(
+    name="dac_ram",
+    testbench="dac_ram_tb.sv",
+    sources=[
+        "Quartus/rtl/VGA/DACRam.v",
+    ],
+    includes=[
+        "Quartus/rtl/VGA",
+    ],
+    defines=["SIMULATION"],
+    category="video",
+    description="VGA DAC RAM tests"
+)
+
+TEST_CONFIGS["poweron_reset"] = TestConfig(
+    name="poweron_reset",
+    testbench="poweron_reset_tb.sv",
+    sources=[
+        "Quartus/rtl/common/PoweronReset.sv",
+        "Quartus/rtl/CPU/cdc/BitSync.sv",
+    ],
+    includes=[
+        "Quartus/rtl/common",
+        "Quartus/rtl/CPU/cdc",
+    ],
+    defines=["SIMULATION"],
+    category="core",
+    description="Power-on reset generator tests"
+)
+
+TEST_CONFIGS["uart_ports"] = TestConfig(
+    name="uart_ports",
+    testbench="uart_ports_tb.sv",
+    sources=[
+        "Quartus/rtl/uart/UartPorts.sv",
+        "Quartus/rtl/uart/Uart.sv",
+        "Quartus/rtl/uart/BaudRateGen.sv",
+        "Quartus/rtl/uart/Transmitter.sv",
+        "Quartus/rtl/uart/Receiver.sv",
+    ],
+    includes=[
+        "Quartus/rtl/uart",
+    ],
+    category="serial",
+    description="UART ports wrapper tests"
+)
+
+
+# =============================================================================
 # Helper Functions
 # =============================================================================
 
