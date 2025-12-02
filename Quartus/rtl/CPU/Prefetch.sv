@@ -26,9 +26,9 @@
 // under external control. The fetching can be stalled when servicing
 // a branch, updating the IP will flush the FIFO.
 
-// TODO: Important requires to implement Smart Flush of Fifo with some data writes to fully allow the 
-//       CPU to execute Self Modifying code / Boot loader code / OS Loaded code
-//       Implement smart range of CS and IP
+// SMC Detection implemented: Monitors data writes via coh_wr_* signals from cache
+// and flushes FIFO if write address overlaps with prefetched instruction range.
+// This enables Self-Modifying Code, Boot loader code, and OS-loaded code support.
 
 `default_nettype none
 module Prefetch(input logic clk,
@@ -49,7 +49,11 @@ module Prefetch(input logic clk,
                 output logic mem_access,
                 input logic mem_ack,
                 output logic [19:1] mem_address,
-                input logic [15:0] mem_data);
+                input logic [15:0] mem_data,
+                // SMC Detection - Coherency from cache
+                input logic        coh_wr_valid,     // Data write occurred
+                input logic [19:1] coh_wr_addr,      // Write word address
+                input logic [3:0]  fifo_count);      // FIFO occupancy (from external Fifo)
 
 reg [15:0] next_fetch_address, fetch_address;
 reg [15:0] next_cs, cs;
@@ -76,7 +80,7 @@ mem_access2 <= _mem_access;
 end
 
 assign fifo_wr_en = !abort_cur && !load_new_ip && (mem_ack || write_second);
-assign fifo_reset = load_new_ip | (abort_cur & mem_ack);
+assign fifo_reset = load_new_ip | (abort_cur & mem_ack) | smc_flush;
 
 
 assign fifo_wr_data = mem_ack ?
@@ -140,5 +144,58 @@ always_ff @(posedge clk)
 
 always_ff @(posedge clk)
     next_sequential_fetch <= fetch_address + 1'b1;
+
+// ============================================================================
+// SMC Detection - Prefetch Range Tracking (REGISTERED for timing closure)
+// ============================================================================
+
+// Registered prefetch range for clean timing
+reg [19:1] prefetch_start_addr;
+reg [19:1] prefetch_end_addr;
+reg        range_valid;
+reg        range_wraps;
+
+// Helper wires for range calculation
+// fetch_address = NEXT byte to fetch, so first valid = fetch_address - fifo_count
+wire [15:0] fifo_base_ip = fetch_address - {12'b0, fifo_count};
+
+// Update range registers every cycle
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        prefetch_start_addr <= 19'b0;
+        prefetch_end_addr   <= 19'b0;
+        range_valid         <= 1'b0;
+        range_wraps         <= 1'b0;
+    end else begin
+        range_valid <= (fifo_count != 4'd0) && !fifo_reset;
+        range_wraps <= (fifo_base_ip > fetch_address);
+        prefetch_start_addr <= {cs, 3'b0} + {4'b0, fifo_base_ip[15:1]};
+        prefetch_end_addr   <= {cs, 3'b0} + {4'b0, fetch_address[15:1]};
+    end
+end
+
+// Registered write detection (capture coh_wr_* for comparison)
+reg        coh_wr_valid_r;
+reg [19:1] coh_wr_addr_r;
+
+always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+        coh_wr_valid_r <= 1'b0;
+        coh_wr_addr_r  <= 19'b0;
+    end else begin
+        coh_wr_valid_r <= coh_wr_valid;
+        coh_wr_addr_r  <= coh_wr_addr;
+    end
+end
+
+// Compare registered write address against registered prefetch range
+wire write_in_normal_range = (coh_wr_addr_r >= prefetch_start_addr) &&
+                             (coh_wr_addr_r <= prefetch_end_addr);
+wire write_in_wrapped_range = (coh_wr_addr_r >= prefetch_start_addr) ||
+                              (coh_wr_addr_r <= prefetch_end_addr);
+
+// Final SMC detection (1-cycle latency from write)
+wire smc_flush = coh_wr_valid_r && range_valid &&
+                 (range_wraps ? write_in_wrapped_range : write_in_normal_range);
 
 endmodule

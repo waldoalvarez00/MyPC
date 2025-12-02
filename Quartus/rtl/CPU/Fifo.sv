@@ -27,7 +27,9 @@ module Fifo(input logic clk,
             output logic [data_width-1:0] rd_data,
             output logic empty,
             output logic nearly_full,
-            output logic full);
+            output logic full,
+            // SMC Detection - expose count for prefetch range tracking
+            output logic [ptr_bits:0] count_out);
 
 parameter data_width = 32;
 parameter depth = 6;
@@ -44,6 +46,7 @@ reg [data_width-1:0] rd_data_hold;
 assign empty = count == 0;
 assign full = count == depth;
 assign nearly_full = count >= depth - full_threshold;
+assign count_out = count;
 
 // Read data from hold register
 assign rd_data = rd_data_hold;

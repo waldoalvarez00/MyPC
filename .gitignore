@@ -92,3 +92,4 @@ docs/MCPDIAG.zip
 .claude/settings.local.json
 modelsim/test_results_*/
 formal/formal_results_*/
+.claude/settings.local.json

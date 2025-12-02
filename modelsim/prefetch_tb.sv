@@ -73,7 +73,11 @@ Prefetch dut (
     .mem_access(mem_access),
     .mem_ack(mem_ack),
     .mem_address(mem_address),
-    .mem_data(mem_data)
+    .mem_data(mem_data),
+    // SMC Detection - tie off for basic prefetch tests
+    .coh_wr_valid(1'b0),
+    .coh_wr_addr(19'b0),
+    .fifo_count(4'b0)
 );
 
 // Memory model - simple array

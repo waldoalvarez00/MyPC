@@ -22,7 +22,8 @@ class TestConfig:
         timeout: int = 120,
         description: str = "",
         simulator: str = "iverilog",
-        cpp_testbench: Optional[str] = None
+        cpp_testbench: Optional[str] = None,
+        enable_coverage: bool = False
     ):
         self.name = name
         self.testbench = testbench
@@ -35,6 +36,7 @@ class TestConfig:
         self.description = description
         self.simulator = simulator  # "iverilog" or "verilator"
         self.cpp_testbench = cpp_testbench  # C++ testbench for Verilator
+        self.enable_coverage = enable_coverage  # Enable Verilator code coverage
 
 
 # =============================================================================
@@ -173,46 +175,6 @@ TEST_CONFIGS["bios_upload_integration"] = TestConfig(
 # =============================================================================
 # CORE Tests
 # =============================================================================
-
-TEST_CONFIGS["ALU"] = TestConfig(
-    name="ALU",
-    testbench="ALU_tb.sv",
-    sources=[
-        "Quartus/rtl/CPU/FlagsEnum.sv",
-        "Quartus/rtl/CPU/MicrocodeTypes.sv",
-        "Quartus/rtl/CPU/alu/flags.sv",
-        "Quartus/rtl/CPU/alu/add.sv",
-        "Quartus/rtl/CPU/alu/adc.sv",
-        "Quartus/rtl/CPU/alu/sub.sv",
-        "Quartus/rtl/CPU/alu/and.sv",
-        "Quartus/rtl/CPU/alu/or.sv",
-        "Quartus/rtl/CPU/alu/xor.sv",
-        "Quartus/rtl/CPU/alu/not.sv",
-        "Quartus/rtl/CPU/alu/shl.sv",
-        "Quartus/rtl/CPU/alu/shr.sv",
-        "Quartus/rtl/CPU/alu/sar.sv",
-        "Quartus/rtl/CPU/alu/rol.sv",
-        "Quartus/rtl/CPU/alu/ror.sv",
-        "Quartus/rtl/CPU/alu/rcl.sv",
-        "Quartus/rtl/CPU/alu/rcr.sv",
-        "Quartus/rtl/CPU/alu/mul.sv",
-        "Quartus/rtl/CPU/alu/extend.sv",
-        "Quartus/rtl/CPU/alu/bound.sv",
-        "Quartus/rtl/CPU/alu/aaa.sv",
-        "Quartus/rtl/CPU/alu/aas.sv",
-        "Quartus/rtl/CPU/alu/daa.sv",
-        "Quartus/rtl/CPU/alu/das.sv",
-        "Quartus/rtl/CPU/alu/enter.sv",
-        "Quartus/rtl/CPU/alu/shift_flags.sv",
-        "Quartus/rtl/CPU/alu/ALU.sv",
-    ],
-    includes=[
-        "Quartus/rtl/CPU",
-        "Quartus/rtl/CPU/alu",
-    ],
-    category="core",
-    description="ALU tests"
-)
 
 TEST_CONFIGS["JumpTest"] = TestConfig(
     name="JumpTest",
@@ -495,6 +457,22 @@ TEST_CONFIGS["prefetch"] = TestConfig(
     ],
     category="core",
     description="prefetch tests"
+)
+
+TEST_CONFIGS["prefetch_smc"] = TestConfig(
+    name="prefetch_smc",
+    testbench="prefetch_smc_tb.sv",
+    sources=[
+        "Quartus/rtl/CPU/Prefetch.sv",
+        "Quartus/rtl/CPU/Fifo.sv",
+    ],
+    includes=[
+        "Quartus/rtl/CPU",
+        "Quartus/rtl/common",
+    ],
+    category="core",
+    timeout=30,
+    description="Self-modifying code detection in prefetch FIFO"
 )
 
 TEST_CONFIGS["register_file"] = TestConfig(

@@ -63,7 +63,10 @@ module Core(input wire  clk,
             input  logic fpu_int,
             input  logic [15:0] fpu_status_word,
             input  logic [15:0] fpu_control_word,
-            output logic fpu_control_word_write);
+            output logic fpu_control_word_write,
+            // SMC Detection - Coherency from cache
+            input  logic        coh_wr_valid,
+            input  logic [19:1] coh_wr_addr);
 
 // verilator lint_off UNUSED
 Instruction wr_instruction, cur_instruction, next_instruction_value;
@@ -148,6 +151,7 @@ wire [7:0] fifo_wr_data;
 wire fifo_empty;
 wire fifo_full;
 wire fifo_reset;
+wire [3:0] prefetch_fifo_count;  // For SMC detection
 
 // CS:IP Synchronizer
 wire cs_updating = seg_wr_sel == CS && segment_wr_en;
@@ -319,8 +323,9 @@ Fifo            #(.data_width(8),
                              .empty(fifo_empty),
                              .nearly_full(fifo_full),
                              // verilator lint_off PINCONNECTEMPTY
-                             .full()
+                             .full(),
                              // verilator lint_on PINCONNECTEMPTY
+                             .count_out(prefetch_fifo_count)
                             );
 
 CSIPSync        CSIPSync(.clk(clk),
@@ -351,7 +356,11 @@ Prefetch        Prefetch(.clk(clk),
                          .mem_access(instr_m_access),
                          .mem_ack(instr_m_ack),
                          .mem_address(instr_m_addr),
-                         .mem_data(instr_m_data_in));
+                         .mem_data(instr_m_data_in),
+                         // SMC Detection
+                         .coh_wr_valid(coh_wr_valid),
+                         .coh_wr_addr(coh_wr_addr),
+                         .fifo_count(prefetch_fifo_count));
 
 ImmediateReader ImmediateReader(.clk(clk),
                                 .reset(reset),

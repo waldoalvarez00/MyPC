@@ -1628,7 +1628,10 @@ Core u80186(
     .fpu_int(fpu_int),
     .fpu_status_word(fpu_status_word_out),
     .fpu_control_word(fpu_control_word_out),
-    .fpu_control_word_write(fpu_control_word_write)
+    .fpu_control_word_write(fpu_control_word_write),
+    // SMC Detection - Coherency from D-Cache
+    .coh_wr_valid(coh_wr_valid),
+    .coh_wr_addr(coh_wr_addr)
 );
 
 
