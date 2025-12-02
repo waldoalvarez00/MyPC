@@ -624,7 +624,6 @@ set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_data_in[85] -t
 set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_data_in[86] -to "emu:emu|Core:u80186|SegmentRegisterFile:SegmentRegisterFile|cs[7]" -section_id auto_signaltap_0
 set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_data_in[87] -to "emu:emu|Core:u80186|SegmentRegisterFile:SegmentRegisterFile|cs[8]" -section_id auto_signaltap_0
 set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_data_in[88] -to "emu:emu|Core:u80186|SegmentRegisterFile:SegmentRegisterFile|cs[9]" -section_id auto_signaltap_0
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/Debug/triggernhigh.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/Floppy/simplefifo.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/Floppy/floppy.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/Floppy/floppy_disk_manager.sv
@@ -822,7 +821,6 @@ set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_trigger_in[232
 set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_trigger_in[233] -to "emu:emu|KF8259:PIC8259|interrupt_to_cpu" -section_id auto_signaltap_0
 set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_trigger_in[234] -to "emu:emu|KFPS2KB:u_KFPS2KB|device_data" -section_id auto_signaltap_0
 set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_trigger_in[235] -to "emu:emu|KFPS2KB:u_KFPS2KB|irq" -section_id auto_signaltap_0
-set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_trigger_in[236] -to "emu:emu|TriggerAfterNHigh:triggerGenerator|trigger" -section_id auto_signaltap_0
 set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_trigger_in[237] -to "emu:emu|bios_access" -section_id auto_signaltap_0
 set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_trigger_in[238] -to "emu:emu|cga_mem_access" -section_id auto_signaltap_0
 set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_trigger_in[239] -to "emu:emu|cgacard:CGAVideoAdapter|busConverter:Converter|bus_ack" -section_id auto_signaltap_0
@@ -1040,7 +1038,6 @@ set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_data_in[232] -
 set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_data_in[233] -to "emu:emu|KF8259:PIC8259|interrupt_to_cpu" -section_id auto_signaltap_0
 set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_data_in[234] -to "emu:emu|KFPS2KB:u_KFPS2KB|device_data" -section_id auto_signaltap_0
 set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_data_in[235] -to "emu:emu|KFPS2KB:u_KFPS2KB|irq" -section_id auto_signaltap_0
-set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_data_in[236] -to "emu:emu|TriggerAfterNHigh:triggerGenerator|trigger" -section_id auto_signaltap_0
 set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_data_in[237] -to "emu:emu|bios_access" -section_id auto_signaltap_0
 set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_data_in[238] -to "emu:emu|cga_mem_access" -section_id auto_signaltap_0
 set_instance_assignment -name CONNECT_TO_SLD_NODE_ENTITY_PORT acq_data_in[239] -to "emu:emu|cgacard:CGAVideoAdapter|busConverter:Converter|bus_ack" -section_id auto_signaltap_0

@@ -1570,18 +1570,6 @@ uart uart_2 (
     .irq(uart2_interrupt)                 // Interrupt request output
 );
 
-													 
-
-TriggerAfterNHigh #(
-    .N(20)  // Set the N parameter for this instance
-) triggerGenerator (
-    .clk(sys_clk),           // Connect parent clk to TriggerAfterNHigh clk
-    .rst(post_sdram_reset),           // Connect parent rst to TriggerAfterNHigh rst
-    .signal_in(data_m_access), // Connect parent signal_in to TriggerAfterNHigh signal_in
-    .trigger()    // Connect TriggerAfterNHigh trigger to parent trigger
-);
-
-		  
 Core u80186(
     .clk(sys_clk),
     .reset(post_sdram_reset),
