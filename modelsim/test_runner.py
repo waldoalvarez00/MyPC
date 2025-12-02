@@ -169,7 +169,7 @@ class ETACalculator:
 class TestRunner:
     """Main test runner that discovers and executes tests."""
 
-    def __init__(self):
+    def __init__(self, enable_coverage: bool = False):
         self.tests: Dict[str, List] = {}  # category -> list of tests
         self.suite = TestSuite(name="MyPC2 Test Suite")
         self.modelsim_dir = get_modelsim_dir()
@@ -177,6 +177,7 @@ class TestRunner:
         self.results_dir = ""
         self.eta_calculator = None
         self.skip_long = False
+        self.enable_coverage = enable_coverage  # Enable Verilator code coverage
 
     def discover_legacy_tests(self):
         """Discover existing bash test scripts and wrap them."""
@@ -365,6 +366,8 @@ class TestRunner:
 
             if simulator == 'verilator':
                 # Create VerilatorTest from TestConfig
+                # Enable coverage if runner has coverage enabled or config specifies it
+                coverage = self.enable_coverage or getattr(config, 'enable_coverage', False)
                 test = VerilatorTest(
                     name=config.name,
                     sources=config.sources,
@@ -372,7 +375,8 @@ class TestRunner:
                     top_module=config.top_module,
                     cpp_testbench=getattr(config, 'cpp_testbench', ''),
                     category=config.category,
-                    timeout=config.timeout
+                    timeout=config.timeout,
+                    enable_coverage=coverage
                 )
             else:
                 # Create IverilogTest from TestConfig
@@ -666,11 +670,16 @@ Examples:
         action='store_true',
         help="Use legacy shell script tests (default if --native not specified)"
     )
+    parser.add_argument(
+        '--coverage',
+        action='store_true',
+        help="Enable Verilator code coverage (line + toggle)"
+    )
 
     args = parser.parse_args()
 
     # Create runner and discover tests
-    runner = TestRunner()
+    runner = TestRunner(enable_coverage=args.coverage)
 
     # Choose between native and legacy test modes
     # Default to native tests (Python configurations)
@@ -738,6 +747,8 @@ Examples:
         if not args.skip_long:
             print("  (use --skip-long to skip these)")
     print(f"Parallel workers: {args.parallel}")
+    if args.coverage:
+        print(f"Coverage: ENABLED (Verilator tests only)")
     print(f"Results directory: {runner.results_dir}")
     print("=" * 70)
     print()

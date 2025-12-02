@@ -39,6 +39,9 @@ class VerilatorTest(BaseTest):
     # Output directory for Verilator
     obj_dir: str = "obj_dir"
 
+    # Enable code coverage (line + toggle)
+    enable_coverage: bool = False
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._project_root = get_project_root()
@@ -74,6 +77,10 @@ class VerilatorTest(BaseTest):
         # Build command
         cmd = [self._verilator]
         cmd.extend(self.verilator_flags)
+
+        # Add coverage flags if enabled
+        if self.enable_coverage:
+            cmd.extend(['--coverage', '--coverage-line', '--coverage-toggle'])
 
         # Add include directories
         for inc in self.includes:
