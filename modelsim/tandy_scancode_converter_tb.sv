@@ -59,31 +59,35 @@ endtask
 //   as the e0 flag is cleared when IRQ goes low
 task send_e0_scancode(input [7:0] code);
 begin
-    // Ensure clean start - IRQ must be low for at least one cycle before rising
-    keybord_irq = 0;
+    // Phase 1: Ensure IRQ is low and registered in prev_keybord_irq
+    // Change signals AFTER clock edge to ensure clean setup
     @(posedge clk);
-    @(posedge clk);  // Extra cycle to let prev_keybord_irq settle to 0
+    #1;
+    keybord_irq = 0;
+    scancode = 8'h00;
+    @(posedge clk);  // prev_keybord_irq captures keybord_irq (now 0)
     #1;
 
-    // Send E0 prefix - now IRQ will rise from a known 0 state
+    // Phase 2: Set up E0 scancode with IRQ high
+    // The next clock edge will see: prev=0, irq=1 -> posedge detected
     scancode = 8'hE0;
     keybord_irq = 1;
-    @(posedge clk);  // Posedge detected, e0_temp set to 1
-    @(posedge clk);  // Extra cycle
+    @(posedge clk);  // Posedge detected: e0_temp <= 1
     #1;
 
-    keybord_irq = 0;  // e0_temp -> e0 happens on next posedge (negedge detection)
-    @(posedge clk);  // Negedge detected, e0 = e0_temp = 1
-    @(posedge clk);  // Extra cycle
+    // Phase 3: Bring IRQ low to trigger negedge detection
+    // The next clock edge will see: prev=1, irq=0 -> negedge detected
+    keybord_irq = 0;
+    @(posedge clk);  // Negedge detected: e0 <= e0_temp (should be 1)
     #1;
 
-    // Send actual code - e0=1 is now active
+    // Phase 4: Send actual key code with E0 prefix now active
+    // The next clock edge will see: prev=0, irq=1 -> posedge detected with e0=1
     scancode = code;
     keybord_irq = 1;
-    @(posedge clk);  // Posedge with e0=1, conversion should happen
-    @(posedge clk);  // Extra cycle
+    @(posedge clk);  // Posedge detected with e0=1, conversion happens
     #1;
-    // Keep IRQ high - caller should check convert_data now
+    // IRQ still high - caller should check convert_data now
 end
 endtask
 
