@@ -25,6 +25,14 @@ logic m_ack;
 logic m_wr_en;
 logic [1:0] m_bytesel;
 
+// Victim writeback interface (tie off unused in simple test)
+logic [18:0] vwb_addr;
+logic [15:0] vwb_data_out;
+logic vwb_access;
+logic vwb_ack;
+logic vwb_wr_en;
+logic [1:0] vwb_bytesel;
+
 // Simple memory model
 logic [15:0] memory [0:1023];
 
@@ -44,6 +52,16 @@ always_ff @(posedge clk) begin
             memory[m_addr[9:1]] <= m_data_out;
     end else begin
         m_ack <= 1'b0;
+    end
+end
+
+// Victim writeback memory model - immediate ack
+always_ff @(posedge clk) begin
+    if (vwb_access && !vwb_ack) begin
+        vwb_ack <= 1'b1;
+        // Just ack the write, don't need to actually store
+    end else begin
+        vwb_ack <= 1'b0;
     end
 end
 

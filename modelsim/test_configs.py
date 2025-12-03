@@ -1883,6 +1883,353 @@ TEST_CONFIGS["uart_ports"] = TestConfig(
 
 
 # =============================================================================
+# INFRASTRUCTURE Tests (New)
+# =============================================================================
+
+TEST_CONFIGS["ack_extender"] = TestConfig(
+    name="ack_extender",
+    testbench="ack_extender_tb.sv",
+    sources=[
+        "Quartus/rtl/AckExtender.sv",
+    ],
+    includes=[
+        "Quartus/rtl",
+    ],
+    category="core",
+    description="Ack signal extender tests"
+)
+
+TEST_CONFIGS["fpu_control_register"] = TestConfig(
+    name="fpu_control_register",
+    testbench="fpu_control_register_tb.sv",
+    sources=[
+        "Quartus/rtl/FPUControlRegister.sv",
+    ],
+    includes=[
+        "Quartus/rtl",
+    ],
+    category="fpu",
+    description="FPU control word I/O register tests"
+)
+
+TEST_CONFIGS["fpu_status_register"] = TestConfig(
+    name="fpu_status_register",
+    testbench="fpu_status_register_tb.sv",
+    sources=[
+        "Quartus/rtl/FPUStatusRegister.sv",
+    ],
+    includes=[
+        "Quartus/rtl",
+    ],
+    category="fpu",
+    description="FPU status word I/O register tests"
+)
+
+TEST_CONFIGS["leds_register"] = TestConfig(
+    name="leds_register",
+    testbench="leds_register_tb.sv",
+    sources=[
+        "Quartus/rtl/leds/LEDSRegister.sv",
+    ],
+    includes=[
+        "Quartus/rtl/leds",
+    ],
+    category="peripheral",
+    description="Debug LED register tests"
+)
+
+TEST_CONFIGS["irq_controller"] = TestConfig(
+    name="irq_controller",
+    testbench="irq_controller_tb.sv",
+    sources=[
+        "Quartus/rtl/irq/IRQControl.sv",
+    ],
+    includes=[
+        "Quartus/rtl/irq",
+    ],
+    category="peripheral",
+    description="NMI/IRQ test controller tests"
+)
+
+TEST_CONFIGS["block_ram"] = TestConfig(
+    name="block_ram",
+    testbench="block_ram_tb.sv",
+    sources=[
+        "Quartus/rtl/common/BlockRam.sv",
+    ],
+    includes=[
+        "Quartus/rtl/common",
+    ],
+    category="memory",
+    description="Dual-port block RAM tests"
+)
+
+TEST_CONFIGS["dpram"] = TestConfig(
+    name="dpram",
+    testbench="dpram_tb.sv",
+    sources=[
+        "Quartus/rtl/common/DPRam.sv",
+    ],
+    includes=[
+        "Quartus/rtl/common",
+    ],
+    category="memory",
+    description="Generic dual-port parameterized RAM tests"
+)
+
+TEST_CONFIGS["cache_arbiter"] = TestConfig(
+    name="cache_arbiter",
+    testbench="cache_arbiter_tb.sv",
+    sources=[
+        "Quartus/rtl/common/CacheArbiter.sv",
+    ],
+    includes=[
+        "Quartus/rtl/common",
+    ],
+    category="arbiter",
+    description="Harvard cache arbiter tests"
+)
+
+
+# =============================================================================
+# ADDITIONAL DISCOVERED TESTS
+# =============================================================================
+
+# I-Cache tests
+TEST_CONFIGS["icache2way_prefetch"] = TestConfig(
+    name="icache2way_prefetch",
+    testbench="icache2way_prefetch_tb.sv",
+    sources=[
+        "Quartus/rtl/common/ICache2WayPrefetch.sv",
+        "Quartus/rtl/common/DPRam.sv",
+        "Quartus/rtl/common/BlockRam.sv",
+    ],
+    includes=[
+        "Quartus/rtl/common",
+    ],
+    category="memory",
+    description="ICache 2-way with prefetcher tests"
+)
+
+TEST_CONFIGS["icache2way_simple"] = TestConfig(
+    name="icache2way_simple",
+    testbench="icache2way_simple_tb.sv",
+    sources=[
+        "Quartus/rtl/common/ICache2WayPrefetch.sv",
+        "Quartus/rtl/common/DPRam.sv",
+        "Quartus/rtl/common/BlockRam.sv",
+    ],
+    includes=[
+        "Quartus/rtl/common",
+    ],
+    category="memory",
+    description="ICache 2-way with prefetch basic tests"
+)
+
+# D-Cache tests
+TEST_CONFIGS["dcache2way"] = TestConfig(
+    name="dcache2way",
+    testbench="dcache2way_tb.sv",
+    sources=[
+        "Quartus/rtl/common/DCache2Way.sv",
+        "Quartus/rtl/common/DPRam.sv",
+        "Quartus/rtl/common/BlockRam.sv",
+    ],
+    includes=[
+        "Quartus/rtl/common",
+    ],
+    category="memory",
+    description="DCache 2-way tests"
+)
+
+TEST_CONFIGS["dcache2way_simple_tb"] = TestConfig(
+    name="dcache2way_simple_tb",
+    testbench="dcache2way_simple_tb.sv",
+    sources=[
+        "Quartus/rtl/common/DCache2Way.sv",
+        "Quartus/rtl/common/DPRam.sv",
+        "Quartus/rtl/common/BlockRam.sv",
+    ],
+    includes=[
+        "Quartus/rtl/common",
+    ],
+    category="memory",
+    description="DCache 2-way simple testbench"
+)
+
+# Pipelined arbiter tests
+TEST_CONFIGS["pipelined_dma_arbiter"] = TestConfig(
+    name="pipelined_dma_arbiter",
+    testbench="pipelined_dma_arbiter_tb.sv",
+    sources=[
+        "Quartus/rtl/PipelinedDMAArbiter.sv",
+    ],
+    includes=[
+        "Quartus/rtl",
+    ],
+    category="arbiter",
+    description="Pipelined DMA arbiter tests"
+)
+
+TEST_CONFIGS["pipelined_mem_arbiter_extend"] = TestConfig(
+    name="pipelined_mem_arbiter_extend",
+    testbench="pipelined_mem_arbiter_extend_tb.sv",
+    sources=[
+        "Quartus/rtl/PipelinedMemArbiterExtend.sv",
+    ],
+    includes=[
+        "Quartus/rtl",
+    ],
+    category="arbiter",
+    description="Pipelined memory arbiter extend tests"
+)
+
+TEST_CONFIGS["pipelined_arbiters_comprehensive"] = TestConfig(
+    name="pipelined_arbiters_comprehensive",
+    testbench="pipelined_arbiters_comprehensive_tb.sv",
+    sources=[
+        "Quartus/rtl/PipelinedDMAArbiter.sv",
+        "Quartus/rtl/PipelinedDMAFPUArbiter.sv",
+        "Quartus/rtl/PipelinedMemArbiterExtend.sv",
+    ],
+    includes=[
+        "Quartus/rtl",
+    ],
+    category="arbiter",
+    timeout=180,
+    description="Comprehensive pipelined arbiter tests"
+)
+
+TEST_CONFIGS["pipelined_system_integration"] = TestConfig(
+    name="pipelined_system_integration",
+    testbench="pipelined_system_integration_tb.sv",
+    sources=[
+        "Quartus/rtl/PipelinedDMAArbiter.sv",
+        "Quartus/rtl/PipelinedDMAFPUArbiter.sv",
+        "Quartus/rtl/PipelinedMemArbiterExtend.sv",
+    ],
+    includes=[
+        "Quartus/rtl",
+    ],
+    category="arbiter",
+    timeout=180,
+    description="Pipelined system integration tests"
+)
+
+# KF8259 submodule tests
+TEST_CONFIGS["kf8259_bus_control"] = TestConfig(
+    name="kf8259_bus_control",
+    testbench="kf8259_bus_control_tb.sv",
+    sources=[
+        "Quartus/rtl/KF8259/KF8259_Bus_Control_Logic.sv",
+    ],
+    includes=[
+        "Quartus/rtl/KF8259",
+    ],
+    category="peripheral",
+    description="KF8259 bus control logic unit tests"
+)
+
+TEST_CONFIGS["kf8259_in_service"] = TestConfig(
+    name="kf8259_in_service",
+    testbench="kf8259_in_service_tb.sv",
+    sources=[
+        "Quartus/rtl/KF8259/KF8259_In_Service.sv",
+    ],
+    includes=[
+        "Quartus/rtl/KF8259",
+    ],
+    category="peripheral",
+    description="KF8259 in-service register unit tests"
+)
+
+TEST_CONFIGS["kf8259_interrupt_request"] = TestConfig(
+    name="kf8259_interrupt_request",
+    testbench="kf8259_interrupt_request_tb.sv",
+    sources=[
+        "Quartus/rtl/KF8259/KF8259_Interrupt_Request.sv",
+    ],
+    includes=[
+        "Quartus/rtl/KF8259",
+    ],
+    category="peripheral",
+    description="KF8259 interrupt request unit tests"
+)
+
+TEST_CONFIGS["kf8259_priority_resolver"] = TestConfig(
+    name="kf8259_priority_resolver",
+    testbench="kf8259_priority_resolver_tb.sv",
+    sources=[
+        "Quartus/rtl/KF8259/KF8259_Priority_Resolver.sv",
+    ],
+    includes=[
+        "Quartus/rtl/KF8259",
+    ],
+    category="peripheral",
+    description="KF8259 priority resolver unit tests"
+)
+
+# CGA bus converter
+TEST_CONFIGS["bus_converter"] = TestConfig(
+    name="bus_converter",
+    testbench="busConv_tb.sv",
+    sources=[
+        "Quartus/rtl/CGA/busConverter.sv",
+        "Quartus/rtl/CGA/vram.sv",
+    ],
+    includes=[
+        "Quartus/rtl/CGA",
+    ],
+    defines=["ICARUS"],
+    category="video",
+    description="CGA bus converter (8/16-bit) tests"
+)
+
+# VGA framebuffer integration
+TEST_CONFIGS["vga_framebuffer_integration"] = TestConfig(
+    name="vga_framebuffer_integration",
+    testbench="vga_framebuffer_integration_tb.sv",
+    sources=[
+        "Quartus/rtl/VGA/FrameBuffer.sv",
+        "Quartus/rtl/VGA/VGARegisters.sv",
+        "Quartus/rtl/VGA/VGATypes.sv",
+        "Quartus/rtl/CPU/cdc/BitSync.sv",
+        "Quartus/rtl/CPU/cdc/BusSync.sv",
+        "Quartus/rtl/CPU/cdc/MCP.sv",
+        "Quartus/rtl/CPU/cdc/SyncPulse.sv",
+        "modelsim/DACRam_sim.sv",
+    ],
+    includes=[
+        "Quartus/rtl/VGA",
+        "Quartus/rtl/CPU/cdc",
+    ],
+    defines=["ICARUS"],
+    category="video",
+    timeout=180,
+    description="VGA framebuffer integration tests"
+)
+
+# FSTSW AX tests
+TEST_CONFIGS["fstsw_ax"] = TestConfig(
+    name="fstsw_ax",
+    testbench="tb_fstsw_ax.sv",
+    sources=[],
+    includes=[],
+    category="fpu",
+    description="FSTSW AX instruction tests"
+)
+
+TEST_CONFIGS["fstsw_ax_integration"] = TestConfig(
+    name="fstsw_ax_integration",
+    testbench="tb_fstsw_ax_integration.sv",
+    sources=[],
+    includes=[],
+    category="fpu",
+    description="FSTSW AX integration tests"
+)
+
+
+# =============================================================================
 # Helper Functions
 # =============================================================================
 

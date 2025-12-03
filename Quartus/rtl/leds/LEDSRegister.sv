@@ -18,7 +18,7 @@
 `default_nettype none
 module LEDSRegister(input logic clk,
                     input logic reset,
-                    output [15:0] leds_val,
+                    output logic [15:0] leds_val,
                     input logic cs,
                     input logic [15:0] data_m_data_in,
                     output logic [15:0] data_m_data_out,

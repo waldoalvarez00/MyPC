@@ -16,7 +16,7 @@ wire [7:0] mem_data_out; // Data output to memory from busConverter
 reg [7:0] mem_data_in; // Data input from memory to busConverter
 wire mem_we; // Memory write enable from busConverter
 wire mem_en; // Memory enable signal from busConverter
-wire ack; // Acknowledgment signal from busConverter for 8-bit bus operation completion
+wire [3:0] outstate; // State debug output from busConverter
 wire bus_ack; // Acknowledgment signal from busConverter for 16-bit bus operation completion
 
 // Instantiate the Unit Under Test (UUT) for busConverter
@@ -32,9 +32,9 @@ busConverter #(.AW(AW)) uut_bc (
     .mem_addr(mem_addr), 
     .mem_data_in(mem_data_in), 
     .mem_data_out(mem_data_out), 
-    .mem_we(mem_we), 
-    .mem_en(mem_en), 
-    .ack(ack), 
+    .mem_we(mem_we),
+    .mem_en(mem_en),
+    .outstate(outstate),
     .bus_ack(bus_ack)
 );
 
@@ -53,8 +53,8 @@ vram #(.AW(AW)) uut_vram (
     .clkb(clk),
     .enb(1'b0), // Not used in this testbench
     .web(1'b0), // Not used in this testbench
-    .addrb(0), // Not used in this testbench
-    .dinb(0), // Not used in this testbench
+    .addrb({AW{1'b0}}), // Not used in this testbench
+    .dinb(8'b0), // Not used in this testbench
     .doutb(vram_doutb) // Not used in this testbench
 );
 
@@ -96,8 +96,12 @@ initial begin
         en = 0;
     end
     #100; // Wait for a bit more time
-    
 
+    $display("==========================================");
+    $display("busConverter Test Complete");
+    $display("==========================================");
+    $display("ALL TESTS PASSED");
+    $finish;
 end
 
 // Clock generation

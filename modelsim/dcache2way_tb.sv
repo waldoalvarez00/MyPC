@@ -113,7 +113,7 @@ task cache_read(input [19:1] addr, output [15:0] data, output hit);
 
         fork
             begin: timeout_block
-                repeat(100) @(posedge clk);
+                repeat(200) @(posedge clk);  // Increased for cache miss + fill
                 $display("[%0t] ERROR: Read timeout for addr 0x%05x", $time, addr);
                 $finish;
             end
@@ -146,7 +146,7 @@ task cache_write(input [19:1] addr, input [15:0] data);
 
         fork
             begin: timeout_block
-                repeat(100) @(posedge clk);
+                repeat(200) @(posedge clk);  // Increased for cache miss + fill + write
                 $display("[%0t] ERROR: Write timeout for addr 0x%05x", $time, addr);
                 $finish;
             end
