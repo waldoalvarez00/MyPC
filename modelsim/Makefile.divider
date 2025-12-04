@@ -5,11 +5,11 @@ CPU_DIR = ../Quartus/rtl/CPU
 TB_DIR = .
 
 # Verilator configuration
-VERILATOR_BIN = /tmp/verilator_extract/usr/bin/verilator
-VERILATOR_ROOT = /tmp/verilator_extract/usr/share/verilator
+VERILATOR_BIN = /tmp/local_tools/verilator_extract/usr/bin/verilator
+VERILATOR_ROOT = /tmp/local_tools/verilator_extract/usr/share/verilator
 
 # Verilator flags
-VFLAGS = -Wall -Wno-fatal -Wno-UNUSEDSIGNAL --cc --exe --build
+VFLAGS = -Wall -Wno-fatal --cc --exe --build
 VFLAGS += -I$(CPU_DIR)
 VFLAGS += -y $(VERILATOR_ROOT)/include
 VFLAGS += --top-module Divider

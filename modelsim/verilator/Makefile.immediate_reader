@@ -1,5 +1,5 @@
 # ================================================================
-# Verilator Makefile for Flags Module Test
+# Verilator Makefile for ImmediateReader Module Test
 # ================================================================
 
 # Verilator configuration
@@ -11,20 +11,19 @@ RTL_DIR = ../../Quartus/rtl/CPU
 
 # Verilator flags
 VFLAGS = --cc --exe --build -Wall
-VFLAGS += -Wno-fatal  # Don't treat warnings as errors
+VFLAGS += -Wno-fatal
 VFLAGS += -I$(RTL_DIR)
-VFLAGS += -y $(VERILATOR_ROOT)/include  # Add verilator include path
-VFLAGS += --trace  # Enable VCD tracing
+VFLAGS += --trace
 VFLAGS += -CFLAGS "-std=c++14"
 
 # RTL source files
-RTL_SOURCES = Flags_verilator.sv
+RTL_SOURCES = $(RTL_DIR)/ImmediateReader.sv
 
 # Testbench
-TB_SOURCE = flags_tb.cpp
+TB_SOURCE = immediate_reader_tb.cpp
 
 # Target
-TARGET = VFlags_verilator
+TARGET = VImmediateReader
 
 .PHONY: all clean run
 
@@ -38,4 +37,4 @@ run: $(TARGET)
 
 clean:
 	rm -rf obj_dir
-	rm -f flags_tb.vcd
+	rm -f immediate_reader_tb.vcd

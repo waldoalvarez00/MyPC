@@ -113,13 +113,12 @@ class IverilogTest(BaseTest):
                 cmd,
                 cwd=self.work_dir,
                 capture_output=True,
-                text=True,
                 timeout=60
             )
 
             if result.returncode != 0:
                 print(f"Compilation failed for {self.name}:")
-                print(result.stderr)
+                print(result.stderr.decode('utf-8', errors='replace'))
                 return False
 
             return True
@@ -149,11 +148,13 @@ class IverilogTest(BaseTest):
                 cmd,
                 cwd=self.work_dir,
                 capture_output=True,
-                text=True,
                 timeout=self.timeout
             )
 
-            return (result.returncode, result.stdout, result.stderr)
+            # Decode with error handling for binary output
+            stdout = result.stdout.decode('utf-8', errors='replace')
+            stderr = result.stderr.decode('utf-8', errors='replace')
+            return (result.returncode, stdout, stderr)
 
         except subprocess.TimeoutExpired:
             raise TimeoutError(f"Simulation timed out after {self.timeout}s")
@@ -212,12 +213,14 @@ class LegacyBashTest(BaseTest):
                 ["bash", script_path],
                 cwd=get_modelsim_dir(),
                 capture_output=True,
-                text=True,
                 timeout=self.timeout,
                 env={**os.environ, "PATH": f"/tmp/iverilog_extract/usr/bin:/tmp/verilator_extract/usr/bin:{os.environ.get('PATH', '')}"}
             )
 
-            return (result.returncode, result.stdout, result.stderr)
+            # Decode with error handling for binary output
+            stdout = result.stdout.decode('utf-8', errors='replace')
+            stderr = result.stderr.decode('utf-8', errors='replace')
+            return (result.returncode, stdout, stderr)
 
         except subprocess.TimeoutExpired:
             raise TimeoutError(f"Script timed out after {self.timeout}s")

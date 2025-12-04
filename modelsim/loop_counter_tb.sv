@@ -34,14 +34,52 @@ module loop_counter_tb;
         forever #10 clk = ~clk;
     end
 
+    // Helper task to load a value
+    task do_load(input [4:0] val);
+        #1;
+        count_in = val;
+        load = 1;
+        #1;
+        @(posedge clk);
+        #1;
+        load = 0;
+        #1;
+        @(posedge clk);
+        #1;
+    endtask
+
+    // Helper task to decrement
+    task do_next();
+        #1;
+        next = 1;
+        #1;
+        @(posedge clk);
+        #1;
+        next = 0;
+        #1;
+    endtask
+
+    // Helper task to decrement N times
+    task do_next_n(input int n);
+        #1;
+        next = 1;
+        #1;
+        repeat(n) @(posedge clk);
+        #1;
+        next = 0;
+        #1;
+        @(posedge clk);
+        #1;
+    endtask
+
     task check_done(input string test_name, input logic expected);
-        #1;  // Small delay to let non-blocking assignments settle
+        #5;  // Let combinational logic settle
         test_count++;
         if (done === expected) begin
             $display("[PASS] Test %0d: %s", test_count, test_name);
             pass_count++;
         end else begin
-            $display("[FAIL] Test %0d: %s (done=%b)", test_count, test_name, done);
+            $display("[FAIL] Test %0d: %s (done=%b, count=%d)", test_count, test_name, done, dut.count);
             fail_count++;
         end
     endtask
@@ -58,6 +96,7 @@ module loop_counter_tb;
         next = 0;
 
         repeat(3) @(posedge clk);
+        #1;
 
         // ================================================================
         // TEST 1: Initial State (done should be true for count=0)
@@ -71,12 +110,7 @@ module loop_counter_tb;
         // ================================================================
         $display("\n--- Test 2: Load Count ---");
 
-        count_in = 5'd5;
-        load = 1;
-        @(posedge clk);
-        load = 0;
-        @(posedge clk);
-
+        do_load(5'd5);
         check_done("Done false after loading 5", 0);
 
         // ================================================================
@@ -84,22 +118,19 @@ module loop_counter_tb;
         // ================================================================
         $display("\n--- Test 3: Decrement ---");
 
-        next = 1;
-        @(posedge clk);  // count = 4
+        do_next();
         check_done("After 1st decrement, done=0", 0);
 
-        @(posedge clk);  // count = 3
+        do_next();
         check_done("After 2nd decrement, done=0", 0);
 
-        @(posedge clk);  // count = 2
+        do_next();
         check_done("After 3rd decrement, done=0", 0);
 
-        @(posedge clk);  // count = 1
+        do_next();
         check_done("After 4th decrement, done=0", 0);
 
-        @(posedge clk);  // count = 0
-        next = 0;
-        @(posedge clk);
+        do_next();
         check_done("After 5th decrement, done=1", 1);
 
         // ================================================================
@@ -107,23 +138,11 @@ module loop_counter_tb;
         // ================================================================
         $display("\n--- Test 4: Reload During Count ---");
 
-        count_in = 5'd3;
-        load = 1;
-        @(posedge clk);
-        load = 0;
-        @(posedge clk);
-
-        next = 1;
-        @(posedge clk);  // count = 2
+        do_load(5'd3);
+        do_next();
 
         // Reload with new value
-        count_in = 5'd10;
-        load = 1;
-        @(posedge clk);
-        load = 0;
-        next = 0;
-        @(posedge clk);
-
+        do_load(5'd10);
         check_done("Reloaded count, done=0", 0);
 
         // ================================================================
@@ -131,18 +150,8 @@ module loop_counter_tb;
         // ================================================================
         $display("\n--- Test 5: Full Countdown ---");
 
-        count_in = 5'd3;
-        load = 1;
-        @(posedge clk);
-        load = 0;
-        next = 1;
-
-        @(posedge clk);  // 2
-        @(posedge clk);  // 1
-        @(posedge clk);  // 0
-        next = 0;
-        @(posedge clk);
-
+        do_load(5'd3);
+        do_next_n(3);
         check_done("Full countdown complete", 1);
 
         // ================================================================
@@ -150,12 +159,7 @@ module loop_counter_tb;
         // ================================================================
         $display("\n--- Test 6: Load Zero ---");
 
-        count_in = 5'd0;
-        load = 1;
-        @(posedge clk);
-        load = 0;
-        @(posedge clk);
-
+        do_load(5'd0);
         check_done("Loaded zero, done=1", 1);
 
         // ================================================================
@@ -163,43 +167,21 @@ module loop_counter_tb;
         // ================================================================
         $display("\n--- Test 7: Load Maximum ---");
 
-        count_in = 5'd31;  // Maximum 5-bit value
-        load = 1;
-        @(posedge clk);
-        load = 0;
-        @(posedge clk);
-
+        do_load(5'd31);
         check_done("Loaded max value, done=0", 0);
 
         // Decrement a few times
-        next = 1;
-        for (int i = 0; i < 5; i++) begin
-            @(posedge clk);
-        end
-        next = 0;
-        @(posedge clk);
-
+        do_next_n(5);
         check_done("After partial countdown, done=0", 0);
 
         // ================================================================
-        // TEST 8: Next Without Load
+        // TEST 8: Next Without Load (at zero)
         // ================================================================
         $display("\n--- Test 8: Next Without Load ---");
 
-        // Ensure counter is at zero
-        count_in = 5'd0;
-        load = 1;
-        @(posedge clk);
-        load = 0;
-        @(posedge clk);
-
-        // Try to decrement when already at zero
-        next = 1;
-        @(posedge clk);
-        @(posedge clk);
-        next = 0;
-        @(posedge clk);
-
+        do_load(5'd0);
+        do_next();
+        do_next();
         check_done("Next at zero doesn't underflow", 1);
 
         // ================================================================
@@ -207,15 +189,21 @@ module loop_counter_tb;
         // ================================================================
         $display("\n--- Test 9: Rapid Operations ---");
 
+        #1;
         count_in = 5'd2;
         load = 1;
-        next = 1;  // Both signals high
+        next = 1;
+        #1;
         @(posedge clk);
+        #1;
         load = 0;
-        @(posedge clk);  // Decrement
-        @(posedge clk);  // Decrement to 0
-        next = 0;
         @(posedge clk);
+        @(posedge clk);
+        #1;
+        next = 0;
+        #1;
+        @(posedge clk);
+        #1;
 
         check_done("Rapid load/next operations", 1);
 
@@ -224,19 +212,10 @@ module loop_counter_tb;
         // ================================================================
         $display("\n--- Test 10: Single Count ---");
 
-        count_in = 5'd1;
-        load = 1;
-        @(posedge clk);
-        load = 0;
-        @(posedge clk);
-
+        do_load(5'd1);
         check_done("Loaded 1, done=0", 0);
 
-        next = 1;
-        @(posedge clk);  // Decrement to 0
-        next = 0;
-        @(posedge clk);
-
+        do_next();
         check_done("After single decrement, done=1", 1);
 
         // ================================================================
@@ -252,10 +231,10 @@ module loop_counter_tb;
         $display("================================================================");
 
         if (fail_count == 0) begin
-            $display("✓✓✓ ALL TESTS PASSED ✓✓✓\n");
+            $display("*** ALL TESTS PASSED ***\n");
             $finish(0);
         end else begin
-            $display("✗✗✗ SOME TESTS FAILED ✗✗✗\n");
+            $display("*** SOME TESTS FAILED ***\n");
             $finish(1);
         end
     end

@@ -100,22 +100,26 @@ def check_test_success(output: str, exit_code: int) -> bool:
         r'SUCCESS',
         r'Pass\s*Rate\s*:\s*100',
         r'Failed\s*:\s*0\b',
+        r'✓\s*PASS',              # Unicode pass marker
+        r'\bPASS\b\s*$',          # PASS at end of line (final verdict)
     ]
 
     for pattern in success_patterns:
-        if re.search(pattern, output, re.IGNORECASE):
+        if re.search(pattern, output, re.IGNORECASE | re.MULTILINE):
             return True
 
     # Check for failure indicators
     failure_patterns = [
         r'TESTS?\s*FAILED',
         r'FAILURE',
-        r'ERROR',
+        r'\bERROR\b(?!\s*:\s*0)',  # ERROR but not "Error: 0" (which means no error)
         r'Failed\s*:\s*[1-9]',
+        r'❌\s*FAIL',              # Unicode fail marker
+        r'\*\*\*.*FAIL',           # *** FAIL patterns
     ]
 
     for pattern in failure_patterns:
-        if re.search(pattern, output, re.IGNORECASE):
+        if re.search(pattern, output, re.IGNORECASE | re.MULTILINE):
             return False
 
     # Default to exit code

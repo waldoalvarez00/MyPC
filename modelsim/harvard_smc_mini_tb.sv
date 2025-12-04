@@ -189,15 +189,24 @@ module harvard_smc_mini_tb;
     endtask
 
     integer test_count, pass_count, fail_count;
+
+    // Test addresses - moved to module scope for Icarus compatibility
+    localparam [19:1] A0 = 19'h00010; // target code
+    localparam [19:1] A1 = 19'h10010; // same set, other tag
+    localparam [19:1] A2 = 19'h20010; // same set, other tag
+
+    // Test variable - moved to module scope for Icarus compatibility
+    logic [15:0] q;
+
     task automatic check(input bit cond, input string msg);
         begin
             test_count++;
             if (cond) begin
                 pass_count++;
-                $display("  ✓ %s", msg);
+                $display("  PASS %s", msg);
             end else begin
                 fail_count++;
-                $display("  ✗ %s", msg);
+                $display("  FAIL %s", msg);
             end
         end
     endtask
@@ -219,18 +228,12 @@ module harvard_smc_mini_tb;
 
         $display("=== Harvard SMC Mini Test (sets=%0d) ===", SETS);
 
-        // Choose addresses mapping to same set (index=0)
-        localparam [19:1] A0 = 19'h00010; // target code
-        localparam [19:1] A1 = 19'h10010; // same set, other tag
-        localparam [19:1] A2 = 19'h20010; // same set, other tag
-
         // Initialize SDRAM contents
         sdram[A0[11:1]] = 16'h1111;
         sdram[A1[11:1]] = 16'h2222;
         sdram[A2[11:1]] = 16'h3333;
 
         // Step 1: I-fetch original code
-        automatic [15:0] q;
         do_fetch(A0, q);
         check(q == 16'h1111, "Initial I-fetch sees original code");
 

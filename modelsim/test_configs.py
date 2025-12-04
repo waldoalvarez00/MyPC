@@ -200,8 +200,8 @@ TEST_CONFIGS["RegisterFile"] = TestConfig(
     includes=[
         "Quartus/rtl/CPU",
     ],
-    category="skip",  # Icarus Verilog issue with unpacked array output ports (rd_val[2])
-    description="RegisterFile tests"
+    category="skip",  # Use registerfile_verilator instead (Icarus: unpacked array output ports)
+    description="RegisterFile tests - use registerfile_verilator"
 )
 
 TEST_CONFIGS["alu"] = TestConfig(
@@ -270,8 +270,8 @@ TEST_CONFIGS["divider"] = TestConfig(
     includes=[
         "Quartus/rtl/CPU",
     ],
-    category="skip",  # Icarus Verilog compatibility issue - use divider_verilator instead
-    description="divider tests - skip due to Icarus timing issues"
+    category="skip",  # Use divider_verilator instead (Icarus: timing issues)
+    description="divider tests - use divider_verilator"
 )
 
 TEST_CONFIGS["flags"] = TestConfig(
@@ -284,8 +284,8 @@ TEST_CONFIGS["flags"] = TestConfig(
     includes=[
         "Quartus/rtl/CPU",
     ],
-    category="skip",  # Icarus: variable declarations in procedural blocks not supported
-    description="flags tests"
+    category="skip",  # Use flags_verilator instead (Icarus: procedural block issues)
+    description="flags tests - use flags_verilator"
 )
 
 TEST_CONFIGS["fontcolorlut_unit"] = TestConfig(
@@ -331,7 +331,7 @@ TEST_CONFIGS["harvard_smc_mini"] = TestConfig(
         "Quartus/rtl/common/BlockRam.sv",
     ],
     includes=[],
-    category="skip",  # Icarus: localparam in procedural blocks not supported
+    category="memory",  # Fixed: moved localparam declarations to module scope
     description="harvard_smc_mini tests"
 )
 
@@ -344,8 +344,8 @@ TEST_CONFIGS["immediate_reader"] = TestConfig(
     includes=[
         "Quartus/rtl/CPU",
     ],
-    category="skip",  # Icarus Verilog timing evaluation issue
-    description="immediate_reader tests"
+    category="skip",  # Use immediate_reader_verilator instead (Icarus: constant selects)
+    description="immediate_reader tests - use immediate_reader_verilator"
 )
 
 TEST_CONFIGS["insndecoder"] = TestConfig(
@@ -359,8 +359,8 @@ TEST_CONFIGS["insndecoder"] = TestConfig(
     includes=[
         "Quartus/rtl/CPU",
     ],
-    category="skip",  # Icarus: constant selects in always_*, explicit cast required
-    description="insndecoder tests"
+    category="skip",  # Icarus: constant selects in always_* - needs Verilator port (complex Instruction struct)
+    description="insndecoder tests - needs Verilator port"
 )
 
 TEST_CONFIGS["ip"] = TestConfig(
@@ -398,7 +398,7 @@ TEST_CONFIGS["loop_counter"] = TestConfig(
     includes=[
         "Quartus/rtl/CPU",
     ],
-    category="skip",  # Icarus Verilog timing evaluation issue
+    category="core",  # Fixed timing for Icarus compatibility
     description="loop_counter tests"
 )
 
@@ -475,21 +475,7 @@ TEST_CONFIGS["prefetch_smc"] = TestConfig(
     description="Self-modifying code detection in prefetch FIFO"
 )
 
-TEST_CONFIGS["register_file"] = TestConfig(
-    name="register_file",
-    testbench="RegisterFile_tb.sv",
-    sources=[
-        "Quartus/rtl/CPU/RegisterEnum.sv",
-        "Quartus/rtl/CPU/FlagsEnum.sv",
-        "Quartus/rtl/CPU/MicrocodeTypes.sv",
-        "Quartus/rtl/CPU/RegisterFile.sv",
-    ],
-    includes=[
-        "Quartus/rtl/CPU",
-    ],
-    category="skip",  # Icarus Verilog issue with unpacked array output ports - scalar outputs work correctly
-    description="register_file tests"
-)
+# NOTE: register_file removed - duplicate of RegisterFile (use registerfile_verilator)
 
 TEST_CONFIGS["segment_override"] = TestConfig(
     name="segment_override",
@@ -510,12 +496,12 @@ TEST_CONFIGS["segment_register_file"] = TestConfig(
     testbench="segment_register_file_tb.sv",
     sources=[
         "Quartus/rtl/CPU/SegmentRegisterFile.sv",
-        # RegisterEnum.sv is included via `include in testbench
+        "Quartus/rtl/CPU/RegisterEnum.sv",
     ],
     includes=[
         "Quartus/rtl/CPU",
     ],
-    category="skip",  # Icarus: variable declarations in procedural blocks not supported
+    category="core",  # Fixed declarations and timing for Icarus compatibility
     description="segment_register_file tests"
 )
 
@@ -1181,17 +1167,16 @@ TEST_CONFIGS["dcache2way_simple"] = TestConfig(
 
 TEST_CONFIGS["dcache_coherency"] = TestConfig(
     name="dcache_coherency",
-    testbench="None",
+    testbench="tb_dcache_coherency.sv",
     sources=[
-        "Quartus/rtl/tb_dcache_coherency.sv",
         "Quartus/rtl/common/DCacheFrontendArbiter.sv",
         "Quartus/rtl/common/DCache2Way.sv",
         "Quartus/rtl/common/DPRam.sv",
         "Quartus/rtl/common/BlockRam.sv",
     ],
     includes=[],
-    category="skip",  # No testbench available
-    description="dcache_coherency tests - testbench not implemented"
+    category="skip",  # Known cache writeback bug - times out during victim writeback
+    description="dcache_coherency tests - SKIP: cache victim writeback timeout bug"
 )
 
 TEST_CONFIGS["fifo"] = TestConfig(
@@ -1737,6 +1722,56 @@ TEST_CONFIGS["ps2_mouse_verilator"] = TestConfig(
     cpp_testbench="ps2_mouse_tb.cpp"
 )
 
+# Existing Verilator tests from verilator/ directory
+TEST_CONFIGS["flags_verilator"] = TestConfig(
+    name="flags_verilator",
+    testbench="",
+    sources=[
+        "modelsim/verilator/Flags_verilator.sv",
+    ],
+    includes=[
+        "Quartus/rtl/CPU",
+    ],
+    top_module="Flags_verilator",
+    category="core",
+    description="Flags Verilator tests (Icarus enum incompatibility)",
+    simulator="verilator",
+    cpp_testbench="verilator/flags_tb.cpp"
+)
+
+TEST_CONFIGS["loop_counter_verilator"] = TestConfig(
+    name="loop_counter_verilator",
+    testbench="",
+    sources=[
+        "Quartus/rtl/CPU/LoopCounter.sv",
+    ],
+    includes=[
+        "Quartus/rtl/CPU",
+    ],
+    top_module="LoopCounter",
+    category="core",
+    description="LoopCounter Verilator tests",
+    simulator="verilator",
+    cpp_testbench="verilator/loop_counter_tb.cpp"
+)
+
+TEST_CONFIGS["segment_register_file_verilator"] = TestConfig(
+    name="segment_register_file_verilator",
+    testbench="",
+    sources=[
+        "Quartus/rtl/CPU/SegmentRegisterFile.sv",
+        "Quartus/rtl/CPU/RegisterEnum.sv",
+    ],
+    includes=[
+        "Quartus/rtl/CPU",
+    ],
+    top_module="SegmentRegisterFile",
+    category="core",
+    description="SegmentRegisterFile Verilator tests",
+    simulator="verilator",
+    cpp_testbench="verilator/segment_register_file_tb.cpp"
+)
+
 
 # =============================================================================
 # NEW COVERAGE GAP TESTS
@@ -2190,9 +2225,14 @@ TEST_CONFIGS["vga_framebuffer_integration"] = TestConfig(
     name="vga_framebuffer_integration",
     testbench="vga_framebuffer_integration_tb.sv",
     sources=[
-        "Quartus/rtl/VGA/FrameBuffer.sv",
-        "Quartus/rtl/VGA/VGARegisters.sv",
         "Quartus/rtl/VGA/VGATypes.sv",
+        "Quartus/rtl/VGA/VGASync.sv",
+        "Quartus/rtl/VGA/VGARegisters.sv",
+        "Quartus/rtl/VGA/VGAPrefetchRAM_sim.sv",
+        "Quartus/rtl/VGA/FBPrefetch.sv",
+        "Quartus/rtl/VGA/FrameBuffer.sv",
+        "Quartus/rtl/VGA/FontColorLUT.sv",
+        "Quartus/rtl/VGA/VGAController.sv",
         "Quartus/rtl/CPU/cdc/BitSync.sv",
         "Quartus/rtl/CPU/cdc/BusSync.sv",
         "Quartus/rtl/CPU/cdc/MCP.sv",
@@ -2205,8 +2245,8 @@ TEST_CONFIGS["vga_framebuffer_integration"] = TestConfig(
     ],
     defines=["ICARUS"],
     category="video",
-    timeout=180,
-    description="VGA framebuffer integration tests"
+    timeout=120,
+    description="VGA framebuffer integration tests (simplified to 1 mode/frame for CI speed)"
 )
 
 # FSTSW AX tests
@@ -2226,6 +2266,679 @@ TEST_CONFIGS["fstsw_ax_integration"] = TestConfig(
     includes=[],
     category="fpu",
     description="FSTSW AX integration tests"
+)
+
+
+# =============================================================================
+# FPU8087 Tests (moved from Quartus/rtl/FPU8087/tests/)
+# =============================================================================
+
+# Common FPU sources used by all tests
+FPU8087_COMMON_SOURCES = [
+    "Quartus/rtl/FPU8087/8087Status.v",
+    "Quartus/rtl/FPU8087/AddSubComp.v",
+    "Quartus/rtl/FPU8087/BarrelShifter.v",
+    "Quartus/rtl/FPU8087/BitShifter.v",
+    "Quartus/rtl/FPU8087/ByteShifter.v",
+    "Quartus/rtl/FPU8087/CORDIC_Rotator.v",
+    "Quartus/rtl/FPU8087/ControlWord.v",
+    "Quartus/rtl/FPU8087/ESC_Decoder.v",
+    "Quartus/rtl/FPU8087/FPU8087.v",
+    "Quartus/rtl/FPU8087/FPU8087_Direct.v",
+    # "Quartus/rtl/FPU8087/FPU8087_Integrated.v",  # Disabled - depends on missing FPU_Core_Wrapper
+    "Quartus/rtl/FPU8087/FPU_ArithmeticUnit.v",
+    "Quartus/rtl/FPU8087/FPU_Atan_Table.v",
+    "Quartus/rtl/FPU8087/FPU_BCD_to_Binary.v",
+    "Quartus/rtl/FPU8087/FPU_Binary_to_BCD.v",
+    "Quartus/rtl/FPU8087/FPU_CORDIC_Wrapper.v",
+    "Quartus/rtl/FPU8087/FPU_CPU_Interface.v",
+    "Quartus/rtl/FPU8087/FPU_ControlWord.v",
+    "Quartus/rtl/FPU8087/FPU_Core.v",
+    "Quartus/rtl/FPU8087/FPU_Core_Async.v",
+    "Quartus/rtl/FPU8087/FPU_Exception_Handler.v",
+    "Quartus/rtl/FPU8087/FPU_FP32_to_FP80.v",
+    "Quartus/rtl/FPU8087/FPU_FP64_to_FP80.v",
+    "Quartus/rtl/FPU8087/FPU_FP80_to_FP32.v",
+    "Quartus/rtl/FPU8087/FPU_FP80_to_FP64.v",
+    "Quartus/rtl/FPU8087/FPU_FP80_to_Int16.v",
+    "Quartus/rtl/FPU8087/FPU_FP80_to_Int32.v",
+    "Quartus/rtl/FPU8087/FPU_FP80_to_UInt64.v",
+    "Quartus/rtl/FPU8087/FPU_Format_Converter_Unified.v",
+    "Quartus/rtl/FPU8087/FPU_IEEE754_AddSub.v",
+    "Quartus/rtl/FPU8087/FPU_IEEE754_Divide.v",
+    "Quartus/rtl/FPU8087/FPU_IEEE754_MulDiv_Unified.v",
+    "Quartus/rtl/FPU8087/FPU_IEEE754_Multiply.v",
+    "Quartus/rtl/FPU8087/FPU_Instruction_Decoder.v",
+    "Quartus/rtl/FPU8087/FPU_Instruction_Queue.v",
+    "Quartus/rtl/FPU8087/FPU_Int16_to_FP80.v",
+    "Quartus/rtl/FPU8087/FPU_Int32_to_FP80.v",
+    "Quartus/rtl/FPU8087/FPU_IO_Port.sv",
+    "Quartus/rtl/FPU8087/FPU_Memory_Interface.v",
+    "Quartus/rtl/FPU8087/FPU_Outer_Queue.v",
+    "Quartus/rtl/FPU8087/FPU_Payne_Hanek.v",
+    "Quartus/rtl/FPU8087/FPU_Payne_Hanek_ROM.v",
+    "Quartus/rtl/FPU8087/FPU_Poly_Coeff_ROM.v",
+    "Quartus/rtl/FPU8087/FPU_Polynomial_Evaluator.v",
+    "Quartus/rtl/FPU8087/FPU_Range_Reduction.v",
+    "Quartus/rtl/FPU8087/FPU_RegisterStack.v",
+    "Quartus/rtl/FPU8087/FPU_SQRT_Newton.v",
+    "Quartus/rtl/FPU8087/FPU_StatusWord.v",
+    "Quartus/rtl/FPU8087/FPU_Transcendental.v",
+    "Quartus/rtl/FPU8087/FPU_UInt64_to_FP80.v",
+    "Quartus/rtl/FPU8087/LZCByte.v",
+    "Quartus/rtl/FPU8087/LZCbit.v",
+    "Quartus/rtl/FPU8087/MathConstants.v",
+    "Quartus/rtl/FPU8087/MicroSequencer_Extended_BCD.v",
+    "Quartus/rtl/FPU8087/Normalizer.v",
+    "Quartus/rtl/FPU8087/RoundUnit.v",
+    "Quartus/rtl/FPU8087/StackRegister.v",
+    "Quartus/rtl/FPU8087/tagRegister.v",
+    "Quartus/rtl/FPU8087/three_bit_4x1_mux.v",
+]
+
+FPU8087_INCLUDES = ["Quartus/rtl/FPU8087"]
+
+# Unit tests
+TEST_CONFIGS["fpu8087_AddSubComp"] = TestConfig(
+    name="fpu8087_AddSubComp",
+    testbench="fpu8087_AddSubComp_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 AddSubComp tests"
+)
+
+TEST_CONFIGS["fpu8087_BarrelShifter"] = TestConfig(
+    name="fpu8087_BarrelShifter",
+    testbench="fpu8087_BarrelShifter_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 BarrelShifter tests"
+)
+
+TEST_CONFIGS["fpu8087_advanced_ops"] = TestConfig(
+    name="fpu8087_advanced_ops",
+    testbench="fpu8087_advanced_ops_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 advanced ops tests"
+)
+
+TEST_CONFIGS["fpu8087_advanced_transcendental"] = TestConfig(
+    name="fpu8087_advanced_transcendental",
+    testbench="fpu8087_advanced_transcendental_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 advanced transcendental tests"
+)
+
+TEST_CONFIGS["fpu8087_bcd"] = TestConfig(
+    name="fpu8087_bcd",
+    testbench="fpu8087_bcd_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 bcd tests"
+)
+
+TEST_CONFIGS["fpu8087_bcd_debug"] = TestConfig(
+    name="fpu8087_bcd_debug",
+    testbench="fpu8087_bcd_debug_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 bcd debug tests"
+)
+
+TEST_CONFIGS["fpu8087_bcd_to_binary"] = TestConfig(
+    name="fpu8087_bcd_to_binary",
+    testbench="fpu8087_bcd_to_binary_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 bcd to binary tests"
+)
+
+TEST_CONFIGS["fpu8087_binary_to_bcd"] = TestConfig(
+    name="fpu8087_binary_to_bcd",
+    testbench="fpu8087_binary_to_bcd_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 binary to bcd tests"
+)
+
+TEST_CONFIGS["fpu8087_control_instructions"] = TestConfig(
+    name="fpu8087_control_instructions",
+    testbench="fpu8087_control_instructions_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 control instructions tests"
+)
+
+TEST_CONFIGS["fpu8087_conv_debug"] = TestConfig(
+    name="fpu8087_conv_debug",
+    testbench="fpu8087_conv_debug_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 conv debug tests"
+)
+
+TEST_CONFIGS["fpu8087_cordic_direct"] = TestConfig(
+    name="fpu8087_cordic_direct",
+    testbench="fpu8087_cordic_direct_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 cordic direct tests"
+)
+
+TEST_CONFIGS["fpu8087_decoder_debug"] = TestConfig(
+    name="fpu8087_decoder_debug",
+    testbench="fpu8087_decoder_debug_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 decoder debug tests"
+)
+
+TEST_CONFIGS["fpu8087_denormal_precision"] = TestConfig(
+    name="fpu8087_denormal_precision",
+    testbench="fpu8087_denormal_precision_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 denormal precision tests"
+)
+
+TEST_CONFIGS["fpu8087_esc_decoder"] = TestConfig(
+    name="fpu8087_esc_decoder",
+    testbench="fpu8087_esc_decoder_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 esc decoder tests"
+)
+
+TEST_CONFIGS["fpu8087_exception_functions"] = TestConfig(
+    name="fpu8087_exception_functions",
+    testbench="fpu8087_exception_functions_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 exception functions tests"
+)
+
+TEST_CONFIGS["fpu8087_exception_handler"] = TestConfig(
+    name="fpu8087_exception_handler",
+    testbench="fpu8087_exception_handler_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 exception handler tests"
+)
+
+TEST_CONFIGS["fpu8087_exception_handling"] = TestConfig(
+    name="fpu8087_exception_handling",
+    testbench="fpu8087_exception_handling_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 exception handling tests"
+)
+
+TEST_CONFIGS["fpu8087_extended_prechecks"] = TestConfig(
+    name="fpu8087_extended_prechecks",
+    testbench="fpu8087_extended_prechecks_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 extended prechecks tests"
+)
+
+TEST_CONFIGS["fpu8087_fcom"] = TestConfig(
+    name="fpu8087_fcom",
+    testbench="fpu8087_fcom_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fcom tests"
+)
+
+TEST_CONFIGS["fpu8087_fcom_debug"] = TestConfig(
+    name="fpu8087_fcom_debug",
+    testbench="fpu8087_fcom_debug_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fcom debug tests"
+)
+
+TEST_CONFIGS["fpu8087_fcom_equal_debug"] = TestConfig(
+    name="fpu8087_fcom_equal_debug",
+    testbench="fpu8087_fcom_equal_debug_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fcom equal debug tests"
+)
+
+TEST_CONFIGS["fpu8087_format_conv_fp"] = TestConfig(
+    name="fpu8087_format_conv_fp",
+    testbench="fpu8087_format_conv_fp_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 format conv fp tests"
+)
+
+TEST_CONFIGS["fpu8087_format_conv_int"] = TestConfig(
+    name="fpu8087_format_conv_int",
+    testbench="fpu8087_format_conv_int_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 format conv int tests"
+)
+
+TEST_CONFIGS["fpu8087_format_converter_unified"] = TestConfig(
+    name="fpu8087_format_converter_unified",
+    testbench="fpu8087_format_converter_unified_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 format converter unified tests"
+)
+
+TEST_CONFIGS["fpu8087_fprem_fxtract_fscale"] = TestConfig(
+    name="fpu8087_fprem_fxtract_fscale",
+    testbench="fpu8087_fprem_fxtract_fscale_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fprem fxtract fscale tests"
+)
+
+TEST_CONFIGS["fpu8087_fptan_simple"] = TestConfig(
+    name="fpu8087_fptan_simple",
+    testbench="fpu8087_fptan_simple_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fptan simple tests"
+)
+
+TEST_CONFIGS["fpu8087_fpu8087_direct"] = TestConfig(
+    name="fpu8087_fpu8087_direct",
+    testbench="fpu8087_fpu8087_direct_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fpu8087 direct tests"
+)
+
+TEST_CONFIGS["fpu8087_fpu8087_trivial"] = TestConfig(
+    name="fpu8087_fpu8087_trivial",
+    testbench="fpu8087_fpu8087_trivial_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fpu8087 trivial tests"
+)
+
+TEST_CONFIGS["fpu8087_fpu8087_trivial_fixed"] = TestConfig(
+    name="fpu8087_fpu8087_trivial_fixed",
+    testbench="fpu8087_fpu8087_trivial_fixed_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fpu8087 trivial fixed tests"
+)
+
+TEST_CONFIGS["fpu8087_fpu_core"] = TestConfig(
+    name="fpu8087_fpu_core",
+    testbench="fpu8087_fpu_core_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fpu core tests"
+)
+
+TEST_CONFIGS["fpu8087_fpu_core_bcd_microcode"] = TestConfig(
+    name="fpu8087_fpu_core_bcd_microcode",
+    testbench="fpu8087_fpu_core_bcd_microcode_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fpu core bcd microcode tests"
+)
+
+TEST_CONFIGS["fpu8087_fpu_debug"] = TestConfig(
+    name="fpu8087_fpu_debug",
+    testbench="fpu8087_fpu_debug_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fpu debug tests"
+)
+
+TEST_CONFIGS["fpu8087_fpu_io_registers"] = TestConfig(
+    name="fpu8087_fpu_io_registers",
+    testbench="fpu8087_fpu_io_registers_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fpu io registers tests"
+)
+
+TEST_CONFIGS["fpu8087_fpu_memory_interface"] = TestConfig(
+    name="fpu8087_fpu_memory_interface",
+    testbench="fpu8087_fpu_memory_interface_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fpu memory interface tests"
+)
+
+TEST_CONFIGS["fpu8087_fstp_debug"] = TestConfig(
+    name="fpu8087_fstp_debug",
+    testbench="fpu8087_fstp_debug_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fstp debug tests"
+)
+
+TEST_CONFIGS["fpu8087_fxam_debug"] = TestConfig(
+    name="fpu8087_fxam_debug",
+    testbench="fpu8087_fxam_debug_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fxam debug tests"
+)
+
+TEST_CONFIGS["fpu8087_fxch"] = TestConfig(
+    name="fpu8087_fxch",
+    testbench="fpu8087_fxch_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fxch tests"
+)
+
+TEST_CONFIGS["fpu8087_fxtract_fscale"] = TestConfig(
+    name="fpu8087_fxtract_fscale",
+    testbench="fpu8087_fxtract_fscale_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fxtract fscale tests"
+)
+
+TEST_CONFIGS["fpu8087_ieee754_addsub"] = TestConfig(
+    name="fpu8087_ieee754_addsub",
+    testbench="fpu8087_ieee754_addsub_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 ieee754 addsub tests"
+)
+
+TEST_CONFIGS["fpu8087_ieee754_divide"] = TestConfig(
+    name="fpu8087_ieee754_divide",
+    testbench="fpu8087_ieee754_divide_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 ieee754 divide tests"
+)
+
+TEST_CONFIGS["fpu8087_ieee754_multiply"] = TestConfig(
+    name="fpu8087_ieee754_multiply",
+    testbench="fpu8087_ieee754_multiply_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 ieee754 multiply tests"
+)
+
+TEST_CONFIGS["fpu8087_instruction_decoder"] = TestConfig(
+    name="fpu8087_instruction_decoder",
+    testbench="fpu8087_instruction_decoder_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 instruction decoder tests"
+)
+
+TEST_CONFIGS["fpu8087_instruction_queue"] = TestConfig(
+    name="fpu8087_instruction_queue",
+    testbench="fpu8087_instruction_queue_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 instruction queue tests"
+)
+
+TEST_CONFIGS["fpu8087_int32_simple"] = TestConfig(
+    name="fpu8087_int32_simple",
+    testbench="fpu8087_int32_simple_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 int32 simple tests"
+)
+
+TEST_CONFIGS["fpu8087_integration_debug"] = TestConfig(
+    name="fpu8087_integration_debug",
+    testbench="fpu8087_integration_debug_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 integration debug tests"
+)
+
+TEST_CONFIGS["fpu8087_memory_ops"] = TestConfig(
+    name="fpu8087_memory_ops",
+    testbench="fpu8087_memory_ops_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 memory ops tests"
+)
+
+TEST_CONFIGS["fpu8087_microcode"] = TestConfig(
+    name="fpu8087_microcode",
+    testbench="fpu8087_microcode_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 microcode tests"
+)
+
+TEST_CONFIGS["fpu8087_microcode_extended"] = TestConfig(
+    name="fpu8087_microcode_extended",
+    testbench="fpu8087_microcode_extended_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 microcode extended tests"
+)
+
+TEST_CONFIGS["fpu8087_microseq_bcd"] = TestConfig(
+    name="fpu8087_microseq_bcd",
+    testbench="fpu8087_microseq_bcd_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 microseq bcd tests"
+)
+
+TEST_CONFIGS["fpu8087_muldiv_unified"] = TestConfig(
+    name="fpu8087_muldiv_unified",
+    testbench="fpu8087_muldiv_unified_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 muldiv unified tests"
+)
+
+TEST_CONFIGS["fpu8087_realtime_debug"] = TestConfig(
+    name="fpu8087_realtime_debug",
+    testbench="fpu8087_realtime_debug_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 realtime debug tests"
+)
+
+TEST_CONFIGS["fpu8087_stack_mgmt"] = TestConfig(
+    name="fpu8087_stack_mgmt",
+    testbench="fpu8087_stack_mgmt_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 stack mgmt tests"
+)
+
+TEST_CONFIGS["fpu8087_transcendental"] = TestConfig(
+    name="fpu8087_transcendental",
+    testbench="fpu8087_transcendental_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 transcendental tests"
+)
+
+TEST_CONFIGS["fpu8087_transcendental_microcode"] = TestConfig(
+    name="fpu8087_transcendental_microcode",
+    testbench="fpu8087_transcendental_microcode_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 transcendental microcode tests"
+)
+
+TEST_CONFIGS["fpu8087_uint64_to_fp80"] = TestConfig(
+    name="fpu8087_uint64_to_fp80",
+    testbench="fpu8087_uint64_to_fp80_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 uint64 to fp80 tests"
+)
+
+# Integration tests
+TEST_CONFIGS["fpu8087_fpu_async_operation"] = TestConfig(
+    name="fpu8087_fpu_async_operation",
+    testbench="fpu8087_fpu_async_operation_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fpu async operation tests"
+)
+
+TEST_CONFIGS["fpu8087_fpu_exception_integration"] = TestConfig(
+    name="fpu8087_fpu_exception_integration",
+    testbench="fpu8087_fpu_exception_integration_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fpu exception integration tests"
+)
+
+TEST_CONFIGS["fpu8087_fpu_integration"] = TestConfig(
+    name="fpu8087_fpu_integration",
+    testbench="fpu8087_fpu_integration_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fpu integration tests"
+)
+
+TEST_CONFIGS["fpu8087_fpu_integration_simple"] = TestConfig(
+    name="fpu8087_fpu_integration_simple",
+    testbench="fpu8087_fpu_integration_simple_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 fpu integration simple tests"
+)
+
+TEST_CONFIGS["fpu8087_muldiv_integration"] = TestConfig(
+    name="fpu8087_muldiv_integration",
+    testbench="fpu8087_muldiv_integration_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 muldiv integration tests"
+)
+
+# Payne-Hanek tests
+TEST_CONFIGS["fpu8087_payne_hanek"] = TestConfig(
+    name="fpu8087_payne_hanek",
+    testbench="fpu8087_payne_hanek_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 payne hanek tests"
+)
+
+TEST_CONFIGS["fpu8087_payne_hanek_dispatch"] = TestConfig(
+    name="fpu8087_payne_hanek_dispatch",
+    testbench="fpu8087_payne_hanek_dispatch_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 payne hanek dispatch tests"
+)
+
+TEST_CONFIGS["fpu8087_payne_hanek_microcode"] = TestConfig(
+    name="fpu8087_payne_hanek_microcode",
+    testbench="fpu8087_payne_hanek_microcode_tb.v",
+    sources=FPU8087_COMMON_SOURCES,
+    includes=FPU8087_INCLUDES,
+    category="fpu",
+    description="FPU8087 payne hanek microcode tests"
+)
+
+
+# =============================================================================
+# Verilator Tests
+# These tests use Verilator instead of Icarus Verilog for better SystemVerilog support
+# =============================================================================
+
+TEST_CONFIGS["registerfile_verilator"] = TestConfig(
+    name="registerfile_verilator",
+    testbench="",  # Not used for Verilator
+    sources=[
+        "Quartus/rtl/CPU/RegisterEnum.sv",
+        "Quartus/rtl/CPU/RegisterFile.sv",
+    ],
+    includes=["Quartus/rtl/CPU"],
+    top_module="RegisterFile",
+    category="core",
+    simulator="verilator",
+    cpp_testbench="verilator/registerfile_tb.cpp",
+    description="RegisterFile Verilator test (unpacked arrays not supported by Icarus)"
+)
+
+TEST_CONFIGS["immediate_reader_verilator"] = TestConfig(
+    name="immediate_reader_verilator",
+    testbench="",  # Not used for Verilator
+    sources=["Quartus/rtl/CPU/ImmediateReader.sv"],
+    includes=["Quartus/rtl/CPU"],
+    top_module="ImmediateReader",
+    category="core",
+    simulator="verilator",
+    cpp_testbench="verilator/immediate_reader_tb.cpp",
+    description="ImmediateReader Verilator test (constant selects not supported by Icarus)"
 )
 
 

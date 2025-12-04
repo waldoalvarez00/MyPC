@@ -15,7 +15,7 @@ set_global_assignment -name VERILOG_FILE rtl/FPU8087/ControlWord.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/ESC_Decoder.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU8087.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU8087_Direct.v
-set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU8087_Integrated.v
+# set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU8087_Integrated.v  # Unused, depends on missing FPU_Core_Wrapper
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_ArithmeticUnit.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_Atan_Table.v
 set_global_assignment -name VERILOG_FILE rtl/FPU8087/FPU_BCD_to_Binary.v

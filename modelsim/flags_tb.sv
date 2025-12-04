@@ -22,6 +22,10 @@ module flags_tb;
     int pass_count = 0;
     int fail_count = 0;
 
+    // Variables for task/procedural use (Icarus compatibility)
+    logic actual_flag;
+    logic [15:0] before_flags;
+
     // Instantiate DUT
     Flags dut (
         .clk(clk),
@@ -52,14 +56,14 @@ module flags_tb;
 
     // Helper to check specific flag
     task check_flag(input string flag_name, input int flag_idx, input logic expected);
-        logic actual = flags_out[flag_idx];
+        actual_flag = flags_out[flag_idx];
         test_count++;
-        if (actual == expected) begin
+        if (actual_flag == expected) begin
             $display("[PASS] Test %0d: %s = %b", test_count, flag_name, expected);
             pass_count++;
         end else begin
             $display("[FAIL] Test %0d: %s (expected %b, got %b)",
-                     test_count, flag_name, expected, actual);
+                     test_count, flag_name, expected, actual_flag);
             fail_count++;
         end
     endtask
@@ -276,7 +280,7 @@ module flags_tb;
         // ================================================================
         $display("\n--- Test 14: No Update ---");
 
-        logic [15:0] before_flags = flags_out;
+        before_flags = flags_out;
         flags_in = 16'b0;  // Try to clear all
         update_flags = 9'b0;  // But don't update anything
         @(posedge clk);

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Main test runner for MyPC2 Verilog simulation tests.
+Main test runner for MyPC Verilog simulation tests.
 
 Usage:
     python test_runner.py                    # Run all tests
@@ -10,10 +10,13 @@ Usage:
     python test_runner.py --list             # List available tests
     python test_runner.py --skip-long        # Skip long-running tests
     python test_runner.py --include-harness  # Include FPU harness tests
+    python test_runner.py --clean            # Remove test artifacts
 """
 
 import argparse
+import glob
 import os
+import shutil
 import sys
 import time
 import json
@@ -76,7 +79,7 @@ TEST_TIME_ESTIMATES = {
     # Long tests (30-120s) - will show warning
     'vga': 30, 'vga_modes': 45, 'vga_all_modes': 60, 'vga_mode_switching': 45,
     'vga_complete': 90, 'cga': 30, 'cga_integration': 45, 'vga_unit_tests': 30,
-    'vga_framebuffer_integration': 60, 'uart_16750_lite': 30,
+    'vga_framebuffer_integration': 90, 'uart_16750_lite': 30,
 
     # FPU harness tests
     'fpu_harness_ieee754': 120, 'fpu_harness_transcendental': 180,
@@ -85,6 +88,111 @@ TEST_TIME_ESTIMATES = {
 
 # Tests considered "long" - will show warning and can be skipped
 LONG_TESTS = {name for name, duration in TEST_TIME_ESTIMATES.items() if duration >= 30}
+
+
+def clean_test_artifacts(modelsim_dir: str, verbose: bool = False) -> dict:
+    """
+    Remove test artifacts from the modelsim directory.
+
+    Removes:
+    - test_results_*/ directories (test logs and JSON results)
+    - *.vvp files (Icarus Verilog compiled simulations)
+    - *.vcd files (VCD waveform files)
+    - *_sim files (compiled simulation binaries without extension)
+    - obj_dir*/ directories (Verilator build directories)
+
+    Args:
+        modelsim_dir: Path to the modelsim directory
+        verbose: Print detailed information about removed files
+
+    Returns:
+        Dictionary with counts of removed items by type
+    """
+    removed = {
+        'result_dirs': 0,
+        'vvp_files': 0,
+        'vcd_files': 0,
+        'sim_binaries': 0,
+        'obj_dirs': 0,
+        'total_bytes': 0
+    }
+
+    def get_size(path: str) -> int:
+        """Get size of file or directory."""
+        if os.path.isfile(path):
+            return os.path.getsize(path)
+        elif os.path.isdir(path):
+            total = 0
+            for dirpath, dirnames, filenames in os.walk(path):
+                for f in filenames:
+                    fp = os.path.join(dirpath, f)
+                    if os.path.exists(fp):
+                        total += os.path.getsize(fp)
+            return total
+        return 0
+
+    # Remove test_results_* directories
+    for item in glob.glob(os.path.join(modelsim_dir, "test_results_*")):
+        if os.path.isdir(item):
+            size = get_size(item)
+            if verbose:
+                print(f"  Removing directory: {os.path.basename(item)}")
+            shutil.rmtree(item)
+            removed['result_dirs'] += 1
+            removed['total_bytes'] += size
+
+    # Remove *.vvp files (Icarus Verilog compiled simulations)
+    for item in glob.glob(os.path.join(modelsim_dir, "*.vvp")):
+        if os.path.isfile(item):
+            size = get_size(item)
+            if verbose:
+                print(f"  Removing file: {os.path.basename(item)}")
+            os.remove(item)
+            removed['vvp_files'] += 1
+            removed['total_bytes'] += size
+
+    # Remove *.vcd files (waveform files)
+    for item in glob.glob(os.path.join(modelsim_dir, "*.vcd")):
+        if os.path.isfile(item):
+            size = get_size(item)
+            if verbose:
+                print(f"  Removing file: {os.path.basename(item)}")
+            os.remove(item)
+            removed['vcd_files'] += 1
+            removed['total_bytes'] += size
+
+    # Remove *_sim files (compiled simulation binaries without extension)
+    # Be careful to only remove files that look like simulation binaries
+    for item in glob.glob(os.path.join(modelsim_dir, "*_sim")):
+        if os.path.isfile(item) and not item.endswith('.sv') and not item.endswith('.v'):
+            # Additional check: should be an executable or at least not a text file
+            size = get_size(item)
+            if verbose:
+                print(f"  Removing file: {os.path.basename(item)}")
+            os.remove(item)
+            removed['sim_binaries'] += 1
+            removed['total_bytes'] += size
+
+    # Remove obj_dir* directories (Verilator build directories)
+    for item in glob.glob(os.path.join(modelsim_dir, "obj_dir*")):
+        if os.path.isdir(item):
+            size = get_size(item)
+            if verbose:
+                print(f"  Removing directory: {os.path.basename(item)}")
+            shutil.rmtree(item)
+            removed['obj_dirs'] += 1
+            removed['total_bytes'] += size
+
+    return removed
+
+
+def format_bytes(size: int) -> str:
+    """Format byte count as human-readable string."""
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size < 1024:
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
 
 
 class ETACalculator:
@@ -620,6 +728,9 @@ Examples:
   python test_runner.py --skip-long        # Skip tests > 30s
   python test_runner.py --include-harness  # Include FPU harness tests
   python test_runner.py -c core -p 4       # Run core tests in parallel
+  python test_runner.py --clean            # Remove test artifacts
+  python test_runner.py --clean --dry-run  # Preview what would be cleaned
+  python test_runner.py --clean -v         # Clean with verbose output
         """
     )
 
@@ -675,8 +786,100 @@ Examples:
         action='store_true',
         help="Enable Verilator code coverage (line + toggle)"
     )
+    parser.add_argument(
+        '--clean',
+        action='store_true',
+        help="Remove test artifacts (results, .vvp, .vcd, obj_dir, etc.)"
+    )
+    parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help="Show what would be cleaned without removing (use with --clean)"
+    )
 
     args = parser.parse_args()
+
+    # Handle clean command
+    if args.clean:
+        modelsim_dir = get_modelsim_dir()
+        print("=" * 70)
+        print("CLEANING TEST ARTIFACTS")
+        print("=" * 70)
+        print(f"Directory: {modelsim_dir}")
+        print()
+
+        if args.dry_run:
+            # Show what would be cleaned without removing
+            print("DRY RUN - showing what would be removed:")
+            print()
+
+            # Count artifacts
+            result_dirs = glob.glob(os.path.join(modelsim_dir, "test_results_*"))
+            vvp_files = glob.glob(os.path.join(modelsim_dir, "*.vvp"))
+            vcd_files = glob.glob(os.path.join(modelsim_dir, "*.vcd"))
+            sim_files = [f for f in glob.glob(os.path.join(modelsim_dir, "*_sim"))
+                        if os.path.isfile(f) and not f.endswith('.sv') and not f.endswith('.v')]
+            obj_dirs = glob.glob(os.path.join(modelsim_dir, "obj_dir*"))
+
+            if result_dirs:
+                print(f"Result directories ({len(result_dirs)}):")
+                for d in result_dirs[:5]:
+                    print(f"  {os.path.basename(d)}/")
+                if len(result_dirs) > 5:
+                    print(f"  ... and {len(result_dirs) - 5} more")
+
+            if vvp_files:
+                print(f"\n.vvp files ({len(vvp_files)}):")
+                for f in vvp_files[:5]:
+                    print(f"  {os.path.basename(f)}")
+                if len(vvp_files) > 5:
+                    print(f"  ... and {len(vvp_files) - 5} more")
+
+            if vcd_files:
+                print(f"\n.vcd files ({len(vcd_files)}):")
+                for f in vcd_files[:5]:
+                    print(f"  {os.path.basename(f)}")
+                if len(vcd_files) > 5:
+                    print(f"  ... and {len(vcd_files) - 5} more")
+
+            if sim_files:
+                print(f"\nSimulation binaries ({len(sim_files)}):")
+                for f in sim_files[:5]:
+                    print(f"  {os.path.basename(f)}")
+                if len(sim_files) > 5:
+                    print(f"  ... and {len(sim_files) - 5} more")
+
+            if obj_dirs:
+                print(f"\nVerilator obj_dir directories ({len(obj_dirs)}):")
+                for d in obj_dirs[:5]:
+                    print(f"  {os.path.basename(d)}/")
+                if len(obj_dirs) > 5:
+                    print(f"  ... and {len(obj_dirs) - 5} more")
+
+            total = len(result_dirs) + len(vvp_files) + len(vcd_files) + len(sim_files) + len(obj_dirs)
+            if total == 0:
+                print("No artifacts found to clean.")
+            else:
+                print(f"\nTotal items that would be removed: {total}")
+                print("\nRun without --dry-run to actually remove these files.")
+            return 0
+        else:
+            # Actually clean
+            print("Removing artifacts...")
+            removed = clean_test_artifacts(modelsim_dir, verbose=args.verbose)
+
+            print()
+            print("=" * 70)
+            print("CLEANUP SUMMARY")
+            print("=" * 70)
+            print(f"Result directories removed: {removed['result_dirs']}")
+            print(f".vvp files removed:         {removed['vvp_files']}")
+            print(f".vcd files removed:         {removed['vcd_files']}")
+            print(f"Simulation binaries:        {removed['sim_binaries']}")
+            print(f"Verilator obj_dir removed:  {removed['obj_dirs']}")
+            print(f"Total space freed:          {format_bytes(removed['total_bytes'])}")
+            print("=" * 70)
+            return 0
 
     # Create runner and discover tests
     runner = TestRunner(enable_coverage=args.coverage)

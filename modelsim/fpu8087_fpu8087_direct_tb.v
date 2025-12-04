@@ -79,6 +79,9 @@ module tb_fpu8087_direct;
     endtask
 
     // Task to check result
+    // NOTE: This testbench has a known limitation - cpu_data_out is only driven
+    // during store operations (FST/FSTP), but the decoder doesn't properly route
+    // FSTP m80 (DB /7) to output data. Tests that check non-zero values will fail.
     task check_result;
         input [79:0] expected;
         input [255:0] test_name;

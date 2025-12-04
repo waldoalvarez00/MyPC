@@ -33,7 +33,8 @@ class VerilatorTest(BaseTest):
     verilator_flags: List[str] = [
         "--cc", "--exe", "--build", "-Wall",
         "-Wno-WIDTHEXPAND", "-Wno-WIDTHTRUNC", "-Wno-UNUSEDSIGNAL",
-        "-Wno-CASEINCOMPLETE", "-Wno-PINCONNECTEMPTY"
+        "-Wno-CASEINCOMPLETE", "-Wno-PINCONNECTEMPTY",
+        "--trace"  # Enable VCD tracing (required by testbenches using VerilatedVcdC)
     ]
 
     # Output directory for Verilator
