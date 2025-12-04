@@ -231,7 +231,7 @@ module MicroSequencer_Extended_BCD (
         // Program 21: FRNDINT - Round to integer
         micro_program_table[21] = 16'h0770;
         // Program 22: Payne-Hanek range reduction (extended precision)
-        micro_program_table[22] = 16'h0180;
+        micro_program_table[22] = 16'h01E0;  // Moved from 0x0180 to avoid FSQRT collision
         micro_program_table[23] = 16'h0810;
         micro_program_table[24] = 16'h0820;
         micro_program_table[25] = 16'h0830;
@@ -337,11 +337,13 @@ module MicroSequencer_Extended_BCD (
 
         //-------------------------------------------------------------
         // Program 4: FSQRT - Square Root (microcode Newton-Raphson)
-        // Address: 0x0140-0x0160
-        // Computes √N using two Newton-Raphson iterations:
+        // Address: 0x0140-0x01B4
+        // Computes √N using 8 Newton-Raphson iterations:
         //   x0 = N
         //   x_{k+1} = 0.5 * (x_k + N / x_k)
         // Uses shared DIV/ADD/MUL hardware; no dedicated SQRT block.
+        // 8 iterations ensure convergence to 80-bit precision even
+        // with poor initial seed (x0 = N).
         //-------------------------------------------------------------
         // Init: load N, stash N in C, seed x = N in B
         microcode_rom[16'h0140] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0141};          // A = N
@@ -379,9 +381,99 @@ module MicroSequencer_Extended_BCD (
         microcode_rom[16'h015C] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h015D};      // Wait MUL
         microcode_rom[16'h015D] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h015E};  // x_next
         microcode_rom[16'h015E] = {OPCODE_EXEC, MOP_MOVE_RES_TO_B, 8'd0, 15'h015F};   // x = x_next
+        // Iteration 3
+        microcode_rom[16'h015F] = {OPCODE_EXEC, MOP_MOVE_C_TO_A, 8'd0, 15'h0160};     // A = N
+        microcode_rom[16'h0160] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd3, 15'h0161};      // DIV N / x
+        microcode_rom[16'h0161] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0162};
+        microcode_rom[16'h0162] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0163};
+        microcode_rom[16'h0163] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h0164};
+        microcode_rom[16'h0164] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd0, 15'h0165};      // ADD q + x
+        microcode_rom[16'h0165] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0166};
+        microcode_rom[16'h0166] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0167};
+        microcode_rom[16'h0167] = {OPCODE_EXEC, MOP_LOAD_HALF_B, 8'd0, 15'h0168};
+        microcode_rom[16'h0168] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h0169};
+        microcode_rom[16'h0169] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h016A};      // MUL s * 0.5
+        microcode_rom[16'h016A] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h016B};
+        microcode_rom[16'h016B] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h016C};
+        microcode_rom[16'h016C] = {OPCODE_EXEC, MOP_MOVE_RES_TO_B, 8'd0, 15'h016D};
+        // Iteration 4
+        microcode_rom[16'h016D] = {OPCODE_EXEC, MOP_MOVE_C_TO_A, 8'd0, 15'h016E};
+        microcode_rom[16'h016E] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd3, 15'h016F};
+        microcode_rom[16'h016F] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0170};
+        microcode_rom[16'h0170] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0171};
+        microcode_rom[16'h0171] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h0172};
+        microcode_rom[16'h0172] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd0, 15'h0173};
+        microcode_rom[16'h0173] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0174};
+        microcode_rom[16'h0174] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0175};
+        microcode_rom[16'h0175] = {OPCODE_EXEC, MOP_LOAD_HALF_B, 8'd0, 15'h0176};
+        microcode_rom[16'h0176] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h0177};
+        microcode_rom[16'h0177] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h0178};
+        microcode_rom[16'h0178] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0179};
+        microcode_rom[16'h0179] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h017A};
+        microcode_rom[16'h017A] = {OPCODE_EXEC, MOP_MOVE_RES_TO_B, 8'd0, 15'h017B};
+        // Iteration 5
+        microcode_rom[16'h017B] = {OPCODE_EXEC, MOP_MOVE_C_TO_A, 8'd0, 15'h017C};
+        microcode_rom[16'h017C] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd3, 15'h017D};
+        microcode_rom[16'h017D] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h017E};
+        microcode_rom[16'h017E] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h017F};
+        microcode_rom[16'h017F] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h0180};
+        microcode_rom[16'h0180] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd0, 15'h0181};
+        microcode_rom[16'h0181] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0182};
+        microcode_rom[16'h0182] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0183};
+        microcode_rom[16'h0183] = {OPCODE_EXEC, MOP_LOAD_HALF_B, 8'd0, 15'h0184};
+        microcode_rom[16'h0184] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h0185};
+        microcode_rom[16'h0185] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h0186};
+        microcode_rom[16'h0186] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0187};
+        microcode_rom[16'h0187] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0188};
+        microcode_rom[16'h0188] = {OPCODE_EXEC, MOP_MOVE_RES_TO_B, 8'd0, 15'h0189};
+        // Iteration 6
+        microcode_rom[16'h0189] = {OPCODE_EXEC, MOP_MOVE_C_TO_A, 8'd0, 15'h018A};
+        microcode_rom[16'h018A] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd3, 15'h018B};
+        microcode_rom[16'h018B] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h018C};
+        microcode_rom[16'h018C] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h018D};
+        microcode_rom[16'h018D] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h018E};
+        microcode_rom[16'h018E] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd0, 15'h018F};
+        microcode_rom[16'h018F] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0190};
+        microcode_rom[16'h0190] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0191};
+        microcode_rom[16'h0191] = {OPCODE_EXEC, MOP_LOAD_HALF_B, 8'd0, 15'h0192};
+        microcode_rom[16'h0192] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h0193};
+        microcode_rom[16'h0193] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h0194};
+        microcode_rom[16'h0194] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0195};
+        microcode_rom[16'h0195] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0196};
+        microcode_rom[16'h0196] = {OPCODE_EXEC, MOP_MOVE_RES_TO_B, 8'd0, 15'h0197};
+        // Iteration 7
+        microcode_rom[16'h0197] = {OPCODE_EXEC, MOP_MOVE_C_TO_A, 8'd0, 15'h0198};
+        microcode_rom[16'h0198] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd3, 15'h0199};
+        microcode_rom[16'h0199] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h019A};
+        microcode_rom[16'h019A] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h019B};
+        microcode_rom[16'h019B] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h019C};
+        microcode_rom[16'h019C] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd0, 15'h019D};
+        microcode_rom[16'h019D] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h019E};
+        microcode_rom[16'h019E] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h019F};
+        microcode_rom[16'h019F] = {OPCODE_EXEC, MOP_LOAD_HALF_B, 8'd0, 15'h01A0};
+        microcode_rom[16'h01A0] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h01A1};
+        microcode_rom[16'h01A1] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h01A2};
+        microcode_rom[16'h01A2] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h01A3};
+        microcode_rom[16'h01A3] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h01A4};
+        microcode_rom[16'h01A4] = {OPCODE_EXEC, MOP_MOVE_RES_TO_B, 8'd0, 15'h01A5};
+        // Iteration 8 (final)
+        microcode_rom[16'h01A5] = {OPCODE_EXEC, MOP_MOVE_C_TO_A, 8'd0, 15'h01A6};
+        microcode_rom[16'h01A6] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd3, 15'h01A7};
+        microcode_rom[16'h01A7] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h01A8};
+        microcode_rom[16'h01A8] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h01A9};
+        microcode_rom[16'h01A9] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h01AA};
+        microcode_rom[16'h01AA] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd0, 15'h01AB};
+        microcode_rom[16'h01AB] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h01AC};
+        microcode_rom[16'h01AC] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h01AD};
+        microcode_rom[16'h01AD] = {OPCODE_EXEC, MOP_LOAD_HALF_B, 8'd0, 15'h01AE};
+        microcode_rom[16'h01AE] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h01AF};
+        microcode_rom[16'h01AF] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h01B0};
+        microcode_rom[16'h01B0] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h01B1};
+        microcode_rom[16'h01B1] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h01B2};
+        microcode_rom[16'h01B2] = {OPCODE_EXEC, MOP_MOVE_RES_TO_B, 8'd0, 15'h01B3};
         // Return with temp_result holding x_next
-        microcode_rom[16'h015F] = {OPCODE_EXEC, MOP_STORE, 8'd0, 15'h0160};           // Store result
-        microcode_rom[16'h0160] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
+        microcode_rom[16'h01B3] = {OPCODE_EXEC, MOP_STORE, 8'd0, 15'h01B4};           // Store result
+        microcode_rom[16'h01B4] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                     // Return
 
         //-------------------------------------------------------------
         // Program 5: FSIN - Sine
@@ -607,7 +699,7 @@ module MicroSequencer_Extended_BCD (
 
         //-------------------------------------------------------------
         // Program 22: Payne-Hanek Range Reduction
-        // Address: 0x0180-0x0198
+        // Address: 0x01E0-0x01F8 (moved from 0x0180 to avoid FSQRT collision)
         // Input: data_in = large angle (FP80)
         // Output: temp_result = reduced angle in [0, π/2)
         //         Quadrant information in temp_fp_c (to be implemented)
@@ -676,86 +768,86 @@ module MicroSequencer_Extended_BCD (
         // Step 1: Compute n = angle × (2/π)
 
         // Load input angle from data_in (full FP80)
-        microcode_rom[16'h0180] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0181};
+        microcode_rom[16'h01E0] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h01E1};
 
         // Load 2/π as FP80 from ROM (address 5)
-        microcode_rom[16'h0181] = {OPCODE_EXEC, MOP_LOAD_ROM, 8'd5, 15'h0182};
+        microcode_rom[16'h01E1] = {OPCODE_EXEC, MOP_LOAD_ROM, 8'd5, 15'h01E2};
 
         // NOP to wait for ROM data (1-cycle latency)
-        microcode_rom[16'h0182] = {OPCODE_NOP, 5'd0, 8'd0, 15'h0183};
+        microcode_rom[16'h01E2] = {OPCODE_NOP, 5'd0, 8'd0, 15'h01E3};
 
         // Load ROM data (2/π as FP80) into temp_fp_b
-        microcode_rom[16'h0183] = {OPCODE_EXEC, MOP_LOAD_ROM_DATA, 8'd0, 15'h0184};
+        microcode_rom[16'h01E3] = {OPCODE_EXEC, MOP_LOAD_ROM_DATA, 8'd0, 15'h01E4};
 
         // Multiply: n = angle × (2/π) using FPU
-        microcode_rom[16'h0184] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h0185};
+        microcode_rom[16'h01E4] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h01E5};
 
         // Wait for FPU multiplication to complete
-        microcode_rom[16'h0185] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0186};
+        microcode_rom[16'h01E5] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h01E6};
 
         // Load result: n (scaled angle in units of π/2)
-        microcode_rom[16'h0186] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0187};
+        microcode_rom[16'h01E6] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h01E7};
 
         // Step 2: Compute int_part = floor(n)
 
         // Save n to temp_fp_c for later use
-        microcode_rom[16'h0187] = {OPCODE_EXEC, MOP_MOVE_RES_TO_C, 8'd0, 15'h0188};
+        microcode_rom[16'h01E7] = {OPCODE_EXEC, MOP_MOVE_RES_TO_C, 8'd0, 15'h01E8};
 
         // Move n to temp_fp_a for FLOOR operation
-        microcode_rom[16'h0188] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h0189};
+        microcode_rom[16'h01E8] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h01E9};
 
         // Call FLOOR operation (op=14): int_part = floor(n)
-        microcode_rom[16'h0189] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd14, 15'h018A};
+        microcode_rom[16'h01E9] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd14, 15'h01EA};
 
         // Wait for FLOOR to complete
-        microcode_rom[16'h018A] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h018B};
+        microcode_rom[16'h01EA] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h01EB};
 
         // Load result: int_part
-        microcode_rom[16'h018B] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h018C};
+        microcode_rom[16'h01EB] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h01EC};
 
         // Step 3: Compute frac = n - int_part
 
         // Move int_part to temp_fp_b for subtraction
-        microcode_rom[16'h018C] = {OPCODE_EXEC, MOP_MOVE_RES_TO_B, 8'd0, 15'h018D};
+        microcode_rom[16'h01EC] = {OPCODE_EXEC, MOP_MOVE_RES_TO_B, 8'd0, 15'h01ED};
 
         // Restore n to temp_fp_a from temp_fp_c
-        microcode_rom[16'h018D] = {OPCODE_EXEC, MOP_MOVE_C_TO_A, 8'd0, 15'h018E};
+        microcode_rom[16'h01ED] = {OPCODE_EXEC, MOP_MOVE_C_TO_A, 8'd0, 15'h01EE};
 
         // Subtract: frac = n - int_part (op=1 is SUB)
-        microcode_rom[16'h018E] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd1, 15'h018F};
+        microcode_rom[16'h01EE] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd1, 15'h01EF};
 
         // Wait for subtraction to complete
-        microcode_rom[16'h018F] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0190};
+        microcode_rom[16'h01EF] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h01F0};
 
         // Load result: frac (fractional part in [0, 1))
-        microcode_rom[16'h0190] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0191};
+        microcode_rom[16'h01F0] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h01F1};
 
         // Step 4: Compute reduced = frac × (π/2)
 
         // Move frac to temp_fp_a
-        microcode_rom[16'h0191] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h0192};
+        microcode_rom[16'h01F1] = {OPCODE_EXEC, MOP_MOVE_RES_TO_A, 8'd0, 15'h01F2};
 
         // Load π/2 from ROM (address 4)
-        microcode_rom[16'h0192] = {OPCODE_EXEC, MOP_LOAD_ROM, 8'd4, 15'h0193};
+        microcode_rom[16'h01F2] = {OPCODE_EXEC, MOP_LOAD_ROM, 8'd4, 15'h01F3};
 
         // NOP to wait for ROM data
-        microcode_rom[16'h0193] = {OPCODE_NOP, 5'd0, 8'd0, 15'h0194};
+        microcode_rom[16'h01F3] = {OPCODE_NOP, 5'd0, 8'd0, 15'h01F4};
 
         // Load ROM data (π/2) into temp_fp_b
-        microcode_rom[16'h0194] = {OPCODE_EXEC, MOP_LOAD_ROM_DATA, 8'd0, 15'h0195};
+        microcode_rom[16'h01F4] = {OPCODE_EXEC, MOP_LOAD_ROM_DATA, 8'd0, 15'h01F5};
 
         // Multiply: reduced = frac × (π/2)
-        microcode_rom[16'h0195] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h0196};
+        microcode_rom[16'h01F5] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd2, 15'h01F6};
 
         // Wait for multiplication to complete
-        microcode_rom[16'h0196] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0197};
+        microcode_rom[16'h01F6] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h01F7};
 
         // Load result: reduced angle in [0, π/2)
-        microcode_rom[16'h0197] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0198};
+        microcode_rom[16'h01F7] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h01F8};
 
         // Return with result in temp_result
         // TODO: Extract quadrant from int_part (Step 4 - future enhancement)
-        microcode_rom[16'h0198] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};
+        microcode_rom[16'h01F8] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};
     end
 
     //=================================================================

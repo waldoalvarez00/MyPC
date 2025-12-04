@@ -206,7 +206,7 @@ task execute_instruction;
         @(posedge clk);
         execute = 0;
 
-        wait_for_ready(500);
+        wait_for_ready(2000);  // Increased for 8-iteration FSQRT
     end
 endtask
 

@@ -2573,14 +2573,8 @@ TEST_CONFIGS["fpu8087_fptan_simple"] = TestConfig(
     description="FPU8087 fptan simple tests"
 )
 
-TEST_CONFIGS["fpu8087_fpu8087_direct"] = TestConfig(
-    name="fpu8087_fpu8087_direct",
-    testbench="fpu8087_fpu8087_direct_tb.v",
-    sources=FPU8087_COMMON_SOURCES,
-    includes=FPU8087_INCLUDES,
-    category="fpu",
-    description="FPU8087 fpu8087 direct tests"
-)
+# fpu8087_fpu8087_direct removed - tests FPU8087_Direct.v which is NOT instantiated in production
+# Production uses: mycore.sv -> FPU8087.v -> FPU_Core_Async.v -> FPU_Core.v
 
 TEST_CONFIGS["fpu8087_fpu8087_trivial"] = TestConfig(
     name="fpu8087_fpu8087_trivial",
