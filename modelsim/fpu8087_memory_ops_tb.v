@@ -150,6 +150,11 @@ module tb_memory_ops;
         $display("");
 
         //=================================================================
+        // Reset FPU stack before store tests (stack full after 5 FLDs)
+        //=================================================================
+        reset_fpu();
+
+        //=================================================================
         // Test 6: FST m32real (store as 32-bit float)
         //=================================================================
         $display("Test 6: FST m32real (store as 32-bit float)");
@@ -259,14 +264,22 @@ module tb_memory_ops;
 
             // Check result (top of stack)
             // Note: We can't directly read ST(0) from outside, so we'll store it
+            // Need to use memory store (has_memory_op=1) to output value to data_out
+            $display("[TB DEBUG] Starting FST to read back value");
             @(posedge clk);
             instruction = INST_FST;
-            has_memory_op = 1'b0;  // Register operation
+            has_memory_op = 1'b1;  // Memory operation - outputs ST(0) to data_out
+            operand_size = 2'd3;   // tbyte (80-bit) - no conversion
+            is_integer = 1'b0;
+            is_bcd = 1'b0;
             execute = 1'b1;
+            $display("[TB DEBUG] FST issued: has_memory_op=%b operand_size=%d", has_memory_op, operand_size);
             @(posedge clk);
             execute = 1'b0;
+            has_memory_op = 1'b0;
 
             wait(ready);
+            $display("[TB DEBUG] FST complete, data_out=%h", data_out);
             #10;
 
             if (data_out == expected_result) begin
@@ -282,6 +295,24 @@ module tb_memory_ops;
         end
     endtask
 
+    // Helper task: Reset FPU (FINIT)
+    task reset_fpu;
+        begin
+            wait(ready);
+            @(posedge clk);
+
+            instruction = 8'hF0;  // INST_FINIT
+            execute = 1'b1;
+
+            @(posedge clk);
+            execute = 1'b0;
+
+            // Wait for operation to complete
+            wait(ready);
+            #20;
+        end
+    endtask
+
     // Helper task: Load FP80 value onto stack
     task load_fp80;
         input [79:0] value;
@@ -293,10 +324,16 @@ module tb_memory_ops;
             instruction = INST_FLD;
             stack_index = 3'd0;
             has_memory_op = 1'b0;  // Register load (no conversion)
+            operand_size = 2'd3;   // FP80 size (no conversion needed)
+            is_integer = 1'b0;
+            is_bcd = 1'b0;
             execute = 1'b1;
 
             @(posedge clk);
             execute = 1'b0;
+
+            // Wait for operation to complete
+            wait(ready);
         end
     endtask
 

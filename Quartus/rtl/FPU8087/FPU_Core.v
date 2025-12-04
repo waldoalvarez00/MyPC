@@ -1217,6 +1217,11 @@ module FPU_Core(
                     ready <= 1'b1;
 
                     if (execute) begin
+                        // synthesis translate_off
+                        if (instruction == INST_FST || instruction == INST_FSTP)
+                            $display("[STATE_IDLE] FST execute! inst=%h fpu_busy=%b is_nowait=%b",
+                                     instruction, fpu_busy, is_nowait_instruction(instruction));
+                        // synthesis translate_on
                         current_inst <= instruction;
                         current_index <= stack_index;
                         stack_read_sel <= stack_index;
@@ -1300,6 +1305,11 @@ module FPU_Core(
                 end
 
                 STATE_EXECUTE: begin
+                    // synthesis translate_off
+                    if (current_inst == INST_FST || current_inst == INST_FSTP)
+                        $display("[STATE_EXECUTE] inst=%h (FST/FSTP) captured_has_memory_op=%b",
+                                 current_inst, captured_has_memory_op);
+                    // synthesis translate_on
                     // Start or wait for arithmetic operation
                     case (current_inst)
                         INST_FADD, INST_FADDP: begin
@@ -1695,8 +1705,15 @@ module FPU_Core(
                         end
 
                         INST_FST, INST_FSTP: begin
+                            // synthesis translate_off
+                            $display("[FST EXEC] st0_empty=%b captured_has_memory_op=%b temp_operand_a=%h",
+                                     st0_empty, captured_has_memory_op, temp_operand_a);
+                            // synthesis translate_on
                             // Stack underflow check
                             if (st0_empty) begin
+                                // synthesis translate_off
+                                $display("[FST EXEC] Stack underflow detected!");
+                                // synthesis translate_on
                                 status_stack_fault <= 1'b1;
                                 status_c1 <= 1'b0;  // C1=0 for underflow
                                 status_cc_write <= 1'b1;  // Enable C1 latch
@@ -1706,9 +1723,27 @@ module FPU_Core(
                             end else begin
                                 // Store FP80 value
                                 if (captured_has_memory_op) begin
-                                    // Memory store: always store ST(0) to memory
-                                    data_out <= temp_operand_a;  // ST(0) → data_out
-                                    state <= STATE_STACK_OP;
+                                    // Memory store: check if format conversion is needed
+                                    if (captured_operand_size != 2'd3 || captured_is_bcd) begin
+                                        // Need format conversion (FP80 → FP32/FP64/INT/BCD)
+                                        // synthesis translate_off
+                                        $display("[FST MEM CONVERT] size=%d is_int=%b is_bcd=%b temp_operand_a=%h",
+                                                 captured_operand_size, captured_is_integer, captured_is_bcd, temp_operand_a);
+                                        // synthesis translate_on
+                                        mem_conv_active <= 1'b1;
+                                        mem_conv_stage2 <= 1'b0;
+                                        mem_conv_size <= captured_operand_size;
+                                        mem_conv_is_load <= 1'b0;  // Store operation
+                                        state <= STATE_MEM_CONVERT;
+                                    end else begin
+                                        // Direct FP80 store - no conversion needed
+                                        // synthesis translate_off
+                                        $display("[FST MEM DIRECT] st0=%h temp_operand_a=%h",
+                                                 st0, temp_operand_a);
+                                        // synthesis translate_on
+                                        data_out <= temp_operand_a;  // ST(0) → data_out
+                                        state <= STATE_STACK_OP;
+                                    end
                                 end else begin
                                     // Register-only store used by unit testbench:
                                     //   FST ST(0) or FST ST(i) should return the selected stack register
@@ -2773,6 +2808,7 @@ module FPU_Core(
                                     end
                                 end else begin
                                     arith_enable <= 1'b0;
+                                    fpu_busy <= 1'b0;  // Clear busy when BCD→FP80 conversion completes
                                     temp_result <= arith_result;
                                     mem_conv_active <= 1'b0;
                                     state <= STATE_WRITEBACK;
@@ -2807,6 +2843,7 @@ module FPU_Core(
                                 end
                             end else begin
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when Integer→FP80 conversion completes
                                 temp_result <= arith_result;
                                 mem_conv_active <= 1'b0;
                                 state <= STATE_WRITEBACK;
@@ -2838,6 +2875,7 @@ module FPU_Core(
                             end else begin
                                 $display("[DEBUG] FP load conversion done! arith_result=%h, temp_fp32=%h", arith_result, temp_fp32);
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when Float→FP80 conversion completes
                                 temp_result <= arith_result;
                                 mem_conv_active <= 1'b0;
                                 state <= STATE_WRITEBACK;
@@ -2874,6 +2912,7 @@ module FPU_Core(
                                     end
                                 end else begin
                                     bin2bcd_enable <= 1'b0;
+                                    fpu_busy <= 1'b0;  // Clear busy when FP80→BCD conversion completes
                                     data_out <= bin2bcd_bcd_out;
                                     mem_conv_active <= 1'b0;
                                     state <= STATE_DONE;
@@ -2898,6 +2937,7 @@ module FPU_Core(
                                 end
                             end else begin
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when FP80→Integer conversion completes
                                 case (mem_conv_size)
                                     2'd0: data_out[15:0] <= arith_int16_out;
                                     2'd1: data_out[31:0] <= arith_int32_out;
@@ -2924,6 +2964,7 @@ module FPU_Core(
                                 end
                             end else begin
                                 arith_enable <= 1'b0;
+                                fpu_busy <= 1'b0;  // Clear busy when FP80→Float conversion completes
                                 case (mem_conv_size)
                                     2'd1: data_out[31:0] <= arith_fp32_out;
                                     2'd2: data_out[63:0] <= arith_fp64_out;
