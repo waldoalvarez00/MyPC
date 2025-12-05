@@ -293,17 +293,21 @@ TEST_CONFIGS["harvard_smc_mini"] = TestConfig(
 
 TEST_CONFIGS["insndecoder"] = TestConfig(
     name="insndecoder",
-    testbench="insndecoder_tb.sv",
+    testbench="",
     sources=[
-        # RegisterEnum.sv, MicrocodeTypes.sv, Instruction.sv are included via `include in testbench
-        "Quartus/rtl/CPU/InstructionDefinitions.sv",
+        "Quartus/rtl/CPU/RegisterEnum.sv",
+        "Quartus/rtl/CPU/MicrocodeTypes.sv",
+        "Quartus/rtl/CPU/Instruction.sv",
         "Quartus/rtl/CPU/InsnDecoder.sv",
     ],
     includes=[
         "Quartus/rtl/CPU",
     ],
-    category="core",  # 5/8 tests pass - 3 fail due to Icarus "constant selects" limitation with packed structs
-    description="insndecoder tests (partial: Icarus packed struct limitation)"
+    top_module="InsnDecoder",
+    category="core",
+    description="InsnDecoder Verilator tests (9/9 pass)",
+    simulator="verilator",
+    cpp_testbench="verilator/insndecoder_tb.cpp"
 )
 
 TEST_CONFIGS["ip"] = TestConfig(
@@ -2020,19 +2024,22 @@ TEST_CONFIGS["dcache2way"] = TestConfig(
     description="DCache 2-way tests"
 )
 
-TEST_CONFIGS["dcache2way_simple_tb"] = TestConfig(
-    name="dcache2way_simple_tb",
-    testbench="dcache2way_simple_tb.sv",
+TEST_CONFIGS["dcache2way_simple"] = TestConfig(
+    name="dcache2way_simple",
+    testbench="",  # Not used for Verilator
     sources=[
-        "Quartus/rtl/common/DCache2Way.sv",
-        "Quartus/rtl/common/DPRam.sv",
         "Quartus/rtl/common/BlockRam.sv",
+        "Quartus/rtl/common/DPRam.sv",
+        "Quartus/rtl/common/DCache2Way.sv",
     ],
     includes=[
         "Quartus/rtl/common",
     ],
-    category="skip",  # Icarus Verilog limitation: "constant selects in always_*" affects BlockRam array ops
-    description="DCache 2-way simple testbench - SKIP: Icarus Verilog simulation limitation"
+    top_module="DCache2Way",
+    category="memory",
+    description="DCache 2-way simple testbench (Verilator - 13/13 pass)",
+    simulator="verilator",
+    cpp_testbench="verilator/dcache2way_tb.cpp"
 )
 
 # Pipelined arbiter tests

@@ -39,10 +39,11 @@ module tb_conv_debug;
         int_in = 32'd2;
         enable = 1;
         @(posedge clk);
-        enable = 0;
-
-        wait(done == 1'b1);
+        // Wait for done while enable is still high
+        // done is set on the clock edge when enable is high
+        // So after this posedge, done should be 1
         @(posedge clk);
+        enable = 0;
 
         $display("Input: %0d", 32'sd2);
         $display("Output: %h", fp_out);

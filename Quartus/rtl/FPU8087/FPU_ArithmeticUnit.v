@@ -149,14 +149,48 @@ module FPU_ArithmeticUnit(
     // 3-way arbitration: internal > transcendental > polynomial
     //=================================================================
     wire addsub_int_req = enable && (operation == OP_ADD || operation == OP_SUB);
-    wire addsub_use_trans = trans_addsub_req && !addsub_int_req; // Transcendental has priority over polynomial
-    wire addsub_use_poly = poly_addsub_req && !addsub_int_req && !trans_addsub_req; // Lowest priority
 
-    wire [79:0] addsub_op_a = addsub_use_trans ? trans_addsub_a :
-                              addsub_use_poly ? poly_addsub_a : operand_a;
-    wire [79:0] addsub_op_b = addsub_use_trans ? trans_addsub_b :
-                              addsub_use_poly ? poly_addsub_b : operand_b;
-    wire addsub_sub_flag = addsub_use_trans ? trans_addsub_sub : (operation == OP_SUB);
+    // Combinational arbitration for new requests
+    wire addsub_req_trans = trans_addsub_req && !addsub_int_req;
+    wire addsub_req_poly = poly_addsub_req && !addsub_int_req && !trans_addsub_req;
+
+    // REGISTERED grant tracking - persists until operation completes
+    // Fixes bug where done signal was gated by already-cleared request
+    reg [1:0] addsub_grant;
+    localparam ADDSUB_GRANT_INT   = 2'd0;
+    localparam ADDSUB_GRANT_TRANS = 2'd1;
+    localparam ADDSUB_GRANT_POLY  = 2'd2;
+    localparam ADDSUB_GRANT_IDLE  = 2'd3;
+
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            addsub_grant <= ADDSUB_GRANT_IDLE;
+        end else begin
+            if (addsub_done) begin
+                // Clear grant when operation completes
+                addsub_grant <= ADDSUB_GRANT_IDLE;
+            end else if (addsub_grant == ADDSUB_GRANT_IDLE) begin
+                // Capture new grant when idle
+                if (addsub_int_req)
+                    addsub_grant <= ADDSUB_GRANT_INT;
+                else if (trans_addsub_req)
+                    addsub_grant <= ADDSUB_GRANT_TRANS;
+                else if (poly_addsub_req)
+                    addsub_grant <= ADDSUB_GRANT_POLY;
+            end
+            // Otherwise keep current grant until done
+        end
+    end
+
+    // Use registered grant for done routing
+    wire addsub_use_trans = addsub_req_trans || (addsub_grant == ADDSUB_GRANT_TRANS);
+    wire addsub_use_poly = addsub_req_poly || (addsub_grant == ADDSUB_GRANT_POLY);
+
+    wire [79:0] addsub_op_a = addsub_req_trans ? trans_addsub_a :
+                              addsub_req_poly ? poly_addsub_a : operand_a;
+    wire [79:0] addsub_op_b = addsub_req_trans ? trans_addsub_b :
+                              addsub_req_poly ? poly_addsub_b : operand_b;
+    wire addsub_sub_flag = addsub_req_trans ? trans_addsub_sub : (operation == OP_SUB);
     wire addsub_enable = addsub_int_req || trans_addsub_req || poly_addsub_req;
 
     wire [79:0] addsub_result;
@@ -207,14 +241,48 @@ module FPU_ArithmeticUnit(
     //=================================================================
 
     wire muldiv_int_req = enable && (operation == OP_MUL || operation == OP_DIV);
-    wire muldiv_use_trans = trans_muldiv_req && !muldiv_int_req; // Transcendental has priority over polynomial
-    wire muldiv_use_poly = poly_muldiv_req && !muldiv_int_req && !trans_muldiv_req; // Lowest priority
 
-    wire [79:0] muldiv_op_a = muldiv_use_trans ? trans_muldiv_a :
-                              muldiv_use_poly ? poly_muldiv_a : operand_a;
-    wire [79:0] muldiv_op_b = muldiv_use_trans ? trans_muldiv_b :
-                              muldiv_use_poly ? poly_muldiv_b : operand_b;
-    wire muldiv_op_sel = muldiv_use_trans ? trans_muldiv_op : (operation == OP_DIV);
+    // Combinational arbitration for new requests (who gets access when idle)
+    wire muldiv_req_trans = trans_muldiv_req && !muldiv_int_req;
+    wire muldiv_req_poly = poly_muldiv_req && !muldiv_int_req && !trans_muldiv_req;
+
+    // REGISTERED grant tracking - persists until operation completes
+    // Fixes bug where done signal was gated by already-cleared request
+    reg [1:0] muldiv_grant;  // 0=internal, 1=trans, 2=poly, 3=idle
+    localparam MULDIV_GRANT_INT   = 2'd0;
+    localparam MULDIV_GRANT_TRANS = 2'd1;
+    localparam MULDIV_GRANT_POLY  = 2'd2;
+    localparam MULDIV_GRANT_IDLE  = 2'd3;
+
+    always @(posedge clk or posedge reset) begin
+        if (reset) begin
+            muldiv_grant <= MULDIV_GRANT_IDLE;
+        end else begin
+            if (muldiv_done) begin
+                // Clear grant when operation completes
+                muldiv_grant <= MULDIV_GRANT_IDLE;
+            end else if (muldiv_grant == MULDIV_GRANT_IDLE) begin
+                // Capture new grant when idle
+                if (muldiv_int_req)
+                    muldiv_grant <= MULDIV_GRANT_INT;
+                else if (trans_muldiv_req)
+                    muldiv_grant <= MULDIV_GRANT_TRANS;
+                else if (poly_muldiv_req)
+                    muldiv_grant <= MULDIV_GRANT_POLY;
+            end
+            // Otherwise keep current grant until done
+        end
+    end
+
+    // Use combinational signals for operand selection (captures at start)
+    wire muldiv_use_trans = muldiv_req_trans || (muldiv_grant == MULDIV_GRANT_TRANS);
+    wire muldiv_use_poly = muldiv_req_poly || (muldiv_grant == MULDIV_GRANT_POLY);
+
+    wire [79:0] muldiv_op_a = muldiv_req_trans ? trans_muldiv_a :
+                              muldiv_req_poly ? poly_muldiv_a : operand_a;
+    wire [79:0] muldiv_op_b = muldiv_req_trans ? trans_muldiv_b :
+                              muldiv_req_poly ? poly_muldiv_b : operand_b;
+    wire muldiv_op_sel = muldiv_req_trans ? trans_muldiv_op : (operation == OP_DIV);
     wire muldiv_enable = muldiv_int_req || trans_muldiv_req || poly_muldiv_req;
 
     wire [79:0] muldiv_result;

@@ -1,6 +1,7 @@
-// Copyright 2025, Waldo Alvarez, https://pipflow.com
 /**
  * FPU_Core_Async.v
+ *
+ * Copyright 2025, Waldo Alvarez, https://pipflow.com
  *
  * Asynchronous FPU Core with Instruction Queue
  *

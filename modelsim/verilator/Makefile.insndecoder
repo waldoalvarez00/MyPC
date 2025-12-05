@@ -1,0 +1,50 @@
+# ================================================================
+# Verilator Makefile for InsnDecoder Module Test
+# ================================================================
+
+# Verilator configuration
+VERILATOR = verilator
+VERILATOR_ROOT = $(shell verilator --getenv VERILATOR_ROOT)
+
+# Project paths
+RTL_DIR = ../../Quartus/rtl/CPU
+
+# Verilator flags
+VFLAGS = --cc --exe --build -Wall
+VFLAGS += -Wno-fatal  # Don't treat warnings as errors
+VFLAGS += -Wno-UNUSEDSIGNAL  # Suppress unused signal warnings
+VFLAGS += -Wno-UNUSEDPARAM   # Suppress unused parameter warnings
+VFLAGS += -Wno-CASEINCOMPLETE  # Suppress incomplete case warnings
+VFLAGS += -I$(RTL_DIR)
+VFLAGS += --trace  # Enable VCD tracing
+VFLAGS += -CFLAGS "-std=c++14"
+VFLAGS += --top-module InsnDecoder  # Specify top module
+VFLAGS += -Wno-VARHIDDEN  # Suppress variable hiding warnings from includes
+
+# RTL source files (in dependency order)
+# Note: InstructionDefinitions.sv contains Microcode module but also provides
+# helper functions via InstructionDefinitions_helpers.sv included by InsnDecoder
+RTL_SOURCES = $(RTL_DIR)/RegisterEnum.sv \
+              $(RTL_DIR)/MicrocodeTypes.sv \
+              $(RTL_DIR)/Instruction.sv \
+              $(RTL_DIR)/InsnDecoder.sv
+
+# Testbench
+TB_SOURCE = insndecoder_tb.cpp
+
+# Target
+TARGET = VInsnDecoder
+
+.PHONY: all clean run
+
+all: $(TARGET)
+
+$(TARGET): $(RTL_SOURCES) $(TB_SOURCE)
+	$(VERILATOR) $(VFLAGS) $(RTL_SOURCES) $(TB_SOURCE)
+
+run: $(TARGET)
+	./obj_dir/$(TARGET)
+
+clean:
+	rm -rf obj_dir
+	rm -f insndecoder_tb.vcd

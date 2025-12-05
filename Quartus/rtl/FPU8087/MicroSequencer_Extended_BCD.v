@@ -574,16 +574,17 @@ module MicroSequencer_Extended_BCD (
 
         //-------------------------------------------------------------
         // Program 14: FPTAN - Partial Tangent
-        // Address: 0x0700-0x0705
+        // Address: 0x0700-0x0706
         // Returns tan(ST(0)) in ST(0) and pushes 1.0 to ST(1)
-        // Uses hardware OP_TAN (18) which computes sin/cos and divides
+        // Uses hardware OP_TAN (18) which computes tan and 1.0 secondary
         //-------------------------------------------------------------
         microcode_rom[16'h0700] = {OPCODE_EXEC, MOP_LOAD_A, 8'd0, 15'h0701};          // Load angle from data_in
         microcode_rom[16'h0701] = {OPCODE_EXEC, MOP_CALL_ARITH, 8'd18, 15'h0702};     // Call TAN (op=18)
         microcode_rom[16'h0702] = {OPCODE_EXEC, MOP_WAIT_ARITH, 8'd0, 15'h0703};      // Wait for completion
-        microcode_rom[16'h0703] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0704};  // Load tan result
-        microcode_rom[16'h0704] = {OPCODE_EXEC, MOP_STORE, 8'd0, 15'h0705};           // Store result
-        microcode_rom[16'h0705] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                    // Return
+        microcode_rom[16'h0703] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES, 8'd0, 15'h0704};  // Load tan result to temp_result
+        microcode_rom[16'h0704] = {OPCODE_EXEC, MOP_LOAD_ARITH_RES_SEC, 8'd0, 15'h0705}; // Load 1.0 to temp_fp_b
+        microcode_rom[16'h0705] = {OPCODE_EXEC, MOP_STORE, 8'd0, 15'h0706};           // Store result
+        microcode_rom[16'h0706] = {OPCODE_RET, 5'd0, 8'd0, 15'd0};                    // Return
 
         //-------------------------------------------------------------
         // Program 15: FPATAN - Partial Arctangent

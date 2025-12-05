@@ -12,7 +12,11 @@ import re
 import pystache
 
 def analyze_microcode_files(microcode_dir):
-    """Analyze microcode .us files to extract opcode information."""
+    """Analyze microcode .us files to extract opcode information.
+
+    Uses .preprocessed files if available (from uasm.py) since they have
+    macros expanded. Falls back to raw .us files otherwise.
+    """
 
     # Track opcodes and their properties
     opcodes_with_modrm = set()
@@ -25,12 +29,24 @@ def analyze_microcode_files(microcode_dir):
 
     current_opcode = None
 
-    # Process all .us files
+    # Process all .us files (prefer .preprocessed versions)
     for filename in sorted(os.listdir(microcode_dir)):
-        if not filename.endswith('.us'):
+        # Look for .preprocessed files first (macro-expanded)
+        if filename.endswith('.us.preprocessed'):
+            filepath = os.path.join(microcode_dir, filename)
+        elif filename.endswith('.us'):
+            # Check if preprocessed version exists
+            preprocessed_path = os.path.join(microcode_dir, filename + '.preprocessed')
+            if os.path.exists(preprocessed_path):
+                filepath = preprocessed_path
+            else:
+                filepath = os.path.join(microcode_dir, filename)
+        else:
             continue
 
-        filepath = os.path.join(microcode_dir, filename)
+        # Skip if already processed the .preprocessed version
+        if filename.endswith('.us') and os.path.exists(os.path.join(microcode_dir, filename + '.preprocessed')):
+            continue
 
         with open(filepath, 'r') as f:
             for line in f:

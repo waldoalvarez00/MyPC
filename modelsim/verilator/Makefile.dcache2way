@@ -1,0 +1,62 @@
+# ================================================================
+# Verilator Makefile for DCache2Way Test
+# ================================================================
+# This test uses Verilator to avoid Icarus Verilog limitations
+# with SystemVerilog constructs in BlockRam.sv
+# ================================================================
+
+# Verilator configuration
+VERILATOR = verilator
+VERILATOR_ROOT ?= $(shell $(VERILATOR) --getenv VERILATOR_ROOT 2>/dev/null || echo /usr/share/verilator)
+
+# Check for local verilator installation
+ifneq ($(wildcard /tmp/local_tools/verilator_extract/usr/bin/verilator),)
+    VERILATOR = /tmp/local_tools/verilator_extract/usr/bin/verilator
+    VERILATOR_ROOT = /tmp/local_tools/verilator_extract/usr/share/verilator
+endif
+
+# Project paths
+RTL_DIR = ../../Quartus/rtl/common
+
+# Verilator flags
+VFLAGS = --cc --exe --build -Wall
+VFLAGS += -Wno-fatal  # Don't treat warnings as errors
+VFLAGS += -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-UNUSEDSIGNAL -Wno-UNOPTFLAT
+VFLAGS += -I$(RTL_DIR)
+VFLAGS += --trace  # Enable VCD tracing
+VFLAGS += -CFLAGS "-std=c++14"
+VFLAGS += --top-module DCache2Way
+
+# RTL source files (in dependency order)
+RTL_SOURCES = \
+    $(RTL_DIR)/BlockRam.sv \
+    $(RTL_DIR)/DPRam.sv \
+    $(RTL_DIR)/DCache2Way.sv
+
+# Testbench
+TB_SOURCE = dcache2way_tb.cpp
+
+# Target
+TARGET = VDCache2Way
+
+.PHONY: all clean run test
+
+all: $(TARGET)
+
+$(TARGET): $(RTL_SOURCES) $(TB_SOURCE)
+	VERILATOR_ROOT=$(VERILATOR_ROOT) $(VERILATOR) $(VFLAGS) $(RTL_SOURCES) $(TB_SOURCE) -o $(TARGET)
+
+run: $(TARGET)
+	./obj_dir/$(TARGET)
+
+test: run
+	@if ./obj_dir/$(TARGET); then \
+		echo "TEST PASSED"; \
+	else \
+		echo "TEST FAILED"; \
+		exit 1; \
+	fi
+
+clean:
+	rm -rf obj_dir
+	rm -f dcache2way_tb.vcd

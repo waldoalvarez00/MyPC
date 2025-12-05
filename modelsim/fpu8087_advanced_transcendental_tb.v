@@ -74,9 +74,13 @@ module tb_advanced_transcendental;
         .status_out(status_out)
     );
 
+    // Maximum wait cycles for operations (prevent infinite hang)
+    localparam MAX_WAIT_CYCLES = 10000;
+
     // Helper task: Load value onto stack
     task load_value;
         input [79:0] value;
+        integer timeout_cnt;
         begin
             @(posedge clk);
             data_in = value;
@@ -84,7 +88,14 @@ module tb_advanced_transcendental;
             execute = 1;
             @(posedge clk);
             execute = 0;
-            wait(ready == 1);
+            timeout_cnt = 0;
+            while (ready != 1 && timeout_cnt < MAX_WAIT_CYCLES) begin
+                @(posedge clk);
+                timeout_cnt = timeout_cnt + 1;
+            end
+            if (timeout_cnt >= MAX_WAIT_CYCLES) begin
+                $display("[ERROR] load_value timeout after %0d cycles!", MAX_WAIT_CYCLES);
+            end
             @(posedge clk);
         end
     endtask
@@ -92,13 +103,21 @@ module tb_advanced_transcendental;
     // Helper task: Execute instruction
     task exec_inst;
         input [7:0] inst;
+        integer timeout_cnt;
         begin
             @(posedge clk);
             instruction = inst;
             execute = 1;
             @(posedge clk);
             execute = 0;
-            wait(ready == 1);
+            timeout_cnt = 0;
+            while (ready != 1 && timeout_cnt < MAX_WAIT_CYCLES) begin
+                @(posedge clk);
+                timeout_cnt = timeout_cnt + 1;
+            end
+            if (timeout_cnt >= MAX_WAIT_CYCLES) begin
+                $display("[ERROR] exec_inst(0x%02X) timeout after %0d cycles!", inst, MAX_WAIT_CYCLES);
+            end
             @(posedge clk);
         end
     endtask

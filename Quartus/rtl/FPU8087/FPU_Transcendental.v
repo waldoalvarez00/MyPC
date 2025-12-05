@@ -151,12 +151,19 @@ module FPU_Transcendental(
         end
     endfunction
 
-    // Check if |FP80 value| >= 1.0 (for F2XM1 domain checking)
-    // 1.0 has exponent 0x3FFF (bias of 16383)
-    function automatic is_abs_ge_one;
+    // Check if |FP80 value| > 1.0 (for F2XM1 domain checking)
+    // 1.0 has exponent 0x3FFF (bias of 16383), mantissa 0x8000000000000000
+    // F2XM1 domain is -1 <= x <= 1, so we reject only when |x| > 1.0
+    function automatic is_abs_gt_one;
         input [79:0] val;
+        reg [14:0] exp;
+        reg [63:0] mant;
         begin
-            is_abs_ge_one = (val[78:64] >= 15'h3FFF);
+            exp = val[78:64];
+            mant = val[63:0];
+            // |x| > 1.0 if exponent > 0x3FFF, or exponent == 0x3FFF and mantissa > 1.0's mantissa
+            is_abs_gt_one = (exp > 15'h3FFF) ||
+                           ((exp == 15'h3FFF) && (mant > 64'h8000000000000000));
         end
     endfunction
 
@@ -394,6 +401,7 @@ module FPU_Transcendental(
         if (reset) begin
             muldiv_grant <= 2'd0;
         end else begin
+            // Debug removed - arbitration fixed
             if (ext_muldiv_done) begin
                 // Clear grant when done received
                 muldiv_grant <= 2'd0;
@@ -473,12 +481,7 @@ module FPU_Transcendental(
 
             current_operation <= 4'd0;
         end else begin
-            // Debug: show state when enable arrives
-            `ifdef ICARUS
-            if (enable && state != STATE_IDLE) begin
-                $display("[TRANS WARN] enable=1 but state=%0d (not IDLE!)", state);
-            end
-            `endif
+            // Debug removed - enable handshake handled by microcode
 
             // Accumulate inexact flag from internal arithmetic operations
             // This captures inexact from any internal operation during the transcendental computation
@@ -500,7 +503,8 @@ module FPU_Transcendental(
                     // Don't clear error here - preserve it for FPU_Core to sample
                     // Error will be cleared when a new operation starts
                     flag_inexact <= 1'b0;
-                    has_secondary <= 1'b0;
+                    // NOTE: Don't clear has_secondary here - preserve it for FPU_Core to sample
+                    // has_secondary will be cleared when a new operation starts
                     cordic_enable <= 1'b0;
                     poly_enable <= 1'b0;
                     sqrt_enable <= 1'b0;
@@ -511,6 +515,7 @@ module FPU_Transcendental(
 
                     if (enable) begin
                         error <= 1'b0;  // Clear error only at start of new operation
+                        has_secondary <= 1'b0;  // Clear secondary flag at start of new operation
                         `ifdef ICARUS
                         $display("[TRANS] STATE_IDLE: enable=1, op=%0d, A=%h B=%h", operation, operand_a, operand_b);
                         `endif
@@ -570,8 +575,8 @@ module FPU_Transcendental(
                             // 2^x - 1 via polynomial approximation
                             // Valid domain: -1 <= x <= 1
                             `ifdef ICARUS
-                            $display("[TRANS F2XM1] A=%h is_nan=%b is_abs_ge_one=%b",
-                                operand_a, is_nan(operand_a), is_abs_ge_one(operand_a));
+                            $display("[TRANS F2XM1] A=%h is_nan=%b is_abs_gt_one=%b",
+                                operand_a, is_nan(operand_a), is_abs_gt_one(operand_a));
                             `endif
                             if (is_nan(operand_a)) begin
                                 // NaN propagation
@@ -581,10 +586,10 @@ module FPU_Transcendental(
                                 result_primary <= FP80_QNAN;
                                 error <= 1'b1;
                                 state <= STATE_DONE;
-                            end else if (is_abs_ge_one(operand_a)) begin
-                                // Domain error: |x| >= 1
+                            end else if (is_abs_gt_one(operand_a)) begin
+                                // Domain error: |x| > 1
                                 `ifdef ICARUS
-                                $display("[TRANS F2XM1] |x| >= 1 detected -> STATE_DONE (domain error)");
+                                $display("[TRANS F2XM1] |x| > 1 detected -> STATE_DONE (domain error)");
                                 `endif
                                 result_primary <= FP80_QNAN;
                                 error <= 1'b1;

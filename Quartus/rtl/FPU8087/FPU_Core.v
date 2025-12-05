@@ -3005,6 +3005,7 @@ module FPU_Core(
                             end
 
                             INST_FSQRT: begin
+                                // Result captured by microsequencer via MOP_LOAD_ARITH_RES
                                 temp_result <= microseq_temp_result;
                                 has_secondary_result <= 1'b0;
                                 // Check for domain errors (e.g., sqrt of negative)
@@ -3016,6 +3017,7 @@ module FPU_Core(
                             end
 
                             INST_FSINCOS: begin
+                                // Results captured by microsequencer via MOP_LOAD_ARITH_RES and MOP_LOAD_ARITH_RES_SEC
                                 temp_result <= microseq_temp_result;            // sin
                                 temp_result_secondary <= microseq_temp_fp_b;    // cos
                                 has_secondary_result <= 1'b1;
@@ -3027,8 +3029,23 @@ module FPU_Core(
                                 state <= STATE_WRITEBACK;
                             end
 
+                            // FPTAN returns two results: tan(x) and 1.0
+                            // Results captured by microsequencer via MOP_LOAD_ARITH_RES and MOP_LOAD_ARITH_RES_SEC
+                            INST_FPTAN: begin
+                                temp_result <= microseq_temp_result;       // tan(x) from temp_result
+                                temp_result_secondary <= microseq_temp_fp_b;  // 1.0 from temp_fp_b
+                                has_secondary_result <= 1'b1;  // FPTAN always pushes 1.0
+                                // Check for domain errors from transcendental unit
+                                if (arith_invalid) begin
+                                    status_invalid <= 1'b1;
+                                    error <= !mask_invalid;
+                                end
+                                state <= STATE_WRITEBACK;
+                            end
+
                             // Transcendental operations that return single result
-                            INST_FPTAN, INST_FPATAN, INST_F2XM1, INST_FYL2X, INST_FYL2XP1,
+                            // Results captured by microsequencer via MOP_LOAD_ARITH_RES
+                            INST_FPATAN, INST_F2XM1, INST_FYL2X, INST_FYL2XP1,
                             INST_FRNDINT, INST_FSCALE, INST_FXTRACT: begin
                                 temp_result <= microseq_temp_result;
                                 has_secondary_result <= 1'b0;

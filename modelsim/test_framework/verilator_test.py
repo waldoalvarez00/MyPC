@@ -32,8 +32,10 @@ class VerilatorTest(BaseTest):
     # Additional verilator flags
     verilator_flags: List[str] = [
         "--cc", "--exe", "--build", "-Wall",
+        "-Wno-fatal",  # Don't treat warnings as errors
         "-Wno-WIDTHEXPAND", "-Wno-WIDTHTRUNC", "-Wno-UNUSEDSIGNAL",
         "-Wno-CASEINCOMPLETE", "-Wno-PINCONNECTEMPTY",
+        "-Wno-SYNCASYNCNET", "-Wno-UNOPTFLAT",  # Common in FPGA designs
         "--trace"  # Enable VCD tracing (required by testbenches using VerilatedVcdC)
     ]
 
