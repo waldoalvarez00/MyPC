@@ -1,13 +1,21 @@
-set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) slib_clock_div.vhd ]
-set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) slib_counter.vhd ]
-set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) slib_edge_detect.vhd ]
-set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) slib_fifo.vhd ]
-set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) slib_input_filter.vhd ]
-set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) slib_input_sync.vhd ]
-set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) slib_mv_filter.vhd ]
-set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) uart_16750.vhd ]
-set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) uart_baudgen.vhd ]
-set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) uart_interrupt.vhd ]
-set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) uart_receiver.vhd ]
-set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) uart_transmitter.vhd ]
+# UART 16750 - SystemVerilog Implementation
+# Translated from VHDL to SystemVerilog for better tool compatibility
+
+# Support library modules
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) ../uart16750_sv/slib_clock_div.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) ../uart16750_sv/slib_counter.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) ../uart16750_sv/slib_edge_detect.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) ../uart16750_sv/slib_fifo.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) ../uart16750_sv/slib_input_filter.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) ../uart16750_sv/slib_input_sync.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) ../uart16750_sv/slib_mv_filter.sv ]
+
+# UART core modules
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) ../uart16750_sv/uart_baudgen.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) ../uart16750_sv/uart_transmitter.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) ../uart16750_sv/uart_receiver.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) ../uart16750_sv/uart_interrupt.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) ../uart16750_sv/uart_16750.sv ]
+
+# Top-level wrapper
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) uart.v ]

@@ -1377,13 +1377,26 @@ TEST_CONFIGS["uart"] = TestConfig(
     testbench="uart_tb.sv",
     sources=[
         "Quartus/rtl/uart16750/uart.v",
+        "Quartus/rtl/uart16750_sv/slib_edge_detect.sv",
+        "Quartus/rtl/uart16750_sv/slib_input_sync.sv",
+        "Quartus/rtl/uart16750_sv/slib_input_filter.sv",
+        "Quartus/rtl/uart16750_sv/slib_clock_div.sv",
+        "Quartus/rtl/uart16750_sv/slib_fifo.sv",
+        "Quartus/rtl/uart16750_sv/slib_counter.sv",
+        "Quartus/rtl/uart16750_sv/slib_mv_filter.sv",
+        "Quartus/rtl/uart16750_sv/uart_baudgen.sv",
+        "Quartus/rtl/uart16750_sv/uart_transmitter.sv",
+        "Quartus/rtl/uart16750_sv/uart_receiver.sv",
+        "Quartus/rtl/uart16750_sv/uart_interrupt.sv",
+        "Quartus/rtl/uart16750_sv/uart_16750.sv",
     ],
     includes=[
         "Quartus/rtl/uart16750",
+        "Quartus/rtl/uart16750_sv",
     ],
     defines=['ICARUS'],
-    category="skip",  # uart.v instantiates uart_16750 which is VHDL - Icarus cannot compile VHDL
-    description="uart tests - SKIP: uart.v requires uart_16750.vhd (VHDL). Use uart_16750_lite test instead."
+    category="serial",
+    description="Full UART 16750 tests using SystemVerilog translation"
 )
 
 TEST_CONFIGS["uart_16750_lite"] = TestConfig(
