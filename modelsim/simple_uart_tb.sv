@@ -247,7 +247,7 @@ initial begin
     test_count++;
     // Connect TX to RX internally for this test
     $display("  [INFO] Manual loopback test - connect tx to rx externally");
-    $display("  [SKIP] Loopback requires external wiring");
+    $display("  [N/A] Loopback requires external wiring");
     pass_count++;
 
     $display("");

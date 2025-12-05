@@ -1382,8 +1382,8 @@ TEST_CONFIGS["uart"] = TestConfig(
         "Quartus/rtl/uart16750",
     ],
     defines=['ICARUS'],
-    category="serial",
-    description="uart tests"
+    category="skip",  # uart.v instantiates uart_16750 which is VHDL - Icarus cannot compile VHDL
+    description="uart tests - SKIP: uart.v requires uart_16750.vhd (VHDL). Use uart_16750_lite test instead."
 )
 
 TEST_CONFIGS["uart_16750_lite"] = TestConfig(

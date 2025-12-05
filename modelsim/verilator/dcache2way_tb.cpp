@@ -238,14 +238,15 @@ public:
         cache_read(0x100, &data);
         printf("Initial read addr 0x100: data=0x%04x\n", data);
 
-        // Add some idle cycles
+        // Idle cycles needed - cache state machine needs time to return to ready state
+        // (DCache2Way doesn't support pure back-to-back operations)
         for (int i = 0; i < 10; i++) tick();
 
-        // Write 0xABCD to address 0x100
+        // Write 0xABCD to address 0x100 (should hit now)
         bool write_ok = cache_write(0x100, 0xABCD);
         printf("Write 0xABCD to addr 0x100\n");
 
-        // Add some idle cycles
+        // Idle cycles for write buffer to be applied
         for (int i = 0; i < 10; i++) tick();
 
         // Read it back
@@ -320,14 +321,14 @@ public:
         cache_read(0x400, &initial_data);
         printf("Initial read addr 0x400: data=0x%04x\n", initial_data);
 
-        // Add some idle cycles
+        // Idle cycles - cache needs time to return to ready state
         for (int i = 0; i < 10; i++) tick();
 
-        // Write to the same address (now it should hit)
+        // Write to the same address (should hit now)
         cache_write(0x400, 0x1234);
         printf("Write 0x1234 to addr 0x400\n");
 
-        // Add some idle cycles for write to complete
+        // Idle cycles for write buffer to be applied
         for (int i = 0; i < 10; i++) tick();
 
         // Read back to verify
