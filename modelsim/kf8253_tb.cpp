@@ -36,37 +36,71 @@ void tick() {
     main_time += 10;
 }
 
-// Helper: Advance counter clock 0
+// Helper: Advance counter clock 0 (also toggles main clock for synchronization)
 void tick_counter_0() {
+    // Toggle main clock low, counter clock low
+    dut->clock = 0;
     dut->counter_0_clock = 0;
     dut->eval();
-    main_time += 500;
+    main_time += 250;
 
+    // Toggle main clock high
+    dut->clock = 1;
+    dut->eval();
+    main_time += 250;
+
+    // Toggle main clock low, counter clock high
+    dut->clock = 0;
     dut->counter_0_clock = 1;
     dut->eval();
-    main_time += 500;
+    main_time += 250;
+
+    // Toggle main clock high
+    dut->clock = 1;
+    dut->eval();
+    main_time += 250;
 }
 
-// Helper: Advance counter clock 1
+// Helper: Advance counter clock 1 (also toggles main clock for synchronization)
 void tick_counter_1() {
+    dut->clock = 0;
     dut->counter_1_clock = 0;
     dut->eval();
-    main_time += 250;
+    main_time += 125;
 
+    dut->clock = 1;
+    dut->eval();
+    main_time += 125;
+
+    dut->clock = 0;
     dut->counter_1_clock = 1;
     dut->eval();
-    main_time += 250;
+    main_time += 125;
+
+    dut->clock = 1;
+    dut->eval();
+    main_time += 125;
 }
 
-// Helper: Advance counter clock 2
+// Helper: Advance counter clock 2 (also toggles main clock for synchronization)
 void tick_counter_2() {
+    dut->clock = 0;
     dut->counter_2_clock = 0;
     dut->eval();
-    main_time += 500;
+    main_time += 250;
 
+    dut->clock = 1;
+    dut->eval();
+    main_time += 250;
+
+    dut->clock = 0;
     dut->counter_2_clock = 1;
     dut->eval();
-    main_time += 500;
+    main_time += 250;
+
+    dut->clock = 1;
+    dut->eval();
+    main_time += 250;
 }
 
 // Write to KF8253
