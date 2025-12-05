@@ -62,7 +62,7 @@ function logic is_prefix;
 endfunction
 
 function state_t next_instr;
-    next_instr = (nearly_full || stall) && insn_complete ? STATE_WAIT_SPACE : STATE_OPCODE;
+    next_instr = state_t'((nearly_full || stall) && insn_complete ? STATE_WAIT_SPACE : STATE_OPCODE);
 endfunction
 
 // Auto-generated helper functions for instruction decoding
@@ -77,42 +77,42 @@ always_comb begin
             !insn_has_modrm(fifo_rd_data) &&
             insn_immed_count(fifo_rd_data, 3'b0) == 2'b00) ||
             instruction.invalid;
-        next_state = fifo_empty ? STATE_OPCODE :
+        next_state = state_t'(fifo_empty ? STATE_OPCODE :
             is_prefix(fifo_rd_data) ? STATE_OPCODE :
             insn_has_modrm(fifo_rd_data) ? STATE_MODRM :
             insn_immed_count(fifo_rd_data, 3'b0) != 2'b00 ? STATE_IMMED1 :
-            insn_complete ? next_instr() : STATE_OPCODE;
+            insn_complete ? next_instr() : STATE_OPCODE);
     end
     STATE_MODRM: begin
         insn_complete = !fifo_empty && !has_displacement(fifo_rd_data) &&
             insn_immed_count(instruction.opcode, fifo_rd_data[5:3]) == 2'b00;
-        next_state = fifo_empty ? STATE_MODRM :
+        next_state = state_t'(fifo_empty ? STATE_MODRM :
             has_displacement(fifo_rd_data) ? STATE_DISPLACEMENT :
             insn_immed_count(instruction.opcode, fifo_rd_data[5:3]) != 2'b00 ?
-                STATE_IMMED1 : next_instr();
+                STATE_IMMED1 : next_instr());
     end
     STATE_DISPLACEMENT: begin
         insn_complete = immed_complete &&
             insn_immed_count(instruction.opcode, instruction.mod_rm[5:3]) == 2'b0;
-        next_state = immed_complete ?
+        next_state = state_t'(immed_complete ?
             (insn_immed_count(instruction.opcode, instruction.mod_rm[5:3]) != 2'b00 ?
-                STATE_IMMED1 : next_instr()) : STATE_DISPLACEMENT;
+                STATE_IMMED1 : next_instr()) : STATE_DISPLACEMENT);
     end
     STATE_IMMED1: begin
         insn_complete = insn_immed_count(instruction.opcode,
                                          instruction.mod_rm[5:3]) == 2'b01 &&
             immed_complete;
-        next_state = immed_complete ?
+        next_state = state_t'(immed_complete ?
             (insn_immed_count(instruction.opcode, instruction.mod_rm[5:3]) == 2'd2 ?
                 STATE_IMMED2 : next_instr()) :
-            STATE_IMMED1;
+            STATE_IMMED1);
     end
     STATE_IMMED2: begin
         insn_complete = immed_complete;
-        next_state = immed_complete ? next_instr(): STATE_IMMED2;
+        next_state = state_t'(immed_complete ? next_instr(): STATE_IMMED2);
     end
     STATE_WAIT_SPACE: begin
-        next_state = stall ? STATE_WAIT_SPACE : STATE_OPCODE;
+        next_state = state_t'(stall ? STATE_WAIT_SPACE : STATE_OPCODE);
     end
     default: next_state = STATE_OPCODE;
     endcase

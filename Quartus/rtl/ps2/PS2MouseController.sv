@@ -79,6 +79,7 @@ wire error;
 wire empty;
 wire full;
 wire [7:0] fifo_rd_data;
+wire [5:0] count_out;  // Unused but required for Fifo .* connection (depth=32)
 wire fifo_wr_en = rx_valid & ~full;
 wire fifo_flush = do_write & data_m_bytesel[1] & data_m_data_in[15];
 

@@ -75,6 +75,7 @@ wire full;
 wire [7:0] fifo_rd_data;
 wire [7:0] scancode;
 wire scancode_valid;
+wire [3:0] count_out;  // Unused but required for Fifo .* connection
 wire fifo_wr_en = scancode_valid & ~full & |scancode;
 wire fifo_flush = do_write & data_m_bytesel[1] & data_m_data_in[15];
 

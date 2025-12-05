@@ -33,6 +33,15 @@ logic vwb_ack;
 logic vwb_wr_en;
 logic [1:0] vwb_bytesel;
 
+// Coherence interface (unused in simple test)
+logic        coh_wr_valid;
+logic [19:1] coh_wr_addr;
+logic [15:0] coh_wr_data;
+logic [1:0]  coh_wr_bytesel;
+logic        coh_probe_valid;
+logic [19:1] coh_probe_addr;
+logic        coh_probe_present;
+
 // Simple memory model
 logic [15:0] memory [0:1023];
 
@@ -98,6 +107,7 @@ initial begin
     c_addr = 19'h0;
     c_data_out = 16'h0;
     c_bytesel = 2'b11;
+    coh_probe_present = 0;  // No coherence probes in simple test
 
     repeat(3) @(posedge clk);
     reset = 0;

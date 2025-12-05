@@ -29,6 +29,23 @@ logic m_ack;
 logic m_wr_en;
 logic [1:0] m_bytesel;
 
+// Victim writeback interface
+logic [18:0] vwb_addr;
+logic [15:0] vwb_data_out;
+logic vwb_access;
+logic vwb_ack;
+logic vwb_wr_en;
+logic [1:0] vwb_bytesel;
+
+// Coherence interface
+logic        coh_wr_valid;
+logic [19:1] coh_wr_addr;
+logic [15:0] coh_wr_data;
+logic [1:0]  coh_wr_bytesel;
+logic        coh_probe_valid;
+logic [19:1] coh_probe_addr;
+logic        coh_probe_present;
+
 // Memory model
 logic [15:0] memory [0:524287];  // 512K words
 logic mem_busy;
@@ -61,7 +78,22 @@ DCache2Way #(.sets(256)) dut (
     .m_access(m_access),
     .m_ack(m_ack),
     .m_wr_en(m_wr_en),
-    .m_bytesel(m_bytesel)
+    .m_bytesel(m_bytesel),
+    // Victim writeback interface
+    .vwb_addr(vwb_addr),
+    .vwb_data_out(vwb_data_out),
+    .vwb_access(vwb_access),
+    .vwb_ack(vwb_ack),
+    .vwb_wr_en(vwb_wr_en),
+    .vwb_bytesel(vwb_bytesel),
+    // Coherence interface
+    .coh_wr_valid(coh_wr_valid),
+    .coh_wr_addr(coh_wr_addr),
+    .coh_wr_data(coh_wr_data),
+    .coh_wr_bytesel(coh_wr_bytesel),
+    .coh_probe_valid(coh_probe_valid),
+    .coh_probe_addr(coh_probe_addr),
+    .coh_probe_present(coh_probe_present)
 );
 
 // Clock generation
@@ -98,6 +130,22 @@ always_ff @(posedge clk) begin
             end
         end else begin
             m_ack <= 1'b0;
+        end
+    end
+end
+
+// Victim writeback ack handler - immediate ack for simplicity
+always_ff @(posedge clk) begin
+    if (reset) begin
+        vwb_ack <= 1'b0;
+    end else begin
+        if (vwb_access && !vwb_ack) begin
+            vwb_ack <= 1'b1;
+            if (vwb_wr_en) begin
+                memory[{vwb_addr, 1'b0}] <= vwb_data_out;  // Store victim writeback
+            end
+        end else begin
+            vwb_ack <= 1'b0;
         end
     end
 end
@@ -180,6 +228,7 @@ initial begin
     c_addr = 19'h00000;
     c_data_out = 16'h0000;
     c_bytesel = 2'b11;
+    coh_probe_present = 1'b0;  // No coherence probes in this test
     total_accesses = 0;
     cache_hits = 0;
     cache_misses = 0;
