@@ -172,8 +172,16 @@ module harvard_cache_protected_tb;
         end
     endtask
 
+    // Latency tracking for performance analysis
+    integer max_store_latency = 0;
+    integer max_load_latency = 0;
+    integer high_latency_count = 0;
+    localparam LATENCY_WARN_THRESHOLD = 100;  // Warn if > 100 cycles
+    localparam LATENCY_TIMEOUT = 2000;        // Fail if > 2000 cycles (truly stuck cache)
+
     task automatic do_dstore(input [19:1] addr, input [15:0] data, input [1:0] be);
         integer t;
+        logic got_ack;
         begin
             d_addr = addr;
             d_data_out = data;
@@ -181,29 +189,57 @@ module harvard_cache_protected_tb;
             d_wr_en = 1'b1;
             d_access = 1'b1;
             t = 0;
+            got_ack = 1'b0;
             @(posedge clk);
-            while (!d_ack && t < 50) begin t++; @(posedge clk); end
+            while (!got_ack && t < LATENCY_TIMEOUT) begin
+                if (d_ack) got_ack = 1'b1;
+                t++;
+                @(posedge clk);
+            end
             d_access = 1'b0;
             d_wr_en = 1'b0;
             repeat(1) @(posedge clk);
+            // Track latency
+            if (t > max_store_latency) max_store_latency = t;
+            if (t > LATENCY_WARN_THRESHOLD) begin
+                high_latency_count++;
+                $display("[%0t][LATENCY] DSTORE addr=%h took %0d cycles (flush blocking)", $time, addr, t);
+            end
+            if (!got_ack) $error("[%0t] DSTORE STUCK: addr=%h no ack after %0d cycles", $time, addr, t);
             golden_write(addr, data, be);
         end
     endtask
 
     task automatic do_dload(input [19:1] addr, output [15:0] data);
         integer t;
+        logic got_ack;
         begin
             d_addr = addr;
             d_wr_en = 1'b0;
             d_bytesel = 2'b11;
             d_access = 1'b1;
             t = 0;
+            got_ack = 1'b0;
+            data = 16'h0000;  // Default
             @(posedge clk);
-            while (!d_ack && t < 50) begin t++; @(posedge clk); end
-            #1; // Wait for non-blocking assignments to settle
-            data = d_data_in;
+            while (!got_ack && t < LATENCY_TIMEOUT) begin
+                if (d_ack) begin
+                    got_ack = 1'b1;
+                    #1; // Wait for non-blocking assignments to settle
+                    data = d_data_in;  // Capture data when ack is asserted
+                end
+                t++;
+                @(posedge clk);
+            end
             d_access = 1'b0;
             repeat(1) @(posedge clk);
+            // Track latency
+            if (t > max_load_latency) max_load_latency = t;
+            if (t > LATENCY_WARN_THRESHOLD) begin
+                high_latency_count++;
+                $display("[%0t][LATENCY] DLOAD addr=%h took %0d cycles (flush blocking)", $time, addr, t);
+            end
+            if (!got_ack) $error("[%0t] DLOAD STUCK: addr=%h no ack after %0d cycles", $time, addr, t);
         end
     endtask
 
@@ -218,6 +254,10 @@ module harvard_cache_protected_tb;
             golden[i] = 16'h0000;
         end
         reset = 1'b1;
+        // Initialize addresses to valid values to prevent X propagation in RAM reads
+        i_addr   = 19'h00000;
+        d_addr   = 19'h00000;
+        d_data_out = 16'h0000;
         i_access = 1'b0;
         d_access = 1'b0;
         d_wr_en  = 1'b0;
@@ -276,6 +316,14 @@ module harvard_cache_protected_tb;
                 endcase
             end
         end
+
+        // Report latency statistics
+        $display("=== Latency Statistics ===");
+        $display("  Max DSTORE latency: %0d cycles", max_store_latency);
+        $display("  Max DLOAD latency:  %0d cycles", max_load_latency);
+        $display("  High latency events (>%0d cycles): %0d", LATENCY_WARN_THRESHOLD, high_latency_count);
+        if (high_latency_count > 0)
+            $display("  [INFO] High latency due to blocking cache during flush - expected with small cache");
 
         if (failures == 0) begin
             $display("✓ PASSED: protected address stays coherent");

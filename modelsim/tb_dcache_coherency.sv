@@ -76,6 +76,14 @@ module tb_dcache_coherency;
     logic cache_m_wr_en;
     logic [1:0] cache_m_bytesel;
 
+    // D-cache victim writeback signals (vwb - non-blocking writeback port)
+    logic [18:0] vwb_addr;
+    logic [15:0] vwb_data_out;
+    logic vwb_access;
+    logic vwb_ack;
+    logic vwb_wr_en;
+    logic [1:0] vwb_bytesel;
+
     // Simulated SDRAM
     logic [15:0] memory [0:4095];  // 8KB test memory
     integer i;
@@ -148,7 +156,15 @@ module tb_dcache_coherency;
         .m_access(cache_m_access),
         .m_ack(cache_m_ack),
         .m_wr_en(cache_m_wr_en),
-        .m_bytesel(cache_m_bytesel)
+        .m_bytesel(cache_m_bytesel),
+
+        // Victim writeback port (non-blocking writes)
+        .vwb_addr(vwb_addr),
+        .vwb_data_out(vwb_data_out),
+        .vwb_access(vwb_access),
+        .vwb_ack(vwb_ack),
+        .vwb_wr_en(vwb_wr_en),
+        .vwb_bytesel(vwb_bytesel)
     );
 
     //==========================================================================
@@ -186,6 +202,28 @@ module tb_dcache_coherency;
                     $display("  [SDRAM] Read addr=%h data=%h",
                              cache_m_addr, memory[cache_m_addr[12:1]]);
                 end
+            end
+        end
+    end
+
+    //==========================================================================
+    // Victim Writeback Backend (non-blocking writes)
+    //==========================================================================
+
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            vwb_ack <= 1'b0;
+        end else begin
+            vwb_ack <= vwb_access;  // 1-cycle latency
+
+            if (vwb_access && vwb_wr_en) begin
+                // Victim writeback to memory
+                if (vwb_bytesel[0])
+                    memory[vwb_addr[11:0]][7:0] <= vwb_data_out[7:0];
+                if (vwb_bytesel[1])
+                    memory[vwb_addr[11:0]][15:8] <= vwb_data_out[15:8];
+                $display("  [VWB] Victim writeback addr=%h data=%h bytesel=%b",
+                         vwb_addr, vwb_data_out, vwb_bytesel);
             end
         end
     end

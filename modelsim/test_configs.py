@@ -1112,20 +1112,6 @@ TEST_CONFIGS["dcache2way_simple"] = TestConfig(
     description="dcache2way_simple tests"
 )
 
-TEST_CONFIGS["dcache_coherency"] = TestConfig(
-    name="dcache_coherency",
-    testbench="tb_dcache_coherency.sv",
-    sources=[
-        "Quartus/rtl/common/DCacheFrontendArbiter.sv",
-        "Quartus/rtl/common/DCache2Way.sv",
-        "Quartus/rtl/common/DPRam.sv",
-        "Quartus/rtl/common/BlockRam.sv",
-    ],
-    includes=[],
-    category="skip",  # Known cache writeback bug - times out during victim writeback
-    description="dcache_coherency tests - SKIP: cache victim writeback timeout bug"
-)
-
 TEST_CONFIGS["fifo"] = TestConfig(
     name="fifo",
     testbench="fifo_tb.sv",
@@ -1270,14 +1256,12 @@ TEST_CONFIGS["kf8253"] = TestConfig(
     description="kf8253 tests"
 )
 
-# NOTE: kf8259_comprehensive is extremely slow under Icarus Verilog due to
-# "constant selects in always_* processes" warnings causing inefficient simulation.
-# The KF8259 uses rotate_right/rotate_left/resolv_priority functions in always_comb
-# blocks which Icarus handles poorly. Use "pic" or "kf8259" tests for coverage instead.
-# This test is in "skip" category - run explicitly with --test kf8259_comprehensive
+# NOTE: kf8259_comprehensive uses Verilator because Icarus Verilog is extremely slow
+# due to "constant selects in always_* processes" warnings with the rotate/priority functions.
+# Verilator runs this test in <1 second vs 300+ seconds with Icarus.
 TEST_CONFIGS["kf8259_comprehensive"] = TestConfig(
     name="kf8259_comprehensive",
-    testbench="kf8259_comprehensive_tb.sv",
+    testbench="",  # Not used for Verilator
     sources=[
         "Quartus/rtl/KF8259/KF8259_Common_Package.svh",
         "Quartus/rtl/KF8259/KF8259_Bus_Control_Logic.sv",
@@ -1290,9 +1274,11 @@ TEST_CONFIGS["kf8259_comprehensive"] = TestConfig(
     includes=[
         "Quartus/rtl/KF8259",
     ],
-    category="skip",  # Too slow for Icarus - use pic/kf8259 tests instead
-    timeout=600,  # Very slow due to Icarus Verilog limitations
-    description="kf8259_comprehensive tests - SKIP: Too slow under Icarus Verilog"
+    top_module="KF8259",
+    category="peripheral",
+    description="kf8259_comprehensive tests (Verilator - 20 tests)",
+    simulator="verilator",
+    cpp_testbench="verilator/kf8259_comprehensive_tb.cpp"
 )
 
 TEST_CONFIGS["pic"] = TestConfig(

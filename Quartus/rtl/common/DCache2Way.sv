@@ -368,8 +368,10 @@ wire code_write_hit = c_ack & c_wr_en & coh_probe_present;
 // BUG FIX: Add !just_finished_wbuf to prevent new operations before hit detection settles
 // BUG FIX: Prevent multiple evictions for same miss (same address)
 wire eviction_in_progress = eviction_started && (latched_address == eviction_addr);
-wire request_flush_dirty = c_access && ~hit && !busy && !flushing_active && !wbuf_applying && !just_finished_wbuf && !eviction_in_progress && replace_way_valid && replace_way_dirty;
-wire request_fill        = c_access && ~hit && !busy && !flushing_active && !wbuf_applying && !just_finished_wbuf && (!replace_way_valid || !replace_way_dirty);
+// BUG FIX: Use 'accessing' instead of 'c_access' to wait for tag comparison (1-cycle latency)
+// c_access is immediate, but hit detection requires accessing (registered) to be valid
+wire request_flush_dirty = accessing && ~hit && !busy && !flushing_active && !wbuf_applying && !just_finished_wbuf && !eviction_in_progress && replace_way_valid && replace_way_dirty;
+wire request_fill        = accessing && ~hit && !busy && !flushing_active && !wbuf_applying && !just_finished_wbuf && (!replace_way_valid || !replace_way_dirty);
 wire request_code_flush  = code_flush_pending && !busy && !flushing_active && !wbuf_applying;
 
 wire do_flush = request_flush_dirty || request_code_flush;

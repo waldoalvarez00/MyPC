@@ -73,8 +73,8 @@ TEST_TIME_ESTIMATES = {
     'dcache_coherency': 10, 'harvard_arbiter': 5, 'harvard_cache_protected': 10,
     'harvard_cache_random': 15, 'harvard_dcache_flush': 8, 'harvard_smc': 10,
     'harvard_smc_mini': 5, 'icache_dcache_coh': 10,
-    # Extended PIC tests (kf8259_comprehensive is slow due to Icarus limitations with function calls)
-    'kf8259_all_tests': 10, 'kf8259_comprehensive': 300, 'kf8259_unit_tests': 5,
+    # Extended PIC tests (kf8259_comprehensive now uses Verilator - fast!)
+    'kf8259_all_tests': 10, 'kf8259_comprehensive': 5, 'kf8259_unit_tests': 5,
 
     # Long tests (30-120s) - will show warning
     'vga': 30, 'vga_modes': 45, 'vga_all_modes': 60, 'vga_mode_switching': 45,

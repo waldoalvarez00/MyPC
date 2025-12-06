@@ -1,0 +1,64 @@
+# ================================================================
+# Verilator Makefile for KF8259 Comprehensive Test
+# ================================================================
+# Replaces slow Icarus Verilog simulation
+# KF8259 uses functions in always_comb that Icarus handles poorly
+# ================================================================
+
+# Verilator configuration
+VERILATOR = verilator
+VERILATOR_ROOT ?= $(shell $(VERILATOR) --getenv VERILATOR_ROOT 2>/dev/null || echo /usr/share/verilator)
+
+# Check for local verilator installation
+ifneq ($(wildcard /tmp/local_tools/verilator_extract/usr/bin/verilator),)
+    VERILATOR = /tmp/local_tools/verilator_extract/usr/bin/verilator
+    VERILATOR_ROOT = /tmp/local_tools/verilator_extract/usr/share/verilator
+endif
+
+# Project paths
+RTL_DIR = ../../Quartus/rtl/KF8259
+
+# Verilator flags
+VFLAGS = --cc --exe --build -Wall
+VFLAGS += -Wno-fatal
+VFLAGS += -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-UNUSEDSIGNAL -Wno-UNOPTFLAT
+VFLAGS += -I$(RTL_DIR)
+VFLAGS += -CFLAGS "-std=c++14"
+VFLAGS += --top-module KF8259
+
+# RTL source files (in dependency order)
+RTL_SOURCES = \
+    $(RTL_DIR)/KF8259_Common_Package.svh \
+    $(RTL_DIR)/KF8259_Bus_Control_Logic.sv \
+    $(RTL_DIR)/KF8259_Interrupt_Request.sv \
+    $(RTL_DIR)/KF8259_Priority_Resolver.sv \
+    $(RTL_DIR)/KF8259_In_Service.sv \
+    $(RTL_DIR)/KF8259_Control_Logic.sv \
+    $(RTL_DIR)/KF8259.sv
+
+# Testbench
+TB_SOURCE = kf8259_comprehensive_tb.cpp
+
+# Target
+TARGET = VKF8259
+
+.PHONY: all clean run test
+
+all: $(TARGET)
+
+$(TARGET): $(RTL_SOURCES) $(TB_SOURCE)
+	VERILATOR_ROOT=$(VERILATOR_ROOT) $(VERILATOR) $(VFLAGS) $(RTL_SOURCES) $(TB_SOURCE) -o $(TARGET)
+
+run: $(TARGET)
+	./obj_dir/$(TARGET)
+
+test: run
+	@if ./obj_dir/$(TARGET); then \
+		echo "TEST PASSED"; \
+	else \
+		echo "TEST FAILED"; \
+		exit 1; \
+	fi
+
+clean:
+	rm -rf obj_dir
