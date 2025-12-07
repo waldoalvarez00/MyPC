@@ -39,7 +39,7 @@ class VerilatorTest(BaseTest):
         "--trace"  # Enable VCD tracing (required by testbenches using VerilatedVcdC)
     ]
 
-    # Output directory for Verilator
+    # Output directory for Verilator (will be made unique per test)
     obj_dir: str = "obj_dir"
 
     # Enable code coverage (line + toggle)
@@ -51,6 +51,8 @@ class VerilatorTest(BaseTest):
         self._modelsim_dir = get_modelsim_dir()
         self._verilator = None
         self._binary_path = None
+        # Use unique obj_dir per test to allow parallel execution
+        self.obj_dir = f"obj_dir_{self.name}"
 
     def setup(self):
         """Find Verilator and prepare environment."""
@@ -80,6 +82,10 @@ class VerilatorTest(BaseTest):
         # Build command
         cmd = [self._verilator]
         cmd.extend(self.verilator_flags)
+
+        # Specify output directory (unique per test for parallel execution)
+        obj_path = os.path.join(self._modelsim_dir, self.obj_dir)
+        cmd.extend(["--Mdir", obj_path])
 
         # Add coverage flags if enabled
         if self.enable_coverage:

@@ -98,14 +98,14 @@ wire coh_hit_way1 = coh_wr_valid && dir_valid_way1[coh_idx] && dir_tag_way1[coh_
 wire do_invalidate = enabled && (inval_valid || coh_hit_way0 || coh_hit_way1);
 wire [index_bits-1:0] inv_idx = inval_valid ? inval_index : coh_idx;
 
-// Probe result
+// Probe result - check if probe address is actually resident in I-cache
 always_comb begin
     coh_probe_present = 1'b0;
     if (coh_probe_valid) begin
-        // For now, treat any probe as "code region" for correctness.
-        // Directory information is still kept for potential future
-        // range-gating optimizations.
-        coh_probe_present = 1'b1;
+        // Check if the probed address is resident in either way
+        if ((dir_valid_way0[probe_idx] && dir_tag_way0[probe_idx] == probe_tag) ||
+            (dir_valid_way1[probe_idx] && dir_tag_way1[probe_idx] == probe_tag))
+            coh_probe_present = 1'b1;
     end
 end
 

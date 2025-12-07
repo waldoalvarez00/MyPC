@@ -46,7 +46,7 @@ logic [15:0] ic_m_data_in;
 logic        ic_m_access;
 logic        ic_m_ack;
 
-// D-Cache backend
+// D-Cache backend - main port
 logic [19:1] dc_m_addr;
 logic [15:0] dc_m_data_in;
 logic [15:0] dc_m_data_out;
@@ -54,6 +54,14 @@ logic        dc_m_access;
 logic        dc_m_ack;
 logic        dc_m_wr_en;
 logic [1:0]  dc_m_bytesel;
+
+// D-Cache backend - victim writeback port (non-blocking)
+logic [18:0] dc_vwb_addr;
+logic [15:0] dc_vwb_data_out;
+logic        dc_vwb_access;
+logic        dc_vwb_ack;
+logic        dc_vwb_wr_en;
+logic [1:0]  dc_vwb_bytesel;
 
 // Unified cache -> memory bus (CacheArbiter)
 logic [19:1] cache_mem_addr;
@@ -139,7 +147,7 @@ DCache2Way #(.sets(SETS), .DEBUG(1'b1)) DCacheInst (
     .c_ack(data_ack),
     .c_wr_en(data_wr_en),
     .c_bytesel(data_bytesel),
-    // Memory side
+    // Memory side - main port
     .m_addr(dc_m_addr),
     .m_data_in(dc_m_data_in),
     .m_data_out(dc_m_data_out),
@@ -147,6 +155,13 @@ DCache2Way #(.sets(SETS), .DEBUG(1'b1)) DCacheInst (
     .m_ack(dc_m_ack),
     .m_wr_en(dc_m_wr_en),
     .m_bytesel(dc_m_bytesel),
+    // Memory side - victim writeback port (non-blocking)
+    .vwb_addr(dc_vwb_addr),
+    .vwb_data_out(dc_vwb_data_out),
+    .vwb_access(dc_vwb_access),
+    .vwb_ack(dc_vwb_ack),
+    .vwb_wr_en(dc_vwb_wr_en),
+    .vwb_bytesel(dc_vwb_bytesel),
     // Coherence sideband
     .coh_wr_valid(coh_wr_valid),
     .coh_wr_addr(coh_wr_addr),
@@ -157,16 +172,16 @@ DCache2Way #(.sets(SETS), .DEBUG(1'b1)) DCacheInst (
     .coh_probe_present(coh_probe_present)
 );
 
-// Cache arbiter between I-cache and D-cache
-CacheArbiter CacheArb (
+// 3-Way cache arbiter: I-cache, D-cache main, D-cache victim writeback
+HarvardArbiter3Way CacheArb (
     .clk(clk),
     .reset(reset),
-    // I-cache interface
+    // I-cache interface (read-only)
     .icache_m_addr(ic_m_addr),
     .icache_m_data_in(ic_m_data_in),
     .icache_m_access(ic_m_access),
     .icache_m_ack(ic_m_ack),
-    // D-cache interface
+    // D-cache main interface (read/write for fills and flushes)
     .dcache_m_addr(dc_m_addr),
     .dcache_m_data_in(dc_m_data_in),
     .dcache_m_data_out(dc_m_data_out),
@@ -174,6 +189,13 @@ CacheArbiter CacheArb (
     .dcache_m_ack(dc_m_ack),
     .dcache_m_wr_en(dc_m_wr_en),
     .dcache_m_bytesel(dc_m_bytesel),
+    // D-cache victim writeback interface (write-only, non-blocking)
+    .dcache_vwb_addr(dc_vwb_addr),
+    .dcache_vwb_data_out(dc_vwb_data_out),
+    .dcache_vwb_access(dc_vwb_access),
+    .dcache_vwb_ack(dc_vwb_ack),
+    .dcache_vwb_wr_en(dc_vwb_wr_en),
+    .dcache_vwb_bytesel(dc_vwb_bytesel),
     // Unified memory interface
     .mem_m_addr(cache_mem_addr),
     .mem_m_data_in(cache_mem_data_in),

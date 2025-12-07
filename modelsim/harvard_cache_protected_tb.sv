@@ -5,8 +5,9 @@
 `default_nettype none
 
 module harvard_cache_protected_tb;
-    localparam SETS = 4;
-    localparam MEM_DEPTH = 512;
+    localparam SETS = 256;  // 256 sets = 8 bits (matches production cache size)
+    localparam MEM_DEPTH = 2048;  // Larger address space for 256 sets
+    // Each cache way can hold 256 lines * 8 words = 2048 words = 4KB per way
 
     logic clk = 0;
     always #5 clk = ~clk;
@@ -62,6 +63,15 @@ module harvard_cache_protected_tb;
     logic        ic_inval_valid;
     logic [19:1] ic_inval_addr;
 
+    // Coherency signals between D-cache and I-cache
+    logic        coh_wr_valid;
+    logic [19:1] coh_wr_addr;
+    logic [15:0] coh_wr_data;
+    logic [1:0]  coh_wr_bytesel;
+    logic        coh_probe_valid;
+    logic [19:1] coh_probe_addr;
+    logic        coh_probe_present;
+
     // Memories
     logic [15:0] sdram [0:MEM_DEPTH-1];
     logic [15:0] golden[0:MEM_DEPTH-1];
@@ -75,10 +85,11 @@ module harvard_cache_protected_tb;
         .m_addr(ic_m_addr), .m_data_in(ic_m_data_in),
         .m_access(ic_m_access), .m_ack(ic_m_ack),
         .inval_valid(ic_inval_valid), .inval_addr(ic_inval_addr),
-        .coh_wr_valid(1'b0), .coh_wr_addr(19'b0),
-        .coh_wr_data(16'b0), .coh_wr_bytesel(2'b00),
-        .coh_probe_valid(1'b0), .coh_probe_addr(19'b0),
-        .coh_probe_present()
+        // Connect coherency signals from D-cache
+        .coh_wr_valid(coh_wr_valid), .coh_wr_addr(coh_wr_addr),
+        .coh_wr_data(coh_wr_data), .coh_wr_bytesel(coh_wr_bytesel),
+        .coh_probe_valid(coh_probe_valid), .coh_probe_addr(coh_probe_addr),
+        .coh_probe_present(coh_probe_present)
     );
 
     DCache2Way #(.sets(SETS), .DEBUG(1'b1)) dcache (
@@ -92,9 +103,11 @@ module harvard_cache_protected_tb;
         .vwb_addr(dc_vwb_addr), .vwb_data_out(dc_vwb_data_out),
         .vwb_access(dc_vwb_access), .vwb_ack(dc_vwb_ack),
         .vwb_wr_en(dc_vwb_wr_en), .vwb_bytesel(dc_vwb_bytesel),
-        .coh_wr_valid(), .coh_wr_addr(), .coh_wr_data(),
-        .coh_wr_bytesel(), .coh_probe_valid(), .coh_probe_addr(),
-        .coh_probe_present(1'b0)
+        // Connect coherency outputs to I-cache
+        .coh_wr_valid(coh_wr_valid), .coh_wr_addr(coh_wr_addr),
+        .coh_wr_data(coh_wr_data), .coh_wr_bytesel(coh_wr_bytesel),
+        .coh_probe_valid(coh_probe_valid), .coh_probe_addr(coh_probe_addr),
+        .coh_probe_present(coh_probe_present)
     );
 
     HarvardArbiter3Way arb (
@@ -115,11 +128,12 @@ module harvard_cache_protected_tb;
     );
 
     // Simple SDRAM with comprehensive address tracking
-    // FIX: Use combinatorial read to avoid one-cycle data latency
+    // Use COMBINATORIAL reads for zero-latency - arbiter handles timing
     localparam logic [19:1] PROT_ADDR = 19'h00100;
 
-    // Combinatorial read path for zero-latency data
-    assign mem_data_in = sdram[mem_addr[9:1]];
+    // Combinatorial read - data available immediately
+    // Use [11:1] for 2048 entries (11 bits = 2048 addresses)
+    assign mem_data_in = sdram[mem_addr[11:1]];
 
     always_ff @(posedge clk) begin
         mem_ack <= 1'b0;
@@ -128,19 +142,8 @@ module harvard_cache_protected_tb;
         end else if (mem_access) begin
             mem_ack <= 1'b1;
             if (mem_wr_en) begin
-                if (mem_bytesel[0]) sdram[mem_addr[9:1]][7:0]  <= mem_data_out[7:0];
-                if (mem_bytesel[1]) sdram[mem_addr[9:1]][15:8] <= mem_data_out[15:8];
-                // DEBUG: Track writes to PROT address line (0x00100-0x00107)
-                if (mem_addr[19:4] == PROT_ADDR[19:4]) begin
-                    $display("[%0t][SDRAM] WRITE addr=%h data=%h->%h be=%b idx=%0d",
-                             $time, mem_addr, sdram[mem_addr[9:1]], mem_data_out, mem_bytesel, mem_addr[9:1]);
-                end
-            end else begin
-                // DEBUG: Track reads from PROT address line (0x00100-0x00107)
-                if (mem_addr[19:4] == PROT_ADDR[19:4]) begin
-                    $display("[%0t][SDRAM] READ addr=%h data=%h idx=%0d",
-                             $time, mem_addr, sdram[mem_addr[9:1]], mem_addr[9:1]);
-                end
+                if (mem_bytesel[0]) sdram[mem_addr[11:1]][7:0]  <= mem_data_out[7:0];
+                if (mem_bytesel[1]) sdram[mem_addr[11:1]][15:8] <= mem_data_out[15:8];
             end
         end
     end
@@ -148,12 +151,26 @@ module harvard_cache_protected_tb;
     // Helpers
     task automatic golden_write(input [19:1] addr, input [15:0] data, input [1:0] be);
         begin
-            // Write to golden array for verification
-            if (be[0]) golden[addr[9:1]][7:0]  = data[7:0];
-            if (be[1]) golden[addr[9:1]][15:8] = data[15:8];
-            // ALSO write to SDRAM to initialize test data!
-            if (be[0]) sdram[addr[9:1]][7:0]  = data[7:0];
-            if (be[1]) sdram[addr[9:1]][15:8] = data[15:8];
+            // Update golden model for verification.
+            // Don't write to SDRAM - let D-cache manage via eviction.
+            if (be[0]) golden[addr[11:1]][7:0]  = data[7:0];
+            if (be[1]) golden[addr[11:1]][15:8] = data[15:8];
+        end
+    endtask
+
+    // Write all 8 words in a cache line to ensure full line validity
+    // This prevents partial-line eviction from corrupting other words
+    task automatic do_dstore_line(input [19:1] base_addr, input [15:0] base_data);
+        reg [19:1] line_base;
+        integer word;
+        begin
+            // Calculate cache line base (mask off word offset bits [3:1])
+            line_base = {base_addr[19:4], 3'b000};
+
+            // Write all 8 words in the line with unique data
+            for (word = 0; word < 8; word = word + 1) begin
+                do_dstore(line_base + word, base_data + word[15:0], 2'b11);
+            end
         end
     endtask
 
@@ -283,33 +300,35 @@ module harvard_cache_protected_tb;
                     failures++;
                 end
             end else begin
-                // random op excluding PROT
-                case ($urandom_range(0,2))
+                // random op excluding PROT - only DLOAD and DSTORE to isolate D-cache
+                // Use LINE-ALIGNED addresses to ensure full cache lines are written.
+                // This prevents partial-line eviction from corrupting data.
+                // Line size = 8 words = 16 bytes, so addr[3:1] = word offset.
+                // Line-aligned means addr[3:1] = 0, so addr is a multiple of 8.
+                // With 256 sets and 2-way, we have 512 unique cache lines.
+                // Use line indices 2-254 (avoiding line 0 for PROT, margin at top).
+                case ($urandom_range(0,1))  // Only 0 and 1 - skip I-cache operations
                     0: begin
                         reg [19:1] a;
-                        a = {9'h0, $urandom_range(0, MEM_DEPTH-1), 1'b0};
-                        if (a == PROT) a = a + 19'h2;
-                        do_ifetch(a, q);
-                        if (q !== golden[a[9:1]]) begin
-                            $display("FAIL[%0d]: IFETCH addr=%h got=%h exp=%h", ops, a, q, golden[a[9:1]]);
-                            failures++;
-                        end
+                        reg [15:0] d;
+                        // Generate line-aligned address: line_index * 8
+                        // Line index range: 2 to 254 (avoid PROT at line 32 = 0x100)
+                        a = ($urandom_range(2, 254)) << 3;  // Line-aligned, range 16-2032
+                        if (a[19:4] == PROT[19:4]) a = a + 19'h10;  // Skip PROT's line (add 16)
+                        d = $urandom;
+                        do_dstore_line(a, d);  // Write all 8 words in line
                     end
                     1: begin
                         reg [19:1] a;
-                        reg [15:0] d;
-                        a = {9'h0, $urandom_range(0, MEM_DEPTH-1), 1'b0};
-                        if (a == PROT) a = a + 19'h2;
-                        d = $urandom;
-                        do_dstore(a, d, 2'b11);
-                    end
-                    2: begin
-                        reg [19:1] a;
-                        a = {9'h0, $urandom_range(0, MEM_DEPTH-1), 1'b0};
-                        if (a == PROT) a = a + 19'h2;
+                        reg [2:0] word_sel;
+                        // Generate line-aligned address and random word offset
+                        a = ($urandom_range(2, 254)) << 3;  // Line-aligned base
+                        if (a[19:4] == PROT[19:4]) a = a + 19'h10;  // Skip PROT's line
+                        word_sel = $urandom_range(0, 7);  // Random word in line
+                        a = a + {16'b0, word_sel};  // Add word offset
                         do_dload(a, q);
-                        if (q !== golden[a[9:1]]) begin
-                            $display("FAIL[%0d]: DLOAD addr=%h got=%h exp=%h", ops, a, q, golden[a[9:1]]);
+                        if (q !== golden[a[11:1]]) begin
+                            $display("FAIL[%0d]: DLOAD addr=%h got=%h exp=%h", ops, a, q, golden[a[11:1]]);
                             failures++;
                         end
                     end

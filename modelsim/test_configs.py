@@ -265,15 +265,15 @@ TEST_CONFIGS["harvard_smc"] = TestConfig(
     sources=[
         "Quartus/rtl/common/ICache2Way.sv",
         "Quartus/rtl/common/DCache2Way.sv",
-        "Quartus/rtl/common/CacheArbiter.sv",
+        "Quartus/rtl/common/HarvardArbiter3Way.sv",
         "Quartus/rtl/common/DPRam.sv",
         "Quartus/rtl/common/BlockRam.sv",
         "Quartus/rtl/PipelinedMemArbiterExtend.sv",
     ],
     includes=[],
     defines=["CACHE_SETS=256"],
-    category="memory",  # FAIL: SDRAM eviction - dirty line at 0x00300 expected 0xDEAD, got 0xbeef
-    description="harvard_smc tests"
+    category="memory",
+    description="harvard_smc tests - self-modifying code coherence"
 )
 
 TEST_CONFIGS["harvard_smc_mini"] = TestConfig(

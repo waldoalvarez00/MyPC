@@ -402,14 +402,34 @@ initial begin
         reg [15:0] data;
         reg success;
 
-        // Write to create dirty line
+        // For 2-way set-associative cache with 256 sets:
+        // - Index = addr[11:4] (8 bits)
+        // - Tag = addr[19:12] (8 bits)
+        // - Line offset = addr[3:1] (3 bits)
+        //
+        // To trigger eviction, we need THREE accesses to same set:
+        // 1. First write fills way 0
+        // 2. Second access fills way 1
+        // 3. Third access evicts LRU (way 0 with our write)
+        //
+        // Addresses mapping to same set (index 0):
+        //   0x04000, 0x05000, 0x06000, 0x07000, etc.
+        //   All have addr[11:4] = 0x00
+
+        // Write to create dirty line (fills way 0 of set 0)
         data_write(19'h04000, 16'hBEEF, 2'b11, success);
         check_result(success, "Create dirty line in D-cache");
 
-        // Read from different cache set to trigger replacement
-        // This assumes direct-mapped cache with 512 lines
-        data_read(19'h04000 + (512 * 8 * 2), data, success);
+        // Access another address in same set (fills way 1 of set 0)
+        data_read(19'h05000, data, success);
+        check_result(success, "Fill second way of set");
+
+        // Access a THIRD address in same set - this triggers eviction!
+        data_read(19'h06000, data, success);
         check_result(success, "Trigger D-cache line replacement");
+
+        // Allow time for victim writeback to complete
+        repeat (20) @(posedge clk);
 
         // Verify original write was flushed to memory
         check_result(memory[19'h04000] == 16'hBEEF,
@@ -520,11 +540,15 @@ initial begin
         reg [15:0] data;
         reg success;
 
-        // Write through D-cache
+        // Write through D-cache (fills way 0 of its set)
         data_write(19'h40000, 16'hCAFE, 2'b11, success);
 
-        // Force D-cache miss and refill
-        data_read(19'h40000 + (512 * 8 * 2), data, success);
+        // For 2-way cache, need to fill both ways then access a third
+        // to trigger eviction. Use addresses in same set.
+        // 0x40000, 0x41000, 0x42000 all map to same set (index = addr[11:4])
+        data_read(19'h41000, data, success);  // Fill way 1
+        data_read(19'h42000, data, success);  // Evict LRU (0x40000)
+        repeat (20) @(posedge clk);  // Allow victim writeback
 
         // Read original address - should get correct value
         data_read(19'h40000, data, success);
