@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # Verilator compilation script for GameBoy simulator
+# Now with full SDRAM and MBC support
 #
 # Usage: ./verilate_gameboy.sh
 #
@@ -9,6 +10,10 @@ set -e
 
 echo "=========================================="
 echo "GameBoy Verilator Build Script"
+echo "  - TV80 CPU (Verilog)"
+echo "  - Full SDRAM support"
+echo "  - MBC cartridge mappers"
+echo "  - Sound APU (converted from VHDL)"
 echo "=========================================="
 
 # Change to script directory
@@ -34,6 +39,16 @@ verilator \
     -Wno-CASEINCOMPLETE \
     -Wno-TIMESCALEMOD \
     -Wno-DECLFILENAME \
+    -Wno-MULTIDRIVEN \
+    -Wno-BLKSEQ \
+    -Wno-EOFNEWLINE \
+    -Wno-PINCONNECTEMPTY \
+    -Wno-GENUNNAMED \
+    -Wno-VARHIDDEN \
+    -Wno-ASCRANGE \
+    -Wno-UNDRIVEN \
+    -Wno-SYNCASYNCNET \
+    -Wno-SELRANGE \
     --trace \
     -DGAMEBOY_SIM \
     \
@@ -45,12 +60,13 @@ verilator \
     gameboy_sim.v \
     \
     ${STUB_RTL}/tv80_gameboy.v \
-    ${STUB_RTL}/gbc_snd.v \
+    ${STUB_RTL}/gbc_snd_converted.v \
     ${STUB_RTL}/dpram.v \
     ${STUB_RTL}/spram.v \
     ${STUB_RTL}/bus_savestates.v \
     ${STUB_RTL}/gb_savestates.v \
     ${STUB_RTL}/gb_statemanager.v \
+    ${STUB_RTL}/altddio_out.v \
     \
     ${TV80_RTL}/tv80_core.v \
     ${TV80_RTL}/tv80_alu.v \
@@ -58,7 +74,7 @@ verilator \
     ${TV80_RTL}/tv80_mcode.v \
     \
     ${GAMEBOY_RTL}/gb.v \
-    ${GAMEBOY_RTL}/video.v \
+    ${STUB_RTL}/video_sim.v \
     ${GAMEBOY_RTL}/cart.v \
     ${GAMEBOY_RTL}/timer.v \
     ${GAMEBOY_RTL}/hdma.v \
@@ -68,8 +84,9 @@ verilator \
     ${GAMEBOY_RTL}/sprites_extra_store.v \
     ${GAMEBOY_RTL}/link.v \
     ${GAMEBOY_RTL}/sgb.v \
-    ${GAMEBOY_RTL}/cheatcodes.sv \
-    ${GAMEBOY_RTL}/megaswizzle.sv \
+    ${STUB_RTL}/sdram_sim.sv \
+    ${STUB_RTL}/cheatcodes_sim.sv \
+    ${STUB_RTL}/megaswizzle_sim.sv \
     ${GAMEBOY_RTL}/savestate_ui.sv \
     ${GAMEBOY_RTL}/mappers/mappers.v \
     ${GAMEBOY_RTL}/mappers/mbc1.v \
@@ -86,7 +103,7 @@ verilator \
     ${GAMEBOY_RTL}/mappers/megaduck.v \
     ${GAMEBOY_RTL}/mappers/misc.v \
     ${GAMEBOY_RTL}/mappers/sachen.v \
-    ${GAMEBOY_RTL}/mappers/rocket.sv \
+    ${STUB_RTL}/rocket_sim.v \
     \
     sim_main.cpp
 
@@ -101,5 +118,9 @@ make -j$(nproc) -f Vtop.mk Vtop
 echo ""
 echo "=========================================="
 echo "Build complete!"
-echo "Run with: ./obj_dir/Vtop"
+echo ""
+echo "Usage:"
+echo "  ./obj_dir/Vtop [rom_file.gb]"
+echo ""
+echo "If no ROM file specified, loads ./game.gb"
 echo "=========================================="

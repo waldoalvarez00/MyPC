@@ -15,7 +15,7 @@ module gb_statemanager #(
     input         reset,
 
     input         rewind_on,
-    output        rewind_active,
+    input         rewind_active,
 
     input  [1:0]  savestate_number,
     input         save,
@@ -30,8 +30,7 @@ module gb_statemanager #(
     input         request_busy
 );
 
-    // Rewind disabled
-    assign rewind_active = 1'b0;
+    // Rewind disabled (rewind_active is input from external controller)
     assign sleep_rewind = 1'b0;
 
     // Savestate requests disabled

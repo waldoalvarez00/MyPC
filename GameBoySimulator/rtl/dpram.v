@@ -1,7 +1,7 @@
 //
 // Dual-Port RAM Module (Verilog replacement for dpram.vhd)
 //
-// Simple dual-port RAM with independent read/write ports
+// True dual-port RAM with independent or shared clocks
 //
 // Copyright (c) 2024 - MIT License
 //
@@ -10,26 +10,34 @@ module dpram #(
     parameter addr_width = 8,
     parameter data_width = 8
 ) (
+    // Single clock (if clock_a/clock_b not used)
     input                       clock,
+    // Dual clocks (optional - if used, overrides clock)
+    input                       clock_a,
+    input                       clock_b,
 
-    // Port A (primary)
+    // Port A
     input  [addr_width-1:0]     address_a,
     input  [data_width-1:0]     data_a,
     input                       wren_a,
     output reg [data_width-1:0] q_a,
 
-    // Port B (secondary)
+    // Port B
     input  [addr_width-1:0]     address_b,
     input  [data_width-1:0]     data_b,
     input                       wren_b,
     output reg [data_width-1:0] q_b
 );
 
+    // Use clock_a/clock_b if provided, otherwise use clock
+    wire clka = clock_a ? clock_a : clock;
+    wire clkb = clock_b ? clock_b : clock;
+
     // Memory array
     reg [data_width-1:0] mem [0:(2**addr_width)-1];
 
     // Port A
-    always @(posedge clock) begin
+    always @(posedge clka) begin
         if (wren_a) begin
             mem[address_a] <= data_a;
         end
@@ -37,7 +45,7 @@ module dpram #(
     end
 
     // Port B
-    always @(posedge clock) begin
+    always @(posedge clkb) begin
         if (wren_b) begin
             mem[address_b] <= data_b;
         end
@@ -48,6 +56,7 @@ endmodule
 
 //
 // Dual-Port RAM with different widths (dpram_dif)
+// Supports both single-clock and dual-clock interfaces
 //
 module dpram_dif #(
     parameter addr_width_a = 12,
@@ -56,7 +65,11 @@ module dpram_dif #(
     parameter data_width_b = 16,
     parameter init_file = ""
 ) (
+    // Single clock (if clock_a/clock_b not used)
     input                         clock,
+    // Dual clocks (optional)
+    input                         clock_a,
+    input                         clock_b,
 
     // Port A
     input  [addr_width_a-1:0]     address_a,
@@ -70,6 +83,10 @@ module dpram_dif #(
     input                         wren_b,
     output reg [data_width_b-1:0] q_b
 );
+
+    // Use clock_a/clock_b if provided, otherwise use clock
+    wire clka = clock_a ? clock_a : clock;
+    wire clkb = clock_b ? clock_b : clock;
 
     // Use the larger address width for memory
     localparam mem_size = (2**addr_width_a > 2**addr_width_b) ? 2**addr_width_a : 2**addr_width_b;
@@ -85,7 +102,7 @@ module dpram_dif #(
     end
 
     // Port A (8-bit access)
-    always @(posedge clock) begin
+    always @(posedge clka) begin
         if (wren_a) begin
             mem[address_a] <= data_a;
         end
@@ -93,7 +110,7 @@ module dpram_dif #(
     end
 
     // Port B (16-bit access, assumes little-endian)
-    always @(posedge clock) begin
+    always @(posedge clkb) begin
         if (wren_b) begin
             mem[{address_b, 1'b0}]     <= data_b[7:0];
             mem[{address_b, 1'b1}]     <= data_b[15:8];

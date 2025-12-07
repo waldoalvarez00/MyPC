@@ -43,13 +43,13 @@ module gb_savestates (
     input  [7:0]  Save_RAMReadData_ZRAM,
     input  [7:0]  Save_RAMReadData_CRAM,
 
-    input  [63:0] bus_out_Din,
-    output [63:0] bus_out_Dout,
-    input  [25:0] bus_out_Adr,
-    input         bus_out_rnw,
-    input         bus_out_ena,
-    input  [7:0]  bus_out_be,
-    output        bus_out_done
+    output [63:0] bus_out_Din,
+    input  [63:0] bus_out_Dout,
+    output [25:0] bus_out_Adr,
+    output        bus_out_rnw,
+    output        bus_out_ena,
+    output [7:0]  bus_out_be,
+    input         bus_out_done
 );
 
     // Pass through reset
@@ -71,8 +71,11 @@ module gb_savestates (
     assign Save_RAMWrEn = 1'b0;
     assign Save_RAMWriteData = 8'h0;
 
-    // External bus disabled
-    assign bus_out_Dout = 64'h0;
-    assign bus_out_done = 1'b1;
+    // External bus - outputs disabled (inputs come from external DDR3)
+    assign bus_out_Din = 64'h0;
+    assign bus_out_Adr = 26'h0;
+    assign bus_out_rnw = 1'b1;
+    assign bus_out_ena = 1'b0;
+    assign bus_out_be = 8'h0;
 
 endmodule
