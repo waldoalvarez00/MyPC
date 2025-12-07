@@ -9,6 +9,7 @@ from .results import TestResult, TestStatus, TestSuite
 from .base_test import BaseTest
 from .iverilog_test import IverilogTest
 from .verilator_test import VerilatorTest
+from .python_test import PythonScriptTest
 from .utils import find_iverilog, find_verilator, parse_test_output
 
 __all__ = [
@@ -18,6 +19,7 @@ __all__ = [
     'BaseTest',
     'IverilogTest',
     'VerilatorTest',
+    'PythonScriptTest',
     'find_iverilog',
     'find_verilator',
     'parse_test_output',

@@ -1,4 +1,5 @@
 // Copyright 2025, Waldo Alvarez, https://pipflow.com
+
 module ieee754_normalizer_extended_precision(
     input clk,  // Clock input
     input [79:0] ieee754_in,

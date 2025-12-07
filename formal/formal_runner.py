@@ -577,7 +577,7 @@ Examples:
 
     # Print header
     print("=" * 70)
-    print("MYPC2 FORMAL VERIFICATION RUNNER")
+    print("MYPC FORMAL VERIFICATION RUNNER")
     print("=" * 70)
     print(f"Tests to run: {len(tests)}")
     print(f"Estimated time: {total_estimate}")

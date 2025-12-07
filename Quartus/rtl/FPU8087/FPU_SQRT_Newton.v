@@ -3,7 +3,7 @@
 
 //=====================================================================
 // Newton-Raphson Square Root Module (not instantiated in production build;
-// SQRT is handled via microcode to save area)
+// SQRT is handled via microcode to save area, left as reference)
 //
 // Computes square root using Newton-Raphson iteration:
 // x_{n+1} = 0.5 * (x_n + S/x_n)

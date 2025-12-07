@@ -13,8 +13,8 @@ class TestConfig:
     def __init__(
         self,
         name: str,
-        testbench: str,
-        sources: List[str],
+        testbench: str = "",
+        sources: Optional[List[str]] = None,
         includes: Optional[List[str]] = None,
         defines: Optional[List[str]] = None,
         top_module: Optional[str] = None,
@@ -23,20 +23,28 @@ class TestConfig:
         description: str = "",
         simulator: str = "iverilog",
         cpp_testbench: Optional[str] = None,
-        enable_coverage: bool = False
+        enable_coverage: bool = False,
+        # Python script test options
+        script: Optional[str] = None,
+        work_dir: Optional[str] = None,
+        script_args: Optional[List[str]] = None
     ):
         self.name = name
         self.testbench = testbench
-        self.sources = sources
+        self.sources = sources or []
         self.includes = includes or []
         self.defines = defines or []
         self.top_module = top_module
         self.category = category
         self.timeout = timeout
         self.description = description
-        self.simulator = simulator  # "iverilog" or "verilator"
+        self.simulator = simulator  # "iverilog", "verilator", or "python"
         self.cpp_testbench = cpp_testbench  # C++ testbench for Verilator
         self.enable_coverage = enable_coverage  # Enable Verilator code coverage
+        # Python script test options
+        self.script = script  # Path to Python script (relative to project root)
+        self.work_dir = work_dir  # Working directory for script
+        self.script_args = script_args or []  # Command-line arguments
 
 
 # =============================================================================
@@ -2838,6 +2846,83 @@ TEST_CONFIGS["immediate_reader_verilator"] = TestConfig(
     simulator="verilator",
     cpp_testbench="verilator/immediate_reader_tb.cpp",
     description="ImmediateReader Verilator test (constant selects not supported by Icarus)"
+)
+
+
+# =============================================================================
+# FPU Harness Tests (Python)
+# These tests use Python scripts to test FPU components
+# =============================================================================
+
+TEST_CONFIGS["fpu_harness_microseq"] = TestConfig(
+    name="fpu_harness_microseq",
+    simulator="python",
+    script="modelsim/fpu_harness_microseq.py",
+    work_dir="modelsim",
+    category="fpu_harness",
+    timeout=120,
+    description="FPU microsequencer Python test harness"
+)
+
+TEST_CONFIGS["fpu_harness_microcode"] = TestConfig(
+    name="fpu_harness_microcode",
+    simulator="python",
+    script="modelsim/fpu_harness_microcode.py",
+    work_dir="Quartus/rtl/FPU8087",  # Needs examples/ directory
+    category="fpu_harness",
+    timeout=120,
+    description="FPU microcode Python test harness"
+)
+
+TEST_CONFIGS["fpu_harness_interface"] = TestConfig(
+    name="fpu_harness_interface",
+    simulator="python",
+    script="modelsim/fpu_harness_interface.py",
+    work_dir="modelsim",
+    category="fpu_harness",
+    timeout=120,
+    description="FPU interface Python test harness"
+)
+
+TEST_CONFIGS["fpu_harness_ieee754_addsub"] = TestConfig(
+    name="fpu_harness_ieee754_addsub",
+    simulator="python",
+    script="modelsim/fpu_harness_ieee754_addsub.py",
+    work_dir="modelsim",
+    category="fpu_harness",
+    timeout=120,
+    description="FPU IEEE754 add/sub test vector generator"
+)
+
+TEST_CONFIGS["fpu_harness_ieee754_divide"] = TestConfig(
+    name="fpu_harness_ieee754_divide",
+    simulator="python",
+    script="modelsim/fpu_harness_ieee754_divide.py",
+    work_dir="modelsim",
+    category="fpu_harness",
+    timeout=120,
+    description="FPU IEEE754 divide test vector generator"
+)
+
+TEST_CONFIGS["fpu_harness_ieee754_multiply"] = TestConfig(
+    name="fpu_harness_ieee754_multiply",
+    simulator="python",
+    script="modelsim/fpu_harness_ieee754_multiply.py",
+    work_dir="modelsim",
+    category="fpu_harness",
+    timeout=120,
+    description="FPU IEEE754 multiply test vector generator"
+)
+
+TEST_CONFIGS["fpu_harness_transcendental"] = TestConfig(
+    name="fpu_harness_transcendental",
+    simulator="python",
+    script="modelsim/fpu_harness_transcendental.py",
+    work_dir="modelsim",
+    script_args=["--generate"],
+    category="fpu_harness",
+    timeout=180,
+    description="FPU transcendental function test vector generator"
 )
 
 

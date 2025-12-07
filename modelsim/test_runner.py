@@ -9,7 +9,6 @@ Usage:
     python test_runner.py --parallel 4       # Run in parallel
     python test_runner.py --list             # List available tests
     python test_runner.py --skip-long        # Skip long-running tests
-    python test_runner.py --include-harness  # Include FPU harness tests
     python test_runner.py --clean            # Remove test artifacts
 """
 
@@ -29,8 +28,9 @@ from collections import deque
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from test_framework import TestResult, TestStatus, TestSuite
-from test_framework.iverilog_test import LegacyBashTest, IverilogTest
+from test_framework.iverilog_test import IverilogTest
 from test_framework.verilator_test import VerilatorTest
+from test_framework.python_test import PythonScriptTest
 from test_framework.utils import get_modelsim_dir, get_project_root
 
 # Import native test configurations
@@ -81,9 +81,8 @@ TEST_TIME_ESTIMATES = {
     'vga_complete': 90, 'cga': 30, 'cga_integration': 45, 'vga_unit_tests': 30,
     'vga_framebuffer_integration': 90, 'uart_16750_lite': 30,
 
-    # FPU harness tests
-    'fpu_harness_ieee754': 120, 'fpu_harness_transcendental': 180,
-    'fpu_harness_all': 300,
+    # FPU harness tests (Python scripts)
+    'fpu_harness_microseq': 1, 'fpu_harness_microcode': 1,
 }
 
 # Tests considered "long" - will show warning and can be skipped
@@ -92,14 +91,17 @@ LONG_TESTS = {name for name, duration in TEST_TIME_ESTIMATES.items() if duration
 
 def clean_test_artifacts(modelsim_dir: str, verbose: bool = False) -> dict:
     """
-    Remove test artifacts from the modelsim directory.
+    Remove test artifacts from the modelsim directory and related locations.
 
     Removes:
     - test_results_*/ directories (test logs and JSON results)
-    - *.vvp files (Icarus Verilog compiled simulations)
+    - *.vvp files (Icarus Verilog compiled simulations with extension)
     - *.vcd files (VCD waveform files)
-    - *_sim files (compiled simulation binaries without extension)
+    - *_sim files (compiled simulation binaries)
+    - VVP executables without extension (detected by 'bin/vvp' shebang)
     - obj_dir*/ directories (Verilator build directories)
+    - __pycache__/ directories (Python bytecode cache)
+    - FPU8087 test artifacts (debug_*.txt, tb_* binaries, *.vcd)
 
     Args:
         modelsim_dir: Path to the modelsim directory
@@ -114,6 +116,8 @@ def clean_test_artifacts(modelsim_dir: str, verbose: bool = False) -> dict:
         'vcd_files': 0,
         'sim_binaries': 0,
         'obj_dirs': 0,
+        'pycache_dirs': 0,
+        'fpu_artifacts': 0,
         'total_bytes': 0
     }
 
@@ -173,6 +177,27 @@ def clean_test_artifacts(modelsim_dir: str, verbose: bool = False) -> dict:
             removed['sim_binaries'] += 1
             removed['total_bytes'] += size
 
+    # Remove VVP executables (Icarus Verilog compiled binaries without extension)
+    # Detect by content: files starting with "#! /usr/local/bin/vvp" shebang
+    # Scan all files without known source extensions
+    source_extensions = ('.sv', '.v', '.py', '.sh', '.md', '.txt', '.json', '.yaml', '.yml',
+                         '.hex', '.mif', '.bin', '.us', '.tcl', '.do', '.qip', '.qsf', '.sdc')
+    for item in os.listdir(modelsim_dir):
+        item_path = os.path.join(modelsim_dir, item)
+        if os.path.isfile(item_path) and not item.endswith(source_extensions) and not item.startswith('.'):
+            try:
+                with open(item_path, 'rb') as f:
+                    first_bytes = f.read(30)
+                    if b'bin/vvp' in first_bytes:
+                        size = get_size(item_path)
+                        if verbose:
+                            print(f"  Removing VVP binary: {item}")
+                        os.remove(item_path)
+                        removed['sim_binaries'] += 1
+                        removed['total_bytes'] += size
+            except (IOError, OSError):
+                pass  # Skip files we can't read
+
     # Remove obj_dir* directories (Verilator build directories)
     for item in glob.glob(os.path.join(modelsim_dir, "obj_dir*")):
         if os.path.isdir(item):
@@ -182,6 +207,59 @@ def clean_test_artifacts(modelsim_dir: str, verbose: bool = False) -> dict:
             shutil.rmtree(item)
             removed['obj_dirs'] += 1
             removed['total_bytes'] += size
+
+    # Remove __pycache__ directories (Python bytecode cache)
+    # Check in modelsim/, modelsim/test_framework/, modelsim/tests/, and FPU8087/
+    project_root = os.path.dirname(modelsim_dir)
+    pycache_locations = [
+        os.path.join(modelsim_dir, "__pycache__"),
+        os.path.join(modelsim_dir, "test_framework", "__pycache__"),
+        os.path.join(modelsim_dir, "tests", "__pycache__"),
+        os.path.join(project_root, "Quartus", "rtl", "FPU8087", "__pycache__"),
+    ]
+    for pycache_dir in pycache_locations:
+        if os.path.isdir(pycache_dir):
+            size = get_size(pycache_dir)
+            rel_path = os.path.relpath(pycache_dir, project_root)
+            if verbose:
+                print(f"  Removing directory: {rel_path}")
+            shutil.rmtree(pycache_dir)
+            removed['pycache_dirs'] += 1
+            removed['total_bytes'] += size
+
+    # Remove FPU8087 test artifacts (debug traces, compiled testbenches, vcd files)
+    fpu_dir = os.path.join(project_root, "Quartus", "rtl", "FPU8087")
+    if os.path.isdir(fpu_dir):
+        # debug_*.txt files
+        for item in glob.glob(os.path.join(fpu_dir, "debug_*.txt")):
+            if os.path.isfile(item):
+                size = get_size(item)
+                rel_path = os.path.relpath(item, project_root)
+                if verbose:
+                    print(f"  Removing file: {rel_path}")
+                os.remove(item)
+                removed['fpu_artifacts'] += 1
+                removed['total_bytes'] += size
+        # tb_* compiled binaries (vvp scripts without .v extension)
+        for item in glob.glob(os.path.join(fpu_dir, "tb_*")):
+            if os.path.isfile(item) and not item.endswith('.v') and not item.endswith('.sv'):
+                size = get_size(item)
+                rel_path = os.path.relpath(item, project_root)
+                if verbose:
+                    print(f"  Removing file: {rel_path}")
+                os.remove(item)
+                removed['fpu_artifacts'] += 1
+                removed['total_bytes'] += size
+        # *.vcd files
+        for item in glob.glob(os.path.join(fpu_dir, "*.vcd")):
+            if os.path.isfile(item):
+                size = get_size(item)
+                rel_path = os.path.relpath(item, project_root)
+                if verbose:
+                    print(f"  Removing file: {rel_path}")
+                os.remove(item)
+                removed['fpu_artifacts'] += 1
+                removed['total_bytes'] += size
 
     return removed
 
@@ -287,177 +365,6 @@ class TestRunner:
         self.skip_long = False
         self.enable_coverage = enable_coverage  # Enable Verilator code coverage
 
-    def discover_legacy_tests(self):
-        """Discover existing bash test scripts and wrap them."""
-        # Test categories and their scripts
-        test_categories = {
-            'core': [
-                "run_ALU_sim.sh",
-                "run_RegisterFile_sim.sh",
-                "run_JumpTest_sim.sh",
-                "run_modrm_decode_test.sh",
-                "run_divider_test.sh",
-                # Additional CPU core tests
-                "run_flags_test.sh",
-                "run_immediate_reader_test.sh",
-                "run_ip_test.sh",
-                "run_loop_counter_test.sh",
-                "run_microcode_test.sh",
-                "run_prefetch_test.sh",
-                "run_segment_register_file_test.sh",
-                "run_temp_reg_test.sh",
-                # New unit tests for previously untested modules
-                "run_csipsync_test.sh",
-                "run_segment_override_test.sh",
-                "run_loadstore_test.sh",
-                "run_insndecoder_test.sh",
-            ],
-            'memory': [
-                "run_cache_test.sh",
-                "run_harvard_cache_test.sh",
-                "run_sdram_test.sh",
-                "run_sdram_config_test.sh",
-                # Additional cache tests
-                "run_cache_multisize_tests.sh",
-                "run_dcache2way_flush_test.sh",
-                "run_dcache2way_simple_test.sh",
-                "run_dcache_coherency_test.sh",
-                "run_harvard_arbiter_test.sh",
-                "run_harvard_cache_protected_test.sh",
-                "run_harvard_cache_random_test.sh",
-                "run_harvard_dcache_flush_test.sh",
-                "run_harvard_smc_test.sh",
-                "run_harvard_smc_mini_test.sh",
-                "run_icache_dcache_coh_test.sh",
-            ],
-            'arbiter': [
-                "run_arbiter_test.sh",
-                "run_id_arbiter_test.sh",
-                "run_arbiter_tests.sh",
-                "run_pipelined_dma_fpu_arbiter_test.sh",
-            ],
-            'peripheral': [
-                "run_pic_test.sh",
-                "run_timer_test.sh",
-                "run_ppi_test.sh",
-                # Additional peripheral tests
-                "run_fifo_test.sh",
-                "run_kf8253_test.sh",
-                "run_kfps2kb_test.sh",
-                "run_fontcolorlut_unit_test.sh",
-                "run_msmouse_wrapper_test.sh",
-                "run_speaker_audio_converter_test.sh",
-                # Extended PIC tests
-                "run_kf8259_all_tests.sh",
-                "run_kf8259_comprehensive_test.sh",
-                "run_kf8259_unit_tests.sh",
-            ],
-            'fpu': [
-                "run_fpu_format_converter_test.sh",
-                "run_format_converter_q262_test.sh",
-                "run_fpu_interface_test.sh",
-                "run_fpu_interface_simple_test.sh",
-                "run_fpu_outer_queue_test.sh",
-                # Additional FPU tests
-                "run_cordic_correction_integration_test.sh",
-                "run_fstsw_ax_test.sh",
-                "run_fstsw_ax_integration_test.sh",
-            ],
-            'floppy': [
-                "run_floppy_sim.sh",
-                "run_floppy_dma_sim.sh",
-                "run_floppy_sd_test.sh",
-                "run_floppy_sd_integration.sh",
-                "run_floppy_dma_icarus_test.sh",
-            ],
-            'dma': [
-                "run_dma_arbiter_test.sh",
-                "run_dma_integration_test.sh",
-                "run_mem_arbiter_extend_test.sh",
-            ],
-            'input': [
-                "run_ps2_keyboard_test.sh",
-                "run_ps2_mouse_test.sh",
-                "run_ps2_keyboard_protocol_test.sh",
-                "run_ps2_mouse_verilator.sh",
-            ],
-            'video': [
-                "run_vga_test.sh",
-                "run_vga_modes_test.sh",
-                "run_vga_all_modes_test.sh",
-                "run_vga_mode_switching_test.sh",
-                "run_vga_complete_test.sh",
-                "run_cga_test.sh",
-                "run_cga_integration_test.sh",
-                "run_vga_unit_tests.sh",
-                "run_vgasync_unit_test.sh",
-                "run_vga_framebuffer_integration.sh",
-            ],
-            'serial': [
-                "run_simple_uart_test.sh",
-                "run_uart_test.sh",
-                "run_uart_16750_lite_test.sh",
-            ],
-            'bios': [
-                "run_bios_upload_controller_test.sh",
-                "run_bios_upload_integration_test.sh",
-            ],
-        }
-
-        for category, scripts in test_categories.items():
-            self.tests[category] = []
-            for script in scripts:
-                script_path = os.path.join(self.modelsim_dir, script)
-                if os.path.exists(script_path):
-                    test = LegacyBashTest(
-                        script=script,
-                        category=category,
-                        timeout=180
-                    )
-                    self.tests[category].append(test)
-
-    def discover_fpu_harness_tests(self):
-        """Discover FPU harness tests from Quartus/rtl/FPU8087/tests/."""
-        fpu_tests_dir = os.path.join(self.project_root, "Quartus/rtl/FPU8087/tests")
-
-        if not os.path.exists(fpu_tests_dir):
-            return
-
-        # Add FPU harness test category
-        if 'fpu_harness' not in self.tests:
-            self.tests['fpu_harness'] = []
-
-        # Main harness test script
-        harness_script = os.path.join(fpu_tests_dir, "run_all_tests.sh")
-        if os.path.exists(harness_script):
-            test = LegacyBashTest(
-                script=os.path.relpath(harness_script, self.modelsim_dir),
-                name="fpu_harness_all",
-                category="fpu_harness",
-                timeout=600  # 10 minutes for full harness
-            )
-            self.tests['fpu_harness'].append(test)
-
-        # Individual harness tests
-        individual_tests = [
-            ("run_ieee754_tests.sh", "fpu_harness_ieee754", 180),
-            ("run_transcendental_test.sh", "fpu_harness_transcendental", 300),
-            ("run_format_conv_tests.sh", "fpu_harness_format_conv", 120),
-            ("run_stack_mgmt_test.sh", "fpu_harness_stack", 60),
-            ("run_decoder_test.sh", "fpu_harness_decoder", 60),
-        ]
-
-        for script_name, test_name, timeout in individual_tests:
-            script_path = os.path.join(fpu_tests_dir, script_name)
-            if os.path.exists(script_path):
-                test = LegacyBashTest(
-                    script=os.path.relpath(script_path, self.modelsim_dir),
-                    name=test_name,
-                    category="fpu_harness",
-                    timeout=timeout
-                )
-                self.tests['fpu_harness'].append(test)
-
     def discover_native_tests(self):
         """Discover tests using native Python configurations (no shell scripts)."""
         if not NATIVE_TESTS_AVAILABLE:
@@ -485,6 +392,16 @@ class TestRunner:
                     category=config.category,
                     timeout=config.timeout,
                     enable_coverage=coverage
+                )
+            elif simulator == 'python':
+                # Create PythonScriptTest from TestConfig
+                test = PythonScriptTest(
+                    name=config.name,
+                    script=getattr(config, 'script', ''),
+                    work_dir=getattr(config, 'work_dir', ''),
+                    script_args=getattr(config, 'script_args', []),
+                    category=config.category,
+                    timeout=config.timeout
                 )
             else:
                 # Create IverilogTest from TestConfig
@@ -726,7 +643,6 @@ def main():
 Examples:
   python test_runner.py                    # Run all tests
   python test_runner.py --skip-long        # Skip tests > 30s
-  python test_runner.py --include-harness  # Include FPU harness tests
   python test_runner.py -c core -p 4       # Run core tests in parallel
   python test_runner.py --clean            # Remove test artifacts
   python test_runner.py --clean --dry-run  # Preview what would be cleaned
@@ -767,21 +683,6 @@ Examples:
         help="Skip long-running tests (> 30s estimated)"
     )
     parser.add_argument(
-        '--include-harness',
-        action='store_true',
-        help="Include FPU harness tests (adds ~10 minutes)"
-    )
-    parser.add_argument(
-        '--native',
-        action='store_true',
-        help="Use native Python test configurations (no shell scripts)"
-    )
-    parser.add_argument(
-        '--legacy',
-        action='store_true',
-        help="Use legacy shell script tests (default if --native not specified)"
-    )
-    parser.add_argument(
         '--coverage',
         action='store_true',
         help="Enable Verilator code coverage (line + toggle)"
@@ -819,7 +720,28 @@ Examples:
             vcd_files = glob.glob(os.path.join(modelsim_dir, "*.vcd"))
             sim_files = [f for f in glob.glob(os.path.join(modelsim_dir, "*_sim"))
                         if os.path.isfile(f) and not f.endswith('.sv') and not f.endswith('.v')]
+            # Also find VVP executables by content (shebang detection)
+            source_extensions = ('.sv', '.v', '.py', '.sh', '.md', '.txt', '.json', '.yaml', '.yml',
+                                 '.hex', '.mif', '.bin', '.us', '.tcl', '.do', '.qip', '.qsf', '.sdc')
+            for item in os.listdir(modelsim_dir):
+                item_path = os.path.join(modelsim_dir, item)
+                if os.path.isfile(item_path) and not item.endswith(source_extensions) and not item.startswith('.'):
+                    try:
+                        with open(item_path, 'rb') as f:
+                            first_bytes = f.read(30)
+                            if b'bin/vvp' in first_bytes:
+                                sim_files.append(item_path)
+                    except (IOError, OSError):
+                        pass
             obj_dirs = glob.glob(os.path.join(modelsim_dir, "obj_dir*"))
+            # Check __pycache__ directories
+            project_root = os.path.dirname(modelsim_dir)
+            pycache_dirs = [p for p in [
+                os.path.join(modelsim_dir, "__pycache__"),
+                os.path.join(modelsim_dir, "test_framework", "__pycache__"),
+                os.path.join(modelsim_dir, "tests", "__pycache__"),
+                os.path.join(project_root, "Quartus", "rtl", "FPU8087", "__pycache__"),
+            ] if os.path.isdir(p)]
 
             if result_dirs:
                 print(f"Result directories ({len(result_dirs)}):")
@@ -856,7 +778,28 @@ Examples:
                 if len(obj_dirs) > 5:
                     print(f"  ... and {len(obj_dirs) - 5} more")
 
-            total = len(result_dirs) + len(vvp_files) + len(vcd_files) + len(sim_files) + len(obj_dirs)
+            if pycache_dirs:
+                print(f"\n__pycache__ directories ({len(pycache_dirs)}):")
+                for d in pycache_dirs:
+                    rel_path = os.path.relpath(d, project_root)
+                    print(f"  {rel_path}/")
+
+            # Check FPU8087 artifacts
+            fpu_dir = os.path.join(project_root, "Quartus", "rtl", "FPU8087")
+            fpu_artifacts = []
+            if os.path.isdir(fpu_dir):
+                fpu_artifacts.extend(glob.glob(os.path.join(fpu_dir, "debug_*.txt")))
+                fpu_artifacts.extend([f for f in glob.glob(os.path.join(fpu_dir, "tb_*"))
+                                     if os.path.isfile(f) and not f.endswith('.v') and not f.endswith('.sv')])
+                fpu_artifacts.extend(glob.glob(os.path.join(fpu_dir, "*.vcd")))
+
+            if fpu_artifacts:
+                print(f"\nFPU8087 artifacts ({len(fpu_artifacts)}):")
+                for f in fpu_artifacts:
+                    rel_path = os.path.relpath(f, project_root)
+                    print(f"  {rel_path}")
+
+            total = len(result_dirs) + len(vvp_files) + len(vcd_files) + len(sim_files) + len(obj_dirs) + len(pycache_dirs) + len(fpu_artifacts)
             if total == 0:
                 print("No artifacts found to clean.")
             else:
@@ -877,6 +820,8 @@ Examples:
             print(f".vcd files removed:         {removed['vcd_files']}")
             print(f"Simulation binaries:        {removed['sim_binaries']}")
             print(f"Verilator obj_dir removed:  {removed['obj_dirs']}")
+            print(f"__pycache__ dirs removed:   {removed['pycache_dirs']}")
+            print(f"FPU8087 artifacts removed:  {removed['fpu_artifacts']}")
             print(f"Total space freed:          {format_bytes(removed['total_bytes'])}")
             print("=" * 70)
             return 0
@@ -884,22 +829,10 @@ Examples:
     # Create runner and discover tests
     runner = TestRunner(enable_coverage=args.coverage)
 
-    # Choose between native and legacy test modes
-    # Default to native tests (Python configurations)
-    if args.legacy:
-        runner.discover_legacy_tests()
-        print("Using legacy shell script tests")
-    else:
-        if not NATIVE_TESTS_AVAILABLE:
-            print("Error: Native test configurations not available (test_configs.py not found)")
-            return 1
-        runner.discover_native_tests()
-        if not args.native:
-            print("Using native Python test configurations (use --legacy for shell scripts)")
-
-    # Optionally include FPU harness tests
-    if args.include_harness:
-        runner.discover_fpu_harness_tests()
+    if not NATIVE_TESTS_AVAILABLE:
+        print("Error: Test configurations not available (test_configs.py not found)")
+        return 1
+    runner.discover_native_tests()
 
     # List tests if requested
     if args.list:

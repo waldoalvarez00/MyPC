@@ -7,8 +7,10 @@ Tests the "call and wait" subroutine pattern.
 import sys
 import os
 
-# Add current directory to path to import microsim
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add FPU8087 directory to path to import microsim
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.dirname(_script_dir)
+sys.path.insert(0, os.path.join(_project_root, "Quartus", "rtl", "FPU8087"))
 
 from microsim import MicrosequencerSimulator, ExtendedFloat, Opcode, MicroOp
 

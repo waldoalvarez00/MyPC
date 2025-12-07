@@ -14,6 +14,18 @@ Usage:
 import sys
 import os
 import math
+
+# Add FPU8087 directory to path to import microsim
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.dirname(_script_dir)
+_fpu_dir = os.path.join(_project_root, "Quartus", "rtl", "FPU8087")
+sys.path.insert(0, _fpu_dir)
+
+# Helper to get absolute path to example hex files
+def _example_hex(name):
+    """Get absolute path to example hex file."""
+    return os.path.join(_fpu_dir, "examples", name)
+
 from microsim import (
     MicrosequencerSimulator,
     MicrocodeTest,
@@ -50,7 +62,7 @@ def test_example1_simple(verbose=False):
     """Test basic FPU operations"""
     test = MicrocodeTest(
         "Example 1: Simple Operations",
-        "examples/example1.hex"
+        _example_hex("example1.hex")
     )
 
     @test.setup
@@ -87,7 +99,7 @@ def test_example2_loop(verbose=False):
     """Test loop control structures"""
     test = MicrocodeTest(
         "Example 2: Loop Operations",
-        "examples/example2.hex"
+        _example_hex("example2.hex")
     )
 
     @test.setup
@@ -124,7 +136,7 @@ def test_example3_subroutine(verbose=False):
     """Test subroutine calls and returns"""
     test = MicrocodeTest(
         "Example 3: Subroutine Calls",
-        "examples/example3.hex"
+        _example_hex("example3.hex")
     )
 
     @test.setup
@@ -162,7 +174,7 @@ def test_example4_complex(verbose=False):
     """Test complex iterative calculations"""
     test = MicrocodeTest(
         "Example 4: Complex Operations (Square Root Approximation)",
-        "examples/example4.hex"
+        _example_hex("example4.hex")
     )
 
     @test.setup
@@ -196,7 +208,7 @@ def test_example5_cordic(verbose=False):
     """Test CORDIC-like operations"""
     test = MicrocodeTest(
         "Example 5: CORDIC Rotation",
-        "examples/example5.hex"
+        _example_hex("example5.hex")
     )
 
     @test.setup
@@ -315,7 +327,7 @@ def test_example6_sincos(verbose=False):
     """Test CORDIC sin/cos implementation"""
     test = MicrocodeTest(
         "Example 6: CORDIC Sin/Cos",
-        "examples/example6.hex"
+        _example_hex("example6.hex")
     )
 
     @test.setup
@@ -346,7 +358,7 @@ def test_example7_sqrt(verbose=False):
     """Test square root implementation"""
     test = MicrocodeTest(
         "Example 7: Square Root (CORDIC)",
-        "examples/example7.hex"
+        _example_hex("example7.hex")
     )
 
     @test.setup
@@ -377,7 +389,7 @@ def test_example8_tangent(verbose=False):
     """Test tangent implementation"""
     test = MicrocodeTest(
         "Example 8: Tangent (CORDIC)",
-        "examples/example8.hex"
+        _example_hex("example8.hex")
     )
 
     @test.setup
@@ -404,7 +416,7 @@ def test_example9_atan(verbose=False):
     """Test arctangent (FPATAN) implementation"""
     test = MicrocodeTest(
         "Example 9: Arctangent (FPATAN)",
-        "examples/example9.hex"
+        _example_hex("example9.hex")
     )
 
     @test.setup
@@ -435,7 +447,7 @@ def test_example10_exp(verbose=False):
     """Test exponential (F2XM1) implementation"""
     test = MicrocodeTest(
         "Example 10: Exponential (F2XM1)",
-        "examples/example10.hex"
+        _example_hex("example10.hex")
     )
 
     @test.setup
@@ -462,7 +474,7 @@ def test_example11_log(verbose=False):
     """Test logarithm (FYL2X) implementation"""
     test = MicrocodeTest(
         "Example 11: Logarithm (FYL2X)",
-        "examples/example11.hex"
+        _example_hex("example11.hex")
     )
 
     @test.setup
