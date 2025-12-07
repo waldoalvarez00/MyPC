@@ -1,0 +1,58 @@
+# Makefile for DDR3 Model Verilator Test
+#
+# Build: make -f Makefile.ddr3
+# Run: ./obj_dir/Vddram
+
+# Use verilator_bin directly
+VERILATOR_ROOT = /tmp/verilator_install/usr/share/verilator
+V = /tmp/verilator_install/usr/bin/verilator_bin
+V_INC_DIR = $(VERILATOR_ROOT)/include
+
+# Directories
+RTL = ../rtl
+SIM = sim
+
+# Verilator options
+V_OPT = -O3 --x-assign fast --x-initial fast --noassert
+V_OPT += --trace --Mdir ./obj_dir
+V_OPT += -Wno-MULTIDRIVEN -Wno-WIDTH -Wno-CASEINCOMPLETE -Wno-INITIALDLY
+V_OPT += -CFLAGS "-I../sim -I$(V_INC_DIR) -O2 -std=c++14"
+V_OPT += -LDFLAGS "-lpthread"
+
+# Source files
+V_SRC = $(RTL)/ddram_genesis.sv
+
+# C++ sources
+C_SRC = ddr3_tb.cpp
+
+# Top module
+TOP = --top-module ddram
+
+# Executable
+EXE = ./obj_dir/Vddram
+
+# Targets
+all: $(EXE)
+
+$(EXE): $(V_SRC) $(C_SRC) Makefile.ddr3
+	$(V) -cc $(V_OPT) $(TOP) --exe $(V_SRC) $(C_SRC)
+	$(MAKE) -C obj_dir -f Vddram.mk
+
+run: $(EXE)
+	$(EXE)
+
+trace: $(EXE)
+	$(EXE) --trace
+	@echo "Waveform saved to ddr3_test.vcd"
+
+debug: $(EXE)
+	$(EXE) --trace --debug
+
+wave: trace
+	gtkwave ddr3_test.vcd &
+
+clean:
+	rm -rf obj_dir
+	rm -f ddr3_test.vcd
+
+.PHONY: all run trace debug wave clean

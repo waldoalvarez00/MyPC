@@ -1,0 +1,64 @@
+# Makefile for Video Capture Model Verilator Test
+#
+# Build: make -f Makefile.video
+# Run: ./obj_dir/Vvideo_gen_sim
+
+# Use verilator_bin directly
+VERILATOR_ROOT = /tmp/verilator_install/usr/share/verilator
+V = /tmp/verilator_install/usr/bin/verilator_bin
+V_INC_DIR = $(VERILATOR_ROOT)/include
+
+# Directories
+RTL = ../rtl
+SIM = sim
+
+# Verilator options
+V_OPT = -O3 --x-assign fast --x-initial fast --noassert
+V_OPT += --trace --Mdir ./obj_dir
+V_OPT += -Wno-MULTIDRIVEN -Wno-WIDTH -Wno-CASEINCOMPLETE -Wno-INITIALDLY
+V_OPT += -CFLAGS "-I../sim -I$(V_INC_DIR) -O2 -std=c++14"
+V_OPT += -LDFLAGS "-lpthread"
+
+# Source files
+V_SRC = $(RTL)/video_gen_sim.sv
+
+# C++ sources
+C_SRC = video_capture_tb.cpp
+
+# Top module
+TOP = --top-module video_gen_sim
+
+# Executable
+EXE = ./obj_dir/Vvideo_gen_sim
+
+# Targets
+all: $(EXE)
+
+$(EXE): $(V_SRC) $(C_SRC) Makefile.video
+	$(V) -cc $(V_OPT) $(TOP) --exe $(V_SRC) $(C_SRC)
+	$(MAKE) -C obj_dir -f Vvideo_gen_sim.mk
+
+run: $(EXE)
+	$(EXE)
+
+trace: $(EXE)
+	$(EXE) --trace
+	@echo "Waveform saved to video_test.vcd"
+
+save: $(EXE)
+	$(EXE) --save
+	@echo "Frames saved to /tmp/gameboy_frame_*.bmp"
+
+debug: $(EXE)
+	$(EXE) --trace --debug --save
+
+wave: trace
+	gtkwave video_test.vcd &
+
+clean:
+	rm -rf obj_dir
+	rm -f video_test.vcd
+	rm -f /tmp/test_frame.bmp /tmp/test_frame.ppm
+	rm -f /tmp/gameboy_frame_*.bmp
+
+.PHONY: all run trace save debug wave clean

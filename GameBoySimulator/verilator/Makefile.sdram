@@ -1,0 +1,63 @@
+# Makefile for SDRAM Verilator Model Test
+#
+# Build: make -f Makefile.sdram
+# Run: ./obj_dir/Vsdram_test_top --trace
+
+V = verilator
+
+# Directories
+RTL = ../rtl
+MYPC_RTL = ../../Quartus/rtl
+SIM = sim
+
+# Verilator options
+V_OPT = -O3 --x-assign fast --x-initial fast --noassert
+V_OPT += --trace --Mdir ./obj_dir
+V_OPT += -Wno-MULTIDRIVEN -Wno-WIDTH -Wno-CASEINCOMPLETE
+V_OPT += -CFLAGS "-I../sim -O2"
+
+# Include paths
+V_INC = +incdir+$(RTL) +incdir+$(MYPC_RTL)/sdram
+
+# Source files
+V_SRC = \
+	$(RTL)/sdram_model.sv \
+	$(RTL)/sdram_mister.sv \
+	$(MYPC_RTL)/sdram/SDRAMController.sv \
+	$(MYPC_RTL)/sdram/Counter.sv
+
+# C++ sources
+C_SRC = \
+	sdram_tb.cpp \
+	$(SIM)/vinc/verilated.cpp \
+	$(SIM)/vinc/verilated_vcd_c.cpp \
+	$(SIM)/vinc/verilated_threads.cpp
+
+# Top module
+TOP = --top-module sdram_test_top
+
+# Executable
+EXE = ./obj_dir/Vsdram_test_top
+
+# Targets
+all: $(EXE)
+
+$(EXE): $(V_SRC) $(C_SRC) Makefile.sdram
+	$(V) -cc $(V_OPT) $(V_INC) $(TOP) --exe $(V_SRC) $(C_SRC)
+	$(MAKE) -C obj_dir -f Vsdram_test_top.mk
+
+run: $(EXE)
+	$(EXE)
+
+trace: $(EXE)
+	$(EXE) --trace
+	@echo "Waveform saved to sdram_test.vcd"
+
+wave: trace
+	gtkwave sdram_test.vcd &
+
+clean:
+	rm -rf obj_dir
+	rm -f sdram_test.vcd
+
+.PHONY: all run trace wave clean
