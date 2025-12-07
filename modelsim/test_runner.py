@@ -198,6 +198,18 @@ def clean_test_artifacts(modelsim_dir: str, verbose: bool = False) -> dict:
             except (IOError, OSError):
                 pass  # Skip files we can't read
 
+    # Remove common build artifacts (a.out, test_vectors.*)
+    build_artifacts = ["a.out", "test_vectors.txt", "test_vectors.vh"]
+    for artifact in build_artifacts:
+        item_path = os.path.join(modelsim_dir, artifact)
+        if os.path.isfile(item_path):
+            size = get_size(item_path)
+            if verbose:
+                print(f"  Removing build artifact: {artifact}")
+            os.remove(item_path)
+            removed['sim_binaries'] += 1
+            removed['total_bytes'] += size
+
     # Remove obj_dir* directories (Verilator build directories)
     for item in glob.glob(os.path.join(modelsim_dir, "obj_dir*")):
         if os.path.isdir(item):
