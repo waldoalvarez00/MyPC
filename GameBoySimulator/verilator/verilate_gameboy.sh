@@ -120,6 +120,7 @@ VERILATOR_FLAGS="
     -Wno-SYNCASYNCNET
     -Wno-SELRANGE
     --trace
+    --x-assign 0
     --x-initial 0
     -DGAMEBOY_SIM
     -I${GAMEBOY_RTL}

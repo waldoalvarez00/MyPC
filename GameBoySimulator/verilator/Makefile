@@ -47,7 +47,8 @@ endif
 CFLAGS += $(CC_OPT) $(CC_DEFINE) -Iimgui
 LDFLAGS = $(LIBS)
 EXE = ./obj_dir/Vtop
-V_OPT = -O3 --x-assign fast --x-initial fast --noassert --Wno-MULTIDRIVEN
+# Use deterministic init so VRAM/tile memory start at 0 (helps GUI boot logo and matches FPGA reset)
+V_OPT = -O3 --x-assign 0 --x-initial 0 --noassert --Wno-MULTIDRIVEN
 CC_OPT = -O3
 #V_OPT = 
 #CC_OPT =   

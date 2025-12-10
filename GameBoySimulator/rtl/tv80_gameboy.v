@@ -151,7 +151,9 @@ module GBse #(
             end
 
             // Data input register latch
-            if (tstate[3] && WAIT_n == 1'b1) begin
+            // CRITICAL: Latch at T2 (not T3) so microcode operations at T2
+            // (like LDZ for JP instruction) see the current data, not stale data
+            if (tstate[2] && WAIT_n == 1'b1) begin
                 di_reg <= DI;
             end
         end

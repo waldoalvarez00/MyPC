@@ -130,6 +130,9 @@
     <ClCompile Include="obj_dir\Vtop_dpram__Af__DepSet_h66149b0c__0.cpp" />
     <ClCompile Include="obj_dir\Vtop_dpram__Af__DepSet_hca99e7ef__0__Slow.cpp" />
     <ClCompile Include="obj_dir\Vtop_dpram__Af__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_dpram_dif__DepSet_h6214d629__0.cpp" />
+    <ClCompile Include="obj_dir\Vtop_dpram_dif__DepSet_hc699acd4__0__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_dpram_dif__Slow.cpp" />
     <ClCompile Include="sim\sim_clock.cpp" />
     <ClCompile Include="sim\sim_bus.cpp" />
     <ClCompile Include="sim\sim_console.cpp" />

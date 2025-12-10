@@ -84,7 +84,12 @@ module top (
     output [14:0] dbg_lcd_data /*verilator public_flat*/,
     output        dbg_isGBC_game /*verilator public_flat*/,
     output [1:0]  dbg_lcd_data_gb /*verilator public_flat*/,
-    output [7:0]  dbg_cpu_do /*verilator public_flat*/
+    output [7:0]  dbg_cpu_do /*verilator public_flat*/,
+    output [7:0]  dbg_cpu_di /*verilator public_flat*/,
+    output [7:0]  dbg_boot_q /*verilator public_flat*/,
+    output [7:0]  dbg_boot_do /*verilator public_flat*/,
+    output [15:0] dbg_cpu_tmpaddr /*verilator public_flat*/,
+    output [7:0]  dbg_cpu_ir /*verilator public_flat*/
 );
 
     // =========================================================================
@@ -519,5 +524,10 @@ module top (
     assign dbg_isGBC_game = isGBC_game;
     assign dbg_lcd_data_gb = lcd_data_gb;
     assign dbg_cpu_do = gameboy.cpu_do;
+    assign dbg_cpu_di = gameboy.cpu_di;
+    assign dbg_boot_q = gameboy.boot_q;
+    assign dbg_boot_do = gameboy.boot_do;
+    assign dbg_cpu_tmpaddr = gameboy.cpu.i_tv80_core.TmpAddr;
+    assign dbg_cpu_ir = gameboy.cpu.i_tv80_core.IR;
 
 endmodule

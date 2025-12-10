@@ -95,3 +95,12 @@ formal/formal_results_*/
 .claude/settings.local.json
 .claude/settings.local.json
 .claude/settings.local.json
+/GameBoySimulator/verilator/sim/x64
+/GameBoySimulator/verilator/sim/x64
+GameBoySimulator/verilator/test_jump_debug
+GameBoySimulator/verilator/test_jp_vs_call
+GameBoySimulator/verilator/test_memory_reads
+GameBoySimulator/verilator/test_cpu_comprehensive
+GameBoySimulator/verilator/test_boot_rom_size
+/GameBoySimulator/verilator/sim/x64/Release
+/GameBoySimulator/verilator/sim/x64
