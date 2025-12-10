@@ -1,0 +1,645 @@
+// Headless GameBoy Core Test
+// Verifies SDRAM, CPU execution, and basic functionality
+
+#include <verilated.h>
+#include "Vtop.h"
+#include "Vtop___024root.h"  // For hierarchical signal access
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+
+// Include SDRAM model
+#include "../sim/mister_sdram_model.h"
+
+// Test configuration
+#define TEST_CYCLES 500000   // Run for 500K cycles
+#define REPORT_INTERVAL 100000
+
+// Global state
+Vtop* top = nullptr;
+MisterSDRAMModel* sdram = nullptr;
+vluint64_t main_time = 0;
+int clk = 0;
+
+// Process SDRAM signals
+void processSDRAM() {
+    uint16_t rdata = 0;
+    bool compl_out = false;
+    bool config_done = false;
+    uint8_t dqm = top->sd_dqm;
+
+    sdram->processNativeSDRAM(
+        top->sd_cs,
+        top->sd_ras,
+        top->sd_cas,
+        top->sd_we,
+        top->sd_ba,
+        top->sd_addr,
+        top->sd_data_out,
+        dqm,
+        rdata,
+        compl_out,
+        config_done
+    );
+
+    top->sd_data_in = rdata;
+}
+
+// ROM data storage for download simulation
+uint8_t* rom_data = nullptr;
+size_t rom_size = 0;
+
+// Boot ROM storage (DMG boot ROM is 256 bytes)
+uint8_t boot_rom[256];
+
+// Forward declaration
+void tick();
+
+// Create minimal DMG boot ROM that just disables itself and jumps to cart
+void createMinimalBootROM() {
+    // Fill with 0xFF (RST 38 / nop-ish behavior)
+    memset(boot_rom, 0xFF, sizeof(boot_rom));
+
+    // Like the real DMG boot ROM, position "disable boot ROM" at 0xFC-0xFF
+    // so that after executing, PC naturally advances to 0x100 (cart entry)
+    //
+    // Code layout:
+    // 0x00: LD SP, $FFFE    ; 31 FE FF
+    // 0x03: JP $00FC        ; C3 FC 00  (jump to end of boot ROM)
+    // ...
+    // 0xFC: LD A, $01       ; 3E 01
+    // 0xFE: LDH ($50), A    ; E0 50  (disables boot ROM)
+    // After this, PC=0x100 which fetches from cart (boot ROM disabled)
+
+    // Code at 0x00
+    boot_rom[0x00] = 0x31;  // LD SP,
+    boot_rom[0x01] = 0xFE;  //   $FFFE
+    boot_rom[0x02] = 0xFF;
+    boot_rom[0x03] = 0xC3;  // JP $00FC
+    boot_rom[0x04] = 0xFC;
+    boot_rom[0x05] = 0x00;
+
+    // Code at 0xFC (end of boot ROM)
+    boot_rom[0xFC] = 0x3E;  // LD A,
+    boot_rom[0xFD] = 0x01;  //   $01 (disable boot ROM)
+    boot_rom[0xFE] = 0xE0;  // LDH ($50),
+    boot_rom[0xFF] = 0x50;  //   A
+    // After this, PC=0x100, boot ROM disabled, fetches from cart
+
+    printf("Created minimal DMG boot ROM (10 bytes of code)\n");
+}
+
+// Download boot ROM to gb module
+void downloadBootROM() {
+    printf("Downloading DMG boot ROM (256 bytes)...\n");
+
+    top->boot_download = 1;
+
+    // DMG boot ROM is 256 bytes (0x00-0xFF)
+    // The Verilog uses ioctl_addr[7:1] for word addressing, stored at memory offset 0x900
+    // So we need to pass byte addresses here
+    for (int addr = 0; addr < 256; addr += 2) {
+        uint16_t word = boot_rom[addr];
+        if (addr + 1 < 256) {
+            word |= (boot_rom[addr + 1] << 8);
+        }
+
+        top->boot_addr = addr;  // Byte address (Verilog extracts [7:1] for word addr)
+        top->boot_data = word;
+        top->boot_wr = 1;
+
+        // Debug first few writes
+        if (addr < 16) {
+            printf("  Boot ROM write: addr=%d (ioctl_addr), word=0x%04X (bytes: 0x%02X, 0x%02X)\n",
+                   addr, word, boot_rom[addr], boot_rom[addr+1]);
+        }
+
+        // Run a few cycles with write active
+        for (int i = 0; i < 4; i++) {
+            tick();
+        }
+
+        top->boot_wr = 0;
+
+        // Run more cycles
+        for (int i = 0; i < 4; i++) {
+            tick();
+        }
+    }
+
+    top->boot_download = 0;
+
+    // Run some cycles to stabilize
+    for (int i = 0; i < 100; i++) {
+        tick();
+    }
+
+    printf("Boot ROM download complete\n");
+
+    // Verify boot ROM was written correctly by checking a few addresses
+    printf("Verifying boot ROM dpram contents...\n");
+    auto* root = top->rootp;
+    printf("  boot_rom_enabled = %d\n", root->top__DOT__gameboy__DOT__boot_rom_enabled);
+
+    // Access dpram memory directly to verify contents
+    // DMG boot ROM is stored at offset 0x900 (9 << 8)
+    printf("  Verifying dpram contents at offset 0x900:\n");
+    for (int i = 0; i < 8; i++) {
+        uint8_t val = root->top__DOT__gameboy__DOT__boot_rom__DOT__mem[0x900 + i];
+        printf("    mem[0x%03X] = 0x%02X (expected: 0x%02X)\n",
+               0x900 + i, val, boot_rom[i]);
+    }
+    // Also check code at 0xFC-0xFF
+    printf("  Verifying dpram contents at offset 0x9FC:\n");
+    for (int i = 0xFC; i <= 0xFF; i++) {
+        uint8_t val = root->top__DOT__gameboy__DOT__boot_rom__DOT__mem[0x900 + i];
+        printf("    mem[0x%03X] = 0x%02X (expected: 0x%02X)\n",
+               0x900 + i, val, boot_rom[i]);
+    }
+}
+
+// Load ROM file into memory (doesn't load to SDRAM yet)
+bool loadROMFile(const char* filename) {
+    FILE* f = fopen(filename, "rb");
+    if (!f) {
+        printf("ERROR: Cannot open ROM file: %s\n", filename);
+        return false;
+    }
+
+    fseek(f, 0, SEEK_END);
+    rom_size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    if (rom_size > 8 * 1024 * 1024) {
+        printf("ERROR: ROM too large (max 8MB): %zu bytes\n", rom_size);
+        fclose(f);
+        return false;
+    }
+
+    rom_data = new uint8_t[rom_size];
+    size_t bytes_read = fread(rom_data, 1, rom_size, f);
+    fclose(f);
+
+    if (bytes_read != rom_size) {
+        printf("ERROR: Failed to read ROM file\n");
+        delete[] rom_data;
+        rom_data = nullptr;
+        return false;
+    }
+
+    printf("ROM file loaded: %s (%zu bytes)\n", filename, rom_size);
+
+    // Verify ROM header
+    if (rom_size >= 0x150) {
+        char title[17] = {0};
+        for (int i = 0; i < 16; i++) {
+            title[i] = rom_data[0x134 + i];
+            if (title[i] < 32 || title[i] > 126) title[i] = '.';
+        }
+        printf("  Title: %s\n", title);
+        printf("  Cart type: 0x%02X\n", rom_data[0x147]);
+
+        // Check Nintendo logo
+        if (rom_data[0x104] == 0xCE && rom_data[0x105] == 0xED) {
+            printf("  Nintendo logo: VALID\n");
+        } else {
+            printf("  Nintendo logo: INVALID (0x%02X 0x%02X)\n",
+                   rom_data[0x104], rom_data[0x105]);
+        }
+    }
+
+    return true;
+}
+
+// Simulate ioctl download to make cart_ready go high
+// This mimics what MiSTer framework does when loading a ROM
+void simulateDownload() {
+    printf("Simulating ioctl download (%zu bytes)...\n", rom_size);
+
+    // Start download
+    top->ioctl_download = 1;
+    top->ioctl_index = 0;  // Cart ROM index
+    top->ioctl_addr = 0;
+
+    size_t addr = 0;
+    int cycles_per_word = 32;  // Give time for SDRAM operations
+
+    while (addr < rom_size) {
+        // Set up 16-bit word (little endian)
+        uint16_t word = rom_data[addr];
+        if (addr + 1 < rom_size) {
+            word |= (rom_data[addr + 1] << 8);
+        }
+
+        top->ioctl_dout = word;
+        top->ioctl_addr = addr >> 1;  // Word address
+        top->ioctl_wr = 1;
+
+        // Run a few cycles with write active
+        for (int i = 0; i < 4; i++) {
+            tick();
+        }
+
+        top->ioctl_wr = 0;
+
+        // Run more cycles to let SDRAM process
+        for (int i = 0; i < cycles_per_word - 4; i++) {
+            tick();
+        }
+
+        addr += 2;
+
+        // Progress indicator
+        if ((addr % 0x4000) == 0) {
+            printf("  Downloaded %zu / %zu bytes (%.0f%%)\n",
+                   addr, rom_size, 100.0 * addr / rom_size);
+        }
+    }
+
+    // End download
+    top->ioctl_download = 0;
+    top->ioctl_wr = 0;
+
+    // Run some cycles to let cart_ready propagate
+    for (int i = 0; i < 1000; i++) {
+        tick();
+    }
+
+    printf("Download complete. cart_ready=%d\n", top->dbg_cart_ready);
+}
+
+// Run one clock cycle
+void tick() {
+    clk = !clk;
+    top->clk_sys = clk;
+
+    // Evaluate Verilog FIRST so signals are updated
+    top->eval();
+
+    // Process SDRAM AFTER eval so we see the current command values
+    // (Not stale values from previous cycle)
+    if (clk) {
+        processSDRAM();
+        main_time++;
+    }
+}
+
+int main(int argc, char** argv) {
+    printf("===========================================\n");
+    printf("GameBoy Core Headless Test\n");
+    printf("===========================================\n\n");
+
+    // Initialize Verilator
+    Verilated::commandArgs(argc, argv);
+
+    // Create core
+    top = new Vtop();
+
+    // Create SDRAM model (32MB)
+    sdram = new MisterSDRAMModel(32, INTERFACE_NATIVE_SDRAM);
+    sdram->debug = false;  // Will enable briefly during test for debugging
+
+    // Determine ROM file
+    const char* rom_file = (argc > 1) ? argv[1] : "game.gb";
+
+    printf("TEST 1: ROM File Loading\n");
+    printf("------------------------\n");
+    if (!loadROMFile(rom_file)) {
+        printf("FAIL: Could not load ROM file\n");
+        delete top;
+        delete sdram;
+        return 1;
+    }
+    printf("PASS: ROM file loaded successfully\n\n");
+
+    // Initialize signals
+    top->reset = 1;
+    top->ioctl_download = 0;
+    top->ioctl_wr = 0;
+    top->ioctl_addr = 0;
+    top->ioctl_dout = 0;
+    top->ioctl_index = 0;
+    top->inputs = 0xFF;  // All buttons released
+
+    // Initialize boot ROM signals
+    top->boot_download = 0;
+    top->boot_wr = 0;
+    top->boot_addr = 0;
+    top->boot_data = 0;
+
+    // Run reset for 100 cycles
+    printf("TEST 2: Reset and Download\n");
+    printf("--------------------------\n");
+    for (int i = 0; i < 100; i++) {
+        tick();
+    }
+
+    // Create and download boot ROM DURING reset
+    // (boot ROM uses dpram which works during reset)
+    createMinimalBootROM();
+    downloadBootROM();
+
+    // The challenge: CPU runs immediately after reset, but cart ROM isn't loaded yet.
+    // Solution: Keep reset held, but use a "reset_lite" approach where we manually
+    // clock the SDRAM controller while holding main reset.
+
+    // First, do SDRAM init by releasing reset temporarily but re-asserting quickly
+    // Actually, simpler approach: download cart ROM FIRST during reset,
+    // but write directly to SDRAM model instead of through controller
+
+    // For this test, let's use a different approach:
+    // 1. Keep reset held
+    // 2. Download cart ROM directly to SDRAM model (bypassing controller)
+    // 3. Release reset - CPU starts with cart ROM already loaded
+
+    printf("Loading cart ROM directly to SDRAM model (bypassing controller)...\n");
+    for (size_t addr = 0; addr < rom_size; addr += 2) {
+        uint16_t word = rom_data[addr];
+        if (addr + 1 < rom_size) {
+            word |= (rom_data[addr + 1] << 8);
+        }
+        sdram->write16(addr, word);  // Write directly to SDRAM model (byte address)
+    }
+    printf("  Cart ROM loaded directly to SDRAM (%zu bytes)\n", rom_size);
+
+    // Now release reset - CPU will have cart ROM available immediately
+    top->reset = 0;
+    printf("Reset released at cycle %lu\n", (unsigned long)main_time);
+
+    // Disable boot ROM so CPU starts at 0x0000 reading from cart
+    // We need to do this on EVERY clock cycle until it sticks
+    auto* root_init = top->rootp;
+    printf("Disabling boot ROM...\n");
+    for (int i = 0; i < 100; i++) {
+        root_init->top__DOT__gameboy__DOT__boot_rom_enabled = 0;
+        tick();
+    }
+    printf("  boot_rom_enabled = %d\n", root_init->top__DOT__gameboy__DOT__boot_rom_enabled);
+
+    // Trace first CPU cycles
+    printf("Tracing first CPU cycles...\n");
+    int early_ce_count = 0;
+    for (int i = 0; i < 200 && early_ce_count < 20; i++) {
+        root_init->top__DOT__gameboy__DOT__boot_rom_enabled = 0;  // Keep forcing it
+        tick();
+        if (top->dbg_ce_cpu) {
+            early_ce_count++;
+            uint16_t cpu_addr = root_init->top__DOT__gameboy__DOT__cpu_addr_raw;
+            uint8_t boot_q = root_init->top__DOT__gameboy__DOT__boot_q;
+            uint16_t boot_addr = root_init->top__DOT__gameboy__DOT__boot_addr;
+            uint8_t boot_en = root_init->top__DOT__gameboy__DOT__boot_rom_enabled;
+            printf("  [early %d] addr=0x%04X boot_addr=0x%03X boot_q=0x%02X boot_en=%d cart_rd=%d\n",
+                   early_ce_count, cpu_addr, boot_addr, boot_q, boot_en, top->dbg_cart_rd);
+        }
+    }
+
+    // Run SDRAM init cycles
+    printf("Running SDRAM controller init...\n");
+    for (int i = 0; i < 1000; i++) {
+        root_init->top__DOT__gameboy__DOT__boot_rom_enabled = 0;  // Keep forcing it
+        tick();
+    }
+    printf("  SDRAM init complete, refreshes: %lu\n", (unsigned long)sdram->refresh_count);
+
+    // Simulate download to trigger cart_ready (even though ROM is already loaded)
+    simulateDownload();
+
+    // Run some cycles to let cart_ready propagate
+    for (int i = 0; i < 1000; i++) {
+        tick();
+    }
+
+    if (!top->dbg_cart_ready) {
+        printf("WARN: cart_ready still not set after download!\n");
+    }
+    printf("PASS: Download sequence complete\n\n");
+
+    // Main test loop
+    printf("TEST 3: Core Execution (%d cycles)\n", TEST_CYCLES);
+    printf("----------------------------------\n");
+
+    // Enable SDRAM debug briefly to see what commands are being sent
+    sdram->debug = true;
+    int sdram_debug_cycles = 0;
+
+    uint64_t last_reads = 0;
+    uint64_t last_writes = 0;
+    bool cpu_active = false;
+    bool first_read = false;
+    uint64_t first_read_cycle = 0;
+
+    // Track ce_cpu transitions to verify clock enable is working
+    uint64_t ce_cpu_high_count = 0;
+    uint64_t ce_cpu_transitions = 0;
+    int last_ce_cpu = top->dbg_ce_cpu;
+
+    // Track cart_rd transitions
+    uint64_t cart_rd_high_count = 0;
+    int last_cart_rd = top->dbg_cart_rd;
+
+    // Track sdram_oe
+    uint64_t sdram_oe_high_count = 0;
+
+    // Track CPU execution using hierarchical access
+    auto* root = top->rootp;
+    int debug_cycles = 0;
+
+    for (int cycle = 0; cycle < TEST_CYCLES; cycle++) {
+        tick();
+
+        // Turn off SDRAM debug after 100 cycles
+        if (sdram_debug_cycles++ > 100) {
+            sdram->debug = false;
+        }
+
+        // Print detailed debug for first 50 ce_cpu cycles
+        if (top->dbg_ce_cpu && debug_cycles < 50) {
+            debug_cycles++;
+            uint16_t cpu_addr = root->top__DOT__gameboy__DOT__cpu_addr_raw;
+            uint8_t boot_q = root->top__DOT__gameboy__DOT__boot_q;
+            uint16_t boot_addr = root->top__DOT__gameboy__DOT__boot_addr;
+            uint8_t boot_rom_en = root->top__DOT__gameboy__DOT__boot_rom_enabled;
+
+            printf("  [%d] CPU: addr=0x%04X, boot_addr=0x%03X, boot_q=0x%02X, boot_rom_en=%d, cart_rd=%d\n",
+                   debug_cycles, cpu_addr, boot_addr, boot_q, boot_rom_en, top->dbg_cart_rd);
+        }
+
+        // Debug SDRAM commands for first cart_rd transitions
+        static int sdram_debug_count = 0;
+        static bool first_cart_rd = false;
+        static int post_cart_rd_count = 0;
+
+        // Start detailed debug when cart_rd first goes high
+        if (top->dbg_cart_rd && !first_cart_rd) {
+            first_cart_rd = true;
+            printf("  === First cart_rd detected, starting detailed debug ===\n");
+        }
+
+        // Print detailed debug for 100 cycles after first cart_rd
+        if (first_cart_rd && post_cart_rd_count < 100) {
+            post_cart_rd_count++;
+            // Access SDRAM controller internal state
+            uint8_t sdram_state = root->top__DOT__sdram_ctrl__DOT__state;
+            uint8_t sdram_oe_pend = root->top__DOT__sdram_ctrl__DOT__oe_pending;
+            uint8_t ce_cpu2x = root->top__DOT__ce_cpu2x;
+            uint8_t cmd = (top->sd_cs << 3) | (top->sd_ras << 2) | (top->sd_cas << 1) | top->sd_we;
+            const char* cmd_name = (cmd == 0b0111) ? "NOP" :
+                                   (cmd == 0b0011) ? "ACT" :
+                                   (cmd == 0b0101) ? "READ" :
+                                   (cmd == 0b0100) ? "WRITE" :
+                                   (cmd == 0b0010) ? "PRE" :
+                                   (cmd == 0b0001) ? "REF" : "???";
+            printf("  [%d] state=%d oe_pend=%d sync=%d oe=%d | cmd=%s(0x%X) cart_rd=%d\n",
+                   post_cart_rd_count, sdram_state, sdram_oe_pend, ce_cpu2x, top->dbg_sdram_oe,
+                   cmd_name, cmd, top->dbg_cart_rd);
+        }
+
+        // Track ce_cpu
+        if (top->dbg_ce_cpu) ce_cpu_high_count++;
+        if (top->dbg_ce_cpu != last_ce_cpu) {
+            ce_cpu_transitions++;
+            last_ce_cpu = top->dbg_ce_cpu;
+        }
+
+        // Track cart_rd and sdram_oe
+        if (top->dbg_cart_rd) cart_rd_high_count++;
+        if (top->dbg_sdram_oe) sdram_oe_high_count++;
+        if (top->dbg_cart_rd != last_cart_rd) {
+            if (cart_rd_high_count < 5) {  // Log first few
+                printf("  cart_rd transition at cycle %lu: %d->%d\n",
+                       (unsigned long)main_time, last_cart_rd, top->dbg_cart_rd);
+            }
+            last_cart_rd = top->dbg_cart_rd;
+        }
+
+        // Check for first SDRAM read
+        if (!first_read && sdram->read_count > 0) {
+            first_read = true;
+            first_read_cycle = main_time;
+            printf("  First SDRAM read at cycle %lu\n", (unsigned long)main_time);
+        }
+
+        // Periodic status
+        if (main_time > 0 && (main_time % REPORT_INTERVAL) == 0) {
+            uint64_t new_reads = sdram->read_count - last_reads;
+            uint64_t new_writes = sdram->write_count - last_writes;
+
+            printf("  @%6lu: reads=%lu(+%lu) writes=%lu(+%lu) ref=%lu\n",
+                (unsigned long)main_time,
+                (unsigned long)sdram->read_count, (unsigned long)new_reads,
+                (unsigned long)sdram->write_count, (unsigned long)new_writes,
+                (unsigned long)sdram->refresh_count);
+
+            printf("           ce_cpu_highs=%lu cart_rd_highs=%lu sdram_oe_highs=%lu cart_ready=%d\n",
+                (unsigned long)ce_cpu_high_count, (unsigned long)cart_rd_high_count,
+                (unsigned long)sdram_oe_high_count, top->dbg_cart_ready);
+            printf("           cpu_clken=%d hdma_active=%d hdma_ext=%d dma_ext=%d dma_rd=%d cpu_addr=0x%04X cpu_rd_n=%d\n",
+                top->dbg_cpu_clken, top->dbg_hdma_active,
+                top->dbg_hdma_read_ext_bus, top->dbg_dma_read_ext_bus,
+                top->dbg_dma_rd, top->dbg_cpu_addr, top->dbg_cpu_rd_n);
+
+            if (new_reads > 0) {
+                cpu_active = true;
+            }
+
+            last_reads = sdram->read_count;
+            last_writes = sdram->write_count;
+        }
+    }
+
+    printf("\nClock enable statistics:\n");
+    printf("  ce_cpu high count: %lu / %d (%.2f%%)\n",
+           (unsigned long)ce_cpu_high_count, TEST_CYCLES,
+           100.0 * ce_cpu_high_count / TEST_CYCLES);
+    printf("  ce_cpu transitions: %lu\n", (unsigned long)ce_cpu_transitions);
+    printf("  cart_rd high count: %lu\n", (unsigned long)cart_rd_high_count);
+    printf("  sdram_oe high count: %lu\n", (unsigned long)sdram_oe_high_count);
+
+    printf("\n");
+
+    // Results
+    printf("===========================================\n");
+    printf("TEST RESULTS\n");
+    printf("===========================================\n");
+    printf("Total cycles:    %lu\n", (unsigned long)main_time);
+    printf("SDRAM reads:     %lu\n", (unsigned long)sdram->read_count);
+    printf("SDRAM writes:    %lu\n", (unsigned long)sdram->write_count);
+    printf("SDRAM refreshes: %lu\n", (unsigned long)sdram->refresh_count);
+
+    if (sdram->row_hits + sdram->row_misses > 0) {
+        printf("Row hit rate:    %.1f%%\n",
+            100.0 * sdram->row_hits / (sdram->row_hits + sdram->row_misses));
+    }
+    printf("\n");
+
+    // Final verdict
+    bool test_passed = true;
+
+    printf("VERIFICATION:\n");
+
+    // Check 1: SDRAM refreshes happening (controller working)
+    if (sdram->refresh_count > 0) {
+        printf("  [PASS] SDRAM controller running (refreshes: %lu)\n",
+               (unsigned long)sdram->refresh_count);
+    } else {
+        printf("  [FAIL] No SDRAM refreshes - controller not running\n");
+        test_passed = false;
+    }
+
+    // Check 2: Cart ready
+    if (top->dbg_cart_ready) {
+        printf("  [PASS] Cart ready signal asserted\n");
+    } else {
+        printf("  [FAIL] Cart ready signal NOT asserted - cart not initialized\n");
+        test_passed = false;
+    }
+
+    // Check 3: CPU clock enable
+    // (ce_cpu should have toggled during execution)
+    printf("  [INFO] ce_cpu current state: %d\n", top->dbg_ce_cpu);
+
+    // Check 4: SDRAM reads (CPU fetching instructions)
+    if (sdram->read_count > 0) {
+        printf("  [PASS] SDRAM reads detected (%lu) - CPU is fetching\n",
+               (unsigned long)sdram->read_count);
+    } else {
+        printf("  [FAIL] No SDRAM reads - CPU not fetching instructions!\n");
+        printf("         Check: cart_rd=%d, sdram_oe=%d, cart_download=%d\n",
+               top->dbg_cart_rd, top->dbg_sdram_oe, top->dbg_cart_download);
+        test_passed = false;
+    }
+
+    // Check 5: LCD mode changes (video subsystem working)
+    printf("  [INFO] LCD mode: %d\n", top->dbg_lcd_mode);
+
+    printf("\n");
+    if (test_passed) {
+        printf("=== ALL TESTS PASSED ===\n");
+    } else {
+        printf("=== TESTS FAILED ===\n");
+        printf("\nDEBUG INFO:\n");
+        printf("  cart_ready=%d cart_download=%d\n",
+               top->dbg_cart_ready, top->dbg_cart_download);
+        printf("  cart_rd=%d cart_wr=%d\n",
+               top->dbg_cart_rd, top->dbg_cart_wr);
+        printf("  sdram_oe=%d sdram_we=%d\n",
+               top->dbg_sdram_oe, top->dbg_sdram_we);
+        printf("  mbc_addr=0x%06X\n", top->dbg_mbc_addr);
+        printf("  HDMA/DMA status:\n");
+        printf("    cpu_clken=%d (should be 1 for CPU to run)\n", top->dbg_cpu_clken);
+        printf("    hdma_active=%d hdma_read_ext_bus=%d\n",
+               top->dbg_hdma_active, top->dbg_hdma_read_ext_bus);
+        printf("    dma_read_ext_bus=%d dma_rd=%d\n",
+               top->dbg_dma_read_ext_bus, top->dbg_dma_rd);
+        printf("    cpu_addr=0x%04X cpu_rd_n=%d\n",
+               top->dbg_cpu_addr, top->dbg_cpu_rd_n);
+    }
+
+    // Cleanup
+    top->final();
+    delete top;
+    delete sdram;
+    if (rom_data) delete[] rom_data;
+
+    return test_passed ? 0 : 1;
+}

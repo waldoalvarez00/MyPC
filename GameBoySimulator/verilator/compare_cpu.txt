@@ -1,0 +1,13 @@
+=== VHDL GBse (T80) vs Verilog GBse (TV80) Comparison ===
+
+VHDL GBse.vhd (lines 206-226):
+- RD_n set to '1' (inactive) at start of each CLKEN
+- RD_n set to '0' (active) during TState "001" or "010" when NoRead='0' and Write='0'
+
+Verilog tv80_gameboy.v (lines 98-126):
+- RD_n set to 1'b1 (inactive) at start of each CLKEN  
+- RD_n set to 1'b0 (active) during tstate[1] or tstate[2] when no_read==0 and write==0
+
+Key difference found: The logic looks equivalent, but timing may differ.
+The real issue is the TV80 core's internal state machine behavior after JP.
+

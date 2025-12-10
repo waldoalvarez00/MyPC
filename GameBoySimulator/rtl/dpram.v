@@ -10,9 +10,9 @@ module dpram #(
     parameter addr_width = 8,
     parameter data_width = 8
 ) (
-    // Single clock (if clock_a/clock_b not used)
+    // Single clock (always use this for simulation - dual clocks not supported)
     input                       clock,
-    // Dual clocks (optional - if used, overrides clock)
+    // Dual clocks (unused in this simulation stub - clock is always used)
     input                       clock_a,
     input                       clock_b,
 
@@ -29,12 +29,26 @@ module dpram #(
     output reg [data_width-1:0] q_b
 );
 
-    // Use clock_a/clock_b if provided, otherwise use clock
-    wire clka = clock_a ? clock_a : clock;
-    wire clkb = clock_b ? clock_b : clock;
+    // For simulation, always use the single 'clock' input
+    // The clock_a/clock_b inputs are ignored (they're just compatibility ports)
+    wire clka = clock;
+    wire clkb = clock;
 
-    // Memory array
-    reg [data_width-1:0] mem [0:(2**addr_width)-1];
+    // Memory array - initialize to zeros (not random X values)
+    // verilator lint_off UNUSEDSIGNAL
+    (* ram_init_file = "UNUSED" *)  // Prevent Verilator from randomizing
+    reg [data_width-1:0] mem [0:(2**addr_width)-1] /* verilator public */;
+    // verilator lint_on UNUSEDSIGNAL
+
+    // Initialize memory to zeros for simulation
+    // verilator lint_off BLKSEQ
+    integer i;
+    initial begin
+        for (i = 0; i < (2**addr_width); i = i + 1) begin
+            mem[i] = {data_width{1'b0}};
+        end
+    end
+    // verilator lint_on BLKSEQ
 
     // Port A
     always @(posedge clka) begin
@@ -65,9 +79,9 @@ module dpram_dif #(
     parameter data_width_b = 16,
     parameter init_file = ""
 ) (
-    // Single clock (if clock_a/clock_b not used)
+    // Single clock (always use this for simulation - dual clocks not supported)
     input                         clock,
-    // Dual clocks (optional)
+    // Dual clocks (unused in this simulation stub - clock is always used)
     input                         clock_a,
     input                         clock_b,
 
@@ -84,9 +98,10 @@ module dpram_dif #(
     output reg [data_width_b-1:0] q_b
 );
 
-    // Use clock_a/clock_b if provided, otherwise use clock
-    wire clka = clock_a ? clock_a : clock;
-    wire clkb = clock_b ? clock_b : clock;
+    // For simulation, always use the single 'clock' input
+    // The clock_a/clock_b inputs are ignored (they're just compatibility ports)
+    wire clka = clock;
+    wire clkb = clock;
 
     // Use the larger address width for memory
     localparam mem_size = (2**addr_width_a > 2**addr_width_b) ? 2**addr_width_a : 2**addr_width_b;

@@ -1,0 +1,43 @@
+=== ADD THIS TO YOUR GUI CODE ===
+
+Find your main rendering loop in the GUI code (wherever you call dut->eval() or tick the simulation).
+
+Add this diagnostic code:
+
+// Add at the top of your file with other variables:
+static bool boot_completed = false;
+static int frame_count = 0;
+
+// Add inside your main loop (after dut->eval()):
+frame_count++;
+
+// Check boot ROM status
+if (!boot_completed && dut->dbg_boot_rom_enabled == 0) {
+    boot_completed = true;
+    printf("✅ BOOT ROM DISABLED at frame %d\n", frame_count);
+}
+
+// Print status every second (60 frames)
+if (frame_count % 60 == 0) {
+    printf("[Frame %d] boot=%d addr=$%04X lcd_mode=%d lcd_data=%d\n",
+           frame_count,
+           dut->dbg_boot_rom_enabled,
+           dut->dbg_cpu_addr,
+           dut->dbg_lcd_mode,
+           dut->dbg_lcd_data_gb);
+}
+
+=== WHAT TO LOOK FOR ===
+
+After you add this and rebuild, run the GUI and check the OUTPUT window in Visual Studio.
+
+You should see output like:
+[Frame 60] boot=1 addr=$0007 lcd_mode=0 lcd_data=3
+✅ BOOT ROM DISABLED at frame 65
+[Frame 120] boot=0 addr=$0150 lcd_mode=2 lcd_data=3
+
+If you see:
+✅ Boot ROM disables -> Fix worked, but VRAM issue remains
+❌ Boot ROM stays enabled -> Fix didn't apply, need to re-verilate
+
+Tell me what you see in the OUTPUT window!

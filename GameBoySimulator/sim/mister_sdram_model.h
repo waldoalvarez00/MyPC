@@ -75,7 +75,7 @@ public:
     MisterSDRAMModel(uint32_t size_mb = 32, SDRAMInterfaceType type = INTERFACE_NATIVE_SDRAM) {
         interface_type = type;
         size_bytes = size_mb * 1024 * 1024;
-        cas_latency = 2;
+        cas_latency = 0;  // FIXED: Use 0 for simulation (RTL expects immediate data)
         burst_length = 1;
         debug = false;
 
@@ -123,7 +123,8 @@ public:
         // Clear one-cycle signals
         read_valid = false;
         write_complete = false;
-        rdata = 0;
+        // DON'T clear rdata - let it hold until next read!
+        // rdata = 0;
 
         // Handle pending operations
         if (pending_cycles > 0) {
@@ -133,6 +134,7 @@ public:
                 read_valid = true;
                 rdata = last_read_data;
                 read_count++;
+                if (debug) printf("SDRAM: Read data ready, rdata=0x%04X\n", rdata);
             } else if (pending_cycles == 0 && current_state == 2) {
                 // Write complete
                 write_complete = true;
@@ -161,7 +163,7 @@ public:
             case CMD_READ: {
                 // Read with auto-precharge if A10 set
                 uint32_t row = open_row[bank];
-                uint32_t col = addr & 0x1FF;
+                uint32_t col = addr & 0x3FF;  // 10-bit column for GameBoy SDRAM
                 uint32_t byte_addr = calculateAddress(bank, row, col);
 
                 // Track row hit when row is already open
@@ -178,6 +180,13 @@ public:
                 pending_cycles = cas_latency;
                 current_state = 1;
 
+                // CRITICAL FIX: If cas_latency is 0, update rdata immediately!
+                if (cas_latency == 0) {
+                    rdata = last_read_data;
+                    read_valid = true;
+                    read_count++;
+                }
+
                 if (addr & 0x400) {
                     row_is_open[bank] = false;  // Auto-precharge
                 }
@@ -190,7 +199,7 @@ public:
             case CMD_WRITE: {
                 // Write with auto-precharge if A10 set
                 uint32_t row = open_row[bank];
-                uint32_t col = addr & 0x1FF;
+                uint32_t col = addr & 0x3FF;  // 10-bit column for GameBoy SDRAM
                 uint32_t byte_addr = calculateAddress(bank, row, col);
 
                 // Track row hit when row is already open
@@ -326,15 +335,17 @@ public:
         waitrequest = waitrequest_out;
     }
 
-    // Calculate byte address from bank/row/column (32MB or 64MB layout)
+    // Calculate byte address from bank/row/column
+    // For GameBoy simulation: reconstruct linear byte address from SDRAM row/col
+    // The gameboy uses: sdram_addr = mbc_addr >> 1 (word addressing)
+    // Controller extracts: row = sdram_addr[22:10], col = sdram_addr[9:0], bank = sdram_addr[23:22]
+    // We need to reverse this: sdram_addr = (bank << 22) | (row << 10) | col
+    // Then byte_addr = sdram_addr << 1
     uint32_t calculateAddress(uint8_t bank, uint16_t row, uint16_t col) {
-        if (size_bytes == 32 * 1024 * 1024) {
-            // 32MB: bank[1:0] at bits [11:10], row at [24:12], col at [9:1]
-            return ((row & 0x1FFF) << 12) | ((bank & 0x3) << 10) | ((col & 0x1FF) << 1);
-        } else {
-            // 64MB: bank[1:0] at bits [12:11], row at [25:13], col at [10:1]
-            return ((row & 0x1FFF) << 13) | ((bank & 0x3) << 11) | ((col & 0x3FF) << 1);
-        }
+        // Reconstruct the word address from bank/row/col
+        uint32_t sdram_addr = ((uint32_t)(bank & 0x3) << 22) | ((uint32_t)(row & 0x1FFF) << 10) | (col & 0x3FF);
+        // Convert to byte address (multiply by 2)
+        return sdram_addr << 1;
     }
 
     // Direct memory access for initialization/verification

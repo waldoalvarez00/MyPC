@@ -9,6 +9,7 @@
 module sdram (
     // Interface to SDRAM chip
     output reg [15:0] sd_data,      // Output to SDRAM (directly exposed to C++ model)
+    input      [15:0] sd_data_in,   // Input from SDRAM (read data from C++ model)
     output reg [12:0] sd_addr,
     output reg [1:0]  sd_dqm,
     output reg [1:0]  sd_ba,
@@ -31,7 +32,7 @@ module sdram (
     input             oe,
     input             autorefresh,
     input             refresh,
-    output reg [15:0] dout
+    output     [15:0] dout /*verilator public_flat*/
 );
 
     // SDRAM clock output (directly from system clock for simulation)
@@ -46,12 +47,21 @@ module sdram (
     localparam PRECHARGE = 3'd5;
 
     reg [2:0] state;
-    reg [3:0] cycle;
+    reg [3:0] cycle /*verilator public_flat*/;
     reg [23:0] addr_r;
     reg [15:0] din_r;
     reg [1:0] ds_r;
     reg we_r;
     reg oe_r;
+    reg [15:0] dout_r;  // Registered dout value
+
+    // Request latching - capture oe/we when they go high, process on next sync
+    // This fixes timing issues where oe/we may only be high between sync pulses
+    reg oe_pending;
+    reg we_pending;
+    reg [23:0] addr_pending;
+    reg [15:0] din_pending;
+    reg [1:0] ds_pending;
 
     // Row and column extraction
     wire [12:0] row = addr_r[22:10];
@@ -84,6 +94,15 @@ module sdram (
     reg [15:0] sd_data_out;  // Data to write to SDRAM
     reg        data_write;   // Writing data
 
+    // Combinational dout for zero-latency simulation:
+    // In READ state, use sd_data_in directly; otherwise use registered value
+    assign dout = (state == READ) ? sd_data_in : dout_r;
+
+    // Debug signals (exposed for C++ testbench)
+    reg [2:0] dbg_state /*verilator public_flat*/;
+    reg dbg_oe_pending /*verilator public_flat*/;
+    reg dbg_we_pending /*verilator public_flat*/;
+
     initial begin
         state = IDLE;
         cycle = 0;
@@ -91,52 +110,110 @@ module sdram (
         sd_ba = 2'b00;
         sd_addr = 13'h0;
         sd_dqm = 2'b11;
-        dout = 16'h0;
+        dout_r = 16'h0;
         sd_data = 16'h0;
         data_write = 0;
+        oe_pending = 0;
+        we_pending = 0;
+        addr_pending = 24'h0;
+        din_pending = 16'h0;
+        ds_pending = 2'b00;
+        dbg_state = IDLE;
+        dbg_oe_pending = 0;
+        dbg_we_pending = 0;
     end
 
     always @(posedge clk) begin
+        // Update debug signals
+        dbg_state <= state;
+        dbg_oe_pending <= oe_pending;
+        dbg_we_pending <= we_pending;
+
         if (init) begin
             state <= IDLE;
             cycle <= 0;
             cmd <= CMD_NOP;
             sd_dqm <= 2'b11;
             data_write <= 0;
+            oe_pending <= 0;
+            we_pending <= 0;
         end
-        else if (sync) begin
-            // Default to NOP
+        else begin
+            // CRITICAL: Default cmd to NOP on EVERY clock cycle
+            // Commands are only issued on sync edges, but C++ model samples every cycle
+            // Without this, stale commands are processed multiple times
             cmd <= CMD_NOP;
-            sd_dqm <= 2'b11;
-            data_write <= 0;
 
-            case (state)
-                IDLE: begin
-                    if (we | oe) begin
-                        // Latch inputs
-                        addr_r <= addr;
-                        din_r <= din;
-                        ds_r <= ds;
-                        we_r <= we;
-                        oe_r <= oe;
-
-                        // Start access - activate row
-                        cmd <= CMD_ACTIVE;
-                        sd_ba <= addr[23:22];
-                        sd_addr <= addr[22:10];  // Row address
-                        state <= ACTIVATE;
-                        cycle <= 0;
-                    end
-                    else if (refresh | autorefresh) begin
-                        cmd <= CMD_REFRESH;
-                        state <= REFRESH;
-                        cycle <= 0;
-                    end
+            // Request latching: capture requests on ANY clock edge (regardless of state)
+            // This ensures we don't miss oe/we that happen during REFRESH or other states
+            // The pending flags persist until processed in IDLE state on a sync edge
+            if (!oe_pending && !we_pending) begin
+                if (oe) begin
+                    oe_pending <= 1;
+                    addr_pending <= addr;
+                    ds_pending <= ds;
                 end
+                else if (we) begin
+                    we_pending <= 1;
+                    addr_pending <= addr;
+                    din_pending <= din;
+                    ds_pending <= ds;
+                end
+            end
 
-                ACTIVATE: begin
-                    cycle <= cycle + 1;
-                    if (cycle >= 1) begin
+            // State machine only advances on sync edges
+            if (sync) begin
+                // Default to NOP
+                cmd <= CMD_NOP;
+                sd_dqm <= 2'b11;
+                data_write <= 0;
+
+                case (state)
+                    IDLE: begin
+                        // Check pending requests (latched) OR current signals
+                        if (we_pending | we | oe_pending | oe) begin
+                            // Use pending values if available, otherwise use current
+                            if (we_pending | oe_pending) begin
+                                addr_r <= addr_pending;
+                                din_r <= din_pending;
+                                ds_r <= ds_pending;
+                                we_r <= we_pending;
+                                oe_r <= oe_pending;
+                            end
+                            else begin
+                                addr_r <= addr;
+                                din_r <= din;
+                                ds_r <= ds;
+                                we_r <= we;
+                                oe_r <= oe;
+                            end
+
+                            // Clear pending flags
+                            oe_pending <= 0;
+                            we_pending <= 0;
+
+                            // Start access - activate row
+                            cmd <= CMD_ACTIVE;
+                            if (we_pending | oe_pending) begin
+                                sd_ba <= addr_pending[23:22];
+                                sd_addr <= addr_pending[22:10];  // Row address
+                            end
+                            else begin
+                                sd_ba <= addr[23:22];
+                                sd_addr <= addr[22:10];  // Row address
+                            end
+                            state <= ACTIVATE;
+                            cycle <= 0;
+                        end
+                        else if (refresh | autorefresh) begin
+                            cmd <= CMD_REFRESH;
+                            state <= REFRESH;
+                            cycle <= 0;
+                        end
+                    end
+
+                    ACTIVATE: begin
+                        // Zero-latency simulation mode - proceed immediately
                         if (we_r) begin
                             // Write command
                             cmd <= CMD_WRITE;
@@ -158,41 +235,41 @@ module sdram (
                             cycle <= 0;
                         end
                     end
-                end
 
-                READ: begin
-                    cycle <= cycle + 1;
-                    if (cycle >= 2) begin
-                        // Data available from SDRAM (C++ model provides it)
-                        // dout is updated by external connection
+                    READ: begin
+                        // Zero-latency simulation mode - data available immediately
+                        // (C++ model provides it with cas_latency=0)
+                        // Note: dout is combinational (directly from sd_data_in in READ state)
+                        // but we also register it for other states
+                        dout_r <= sd_data_in;
                         state <= PRECHARGE;
                         cycle <= 0;
                     end
-                end
 
-                WRITE: begin
-                    cycle <= cycle + 1;
-                    if (cycle >= 1) begin
-                        state <= PRECHARGE;
-                        cycle <= 0;
+                    WRITE: begin
+                        cycle <= cycle + 1;
+                        if (cycle >= 1) begin
+                            state <= PRECHARGE;
+                            cycle <= 0;
+                        end
                     end
-                end
 
-                PRECHARGE: begin
-                    cmd <= CMD_PRECHARGE;
-                    sd_addr[10] <= 1'b1;  // Precharge all banks
-                    state <= IDLE;
-                end
-
-                REFRESH: begin
-                    cycle <= cycle + 1;
-                    if (cycle >= 3) begin
+                    PRECHARGE: begin
+                        cmd <= CMD_PRECHARGE;
+                        sd_addr[10] <= 1'b1;  // Precharge all banks
                         state <= IDLE;
                     end
-                end
 
-                default: state <= IDLE;
-            endcase
+                    REFRESH: begin
+                        cycle <= cycle + 1;
+                        if (cycle >= 3) begin
+                            state <= IDLE;
+                        end
+                    end
+
+                    default: state <= IDLE;
+                endcase
+            end
         end
     end
 

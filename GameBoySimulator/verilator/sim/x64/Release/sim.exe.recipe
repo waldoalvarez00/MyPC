@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <ProjectOutputs>
+    <ProjectOutput>
+      <FullPath>C:\Users\waldo\Documents\GitHub\MyPC\GameBoySimulator\verilator\x64\Release\sim.exe</FullPath>
+    </ProjectOutput>
+  </ProjectOutputs>
+  <ContentFiles>
+    <ContentFile>
+      <FullPath>C:\Users\waldo\Documents\GitHub\MyPC\GameBoySimulator\verilator\font.hex</FullPath>
+    </ContentFile>
+    <ContentFile>
+      <FullPath>C:\Users\waldo\Documents\GitHub\MyPC\GameBoySimulator\verilator\rom.hex</FullPath>
+    </ContentFile>
+  </ContentFiles>
+  <SatelliteDlls />
+  <NonRecipeFileRefs />
+</Project>

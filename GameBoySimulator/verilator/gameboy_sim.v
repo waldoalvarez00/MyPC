@@ -46,7 +46,45 @@ module top (
     output        sd_cs /*verilator public_flat*/,
     output        sd_we /*verilator public_flat*/,
     output        sd_ras /*verilator public_flat*/,
-    output        sd_cas /*verilator public_flat*/
+    output        sd_cas /*verilator public_flat*/,
+
+    // Boot ROM download interface
+    input         boot_download /*verilator public_flat*/,
+    input         boot_wr /*verilator public_flat*/,
+    input  [24:0] boot_addr /*verilator public_flat*/,
+    input  [15:0] boot_data /*verilator public_flat*/,
+
+    // Debug signals for diagnostics
+    output        dbg_cart_rd /*verilator public_flat*/,
+    output        dbg_cart_wr /*verilator public_flat*/,
+    output        dbg_sdram_oe /*verilator public_flat*/,
+    output        dbg_sdram_we /*verilator public_flat*/,
+    output        dbg_ce_cpu /*verilator public_flat*/,
+    output [1:0]  dbg_lcd_mode /*verilator public_flat*/,
+    output [22:0] dbg_mbc_addr /*verilator public_flat*/,
+    output        dbg_cart_ready /*verilator public_flat*/,
+    output        dbg_cart_download /*verilator public_flat*/,
+    output        dbg_boot_rom_enabled /*verilator public_flat*/,
+    output        dbg_sel_boot_rom /*verilator public_flat*/,
+    output [15:0] dbg_cpu_addr /*verilator public_flat*/,
+    output        dbg_cpu_rd_n /*verilator public_flat*/,
+    output        dbg_cpu_wr_n /*verilator public_flat*/,
+    output        dbg_vram_wren /*verilator public_flat*/,
+    output        dbg_vram_cpu_allow /*verilator public_flat*/,
+    output        dbg_hdma_read_ext_bus /*verilator public_flat*/,
+    output        dbg_dma_read_ext_bus /*verilator public_flat*/,
+    output        dbg_hdma_active /*verilator public_flat*/,
+    output        dbg_dma_rd /*verilator public_flat*/,
+    output        dbg_cpu_clken /*verilator public_flat*/,
+
+    // Video debug signals
+    output        dbg_lcd_on /*verilator public_flat*/,
+    output        dbg_lcd_clkena /*verilator public_flat*/,
+    output        dbg_lcd_vsync /*verilator public_flat*/,
+    output [14:0] dbg_lcd_data /*verilator public_flat*/,
+    output        dbg_isGBC_game /*verilator public_flat*/,
+    output [1:0]  dbg_lcd_data_gb /*verilator public_flat*/,
+    output [7:0]  dbg_cpu_do /*verilator public_flat*/
 );
 
     // =========================================================================
@@ -59,24 +97,26 @@ module top (
     reg [3:0] clk_div;
     reg ce_cpu, ce_cpu_n, ce_cpu2x;
 
+    // Wire for next clock divider value (used to fix clock enable timing)
+    wire [3:0] clk_div_next = clk_div + 4'h1;
+
+    // IMPORTANT: Clock enables must continue to run during reset!
+    // The gb.v module uses ce (ce_cpu) to synchronize reset_r.
+    // If ce_cpu is held at 0 during reset, reset_r never updates,
+    // and the CPU never sees the reset signal.
     always @(posedge clk_sys) begin
-        if (reset) begin
-            clk_div <= 0;
-            ce_cpu <= 0;
-            ce_cpu_n <= 0;
-            ce_cpu2x <= 0;
-        end else begin
-            clk_div <= clk_div + 1;
+        // Clock divider runs continuously (including during reset)
+        clk_div <= clk_div_next;
 
-            // ce_cpu: ~4MHz enable (every 16 clocks at 64MHz)
-            ce_cpu <= (clk_div == 4'h0);
+        // CRITICAL FIX: Use incremented value for clock enables!
+        // ce_cpu: ~4MHz enable (every 16 clocks at 64MHz)
+        ce_cpu <= (clk_div_next == 4'h0);
 
-            // ce_cpu_n: ~4MHz enable, opposite phase
-            ce_cpu_n <= (clk_div == 4'h8);
+        // ce_cpu_n: ~4MHz enable, opposite phase
+        ce_cpu_n <= (clk_div_next == 4'h8);
 
-            // ce_cpu2x: ~8MHz enable (every 8 clocks)
-            ce_cpu2x <= (clk_div[2:0] == 3'h0);
-        end
+        // ce_cpu2x: ~8MHz enable (every 8 clocks)
+        ce_cpu2x <= (clk_div_next[2:0] == 3'h0);
     end
 
     // =========================================================================
@@ -108,6 +148,7 @@ module top (
     sdram sdram_ctrl (
         // Interface to SDRAM chip (directly exposed to C++)
         .sd_data    (sd_data_internal),
+        .sd_data_in (sd_data_in),      // Read data from C++ model
         .sd_addr    (sd_addr),
         .sd_dqm     (sd_dqm),
         .sd_ba      (sd_ba),
@@ -263,14 +304,41 @@ module top (
     wire [1:0]  lcd_mode;
     wire        lcd_on;
     wire        lcd_vsync;
+    wire        vram_cpu_allow;
 
-    // Convert 15-bit LCD data to 24-bit VGA (RGB555 -> RGB888)
-    assign VGA_R = {lcd_data[14:10], lcd_data[14:12]};
-    assign VGA_G = {lcd_data[9:5], lcd_data[9:7]};
-    assign VGA_B = {lcd_data[4:0], lcd_data[4:2]};
+    // Convert DMG 2-bit monochrome to 8-bit grayscale
+    // GameBoy DMG palette: 0=White, 1=Light gray, 2=Dark gray, 3=Black
+    wire [7:0] dmg_gray;
+    assign dmg_gray = (lcd_data_gb == 2'b00) ? 8'hFF :  // Color 0: White (#FFFFFF)
+                      (lcd_data_gb == 2'b01) ? 8'hAA :  // Color 1: Light gray (#AAAAAA)
+                      (lcd_data_gb == 2'b10) ? 8'h55 :  // Color 2: Dark gray (#555555)
+                                               8'h00;   // Color 3: Black (#000000)
+
+    // Convert 15-bit LCD data to 24-bit VGA (RGB555 -> RGB888 for GBC, grayscale for DMG)
+    // Use isGBC_game to select between GBC color output and DMG monochrome output
+    assign VGA_R = isGBC_game ? {lcd_data[14:10], lcd_data[14:12]} : dmg_gray;
+    assign VGA_G = isGBC_game ? {lcd_data[9:5], lcd_data[9:7]} : dmg_gray;
+    assign VGA_B = isGBC_game ? {lcd_data[4:0], lcd_data[4:2]} : dmg_gray;
 
     // Sync signals from LCD mode
-    assign VGA_HS = 1'b1;
+    // Generate HSync pulse when entering HBlank (mode 0)
+    reg last_hblank;
+    reg hsync_pulse;
+    always @(posedge clk_sys) begin
+        if (reset) begin
+            last_hblank <= 0;
+            hsync_pulse <= 1;
+        end else begin
+            last_hblank <= (lcd_mode == 2'b00);
+            // Generate falling edge pulse when entering HBlank
+            if ((lcd_mode == 2'b00) && !last_hblank)
+                hsync_pulse <= 0;
+            else
+                hsync_pulse <= 1;
+        end
+    end
+
+    assign VGA_HS = hsync_pulse;
     assign VGA_VS = ~lcd_vsync;
     assign VGA_HB = (lcd_mode == 2'b00);  // HBlank
     assign VGA_VB = (lcd_mode == 2'b01);  // VBlank
@@ -339,13 +407,13 @@ module top (
         .cart_oe            (cart_oe),
         .nCS                (nCS),
 
-        // Boot ROM downloads (none for simulation)
+        // Boot ROM downloads
         .cgb_boot_download  (1'b0),
-        .dmg_boot_download  (1'b0),
+        .dmg_boot_download  (boot_download),  // Use DMG boot (non-GBC games)
         .sgb_boot_download  (1'b0),
-        .ioctl_wr           (1'b0),
-        .ioctl_addr         (25'h0),
-        .ioctl_dout         (16'h0),
+        .ioctl_wr           (boot_wr),
+        .ioctl_addr         (boot_addr),
+        .ioctl_dout         (boot_data),
 
         .boot_gba_en        (1'b0),
         .fast_boot_en       (1'b1),  // Enable fast boot
@@ -364,6 +432,7 @@ module top (
         .lcd_mode           (lcd_mode),
         .lcd_on             (lcd_on),
         .lcd_vsync          (lcd_vsync),
+        .vram_cpu_allow     (vram_cpu_allow),
 
         .joy_p54            (joy_p54),
         .joy_din            (joy_din),
@@ -415,5 +484,40 @@ module top (
         .rewind_on          (1'b0),
         .rewind_active      (rewind_active)
     );
+
+    // =========================================================================
+    // Debug Signal Assignments
+    // =========================================================================
+    assign dbg_cart_rd = cart_rd;
+    assign dbg_cart_wr = cart_wr;
+    assign dbg_sdram_oe = sdram_oe;
+    assign dbg_sdram_we = sdram_we;
+    assign dbg_ce_cpu = ce_cpu;
+    assign dbg_lcd_mode = lcd_mode;
+    assign dbg_mbc_addr = mbc_addr;
+    assign dbg_cart_ready = cart_ready;
+    assign dbg_cart_download = cart_download;
+    // Access internal gb signals via hierarchy for debugging
+    assign dbg_boot_rom_enabled = gameboy.boot_rom_enabled;
+    assign dbg_sel_boot_rom = gameboy.sel_boot_rom;
+    assign dbg_cpu_addr = gameboy.cpu_addr;
+    assign dbg_cpu_rd_n = gameboy.cpu_rd_n;
+    assign dbg_cpu_wr_n = gameboy.cpu_wr_n;
+    assign dbg_vram_wren = gameboy.vram_wren;
+    assign dbg_vram_cpu_allow = gameboy.vram_cpu_allow;
+    assign dbg_hdma_read_ext_bus = gameboy.hdma_read_ext_bus;
+    assign dbg_dma_read_ext_bus = gameboy.dma_read_ext_bus;
+    assign dbg_hdma_active = gameboy.hdma_active;
+    assign dbg_dma_rd = gameboy.dma_rd;
+    assign dbg_cpu_clken = gameboy.cpu_clken;
+
+    // Video debug assignments
+    assign dbg_lcd_on = lcd_on;
+    assign dbg_lcd_clkena = lcd_clkena;
+    assign dbg_lcd_vsync = lcd_vsync;
+    assign dbg_lcd_data = lcd_data;
+    assign dbg_isGBC_game = isGBC_game;
+    assign dbg_lcd_data_gb = lcd_data_gb;
+    assign dbg_cpu_do = gameboy.cpu_do;
 
 endmodule

@@ -20,12 +20,12 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -41,9 +41,10 @@
   <PropertyGroup Label="UserMacros" />
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.\;..\..;sim\;sim\imgui;sim\vinc;sim\vinc\vltstd;obj_dir;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\;..\..;..\sim;sim\;sim\imgui;sim\vinc;sim\vinc\vltstd;obj_dir;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level4</WarningLevel>
       <AdditionalOptions>/Zc:__cplusplus %(AdditionalOptions)</AdditionalOptions>
+      <PreprocessorDefinitions>VM_COVERAGE=0;VM_SC=0;VM_TRACE=1;VM_TRACE_FST=0;VM_TRACE_VCD=1;WIN32;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -52,8 +53,9 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.\;..\..;sim\;sim\imgui;sim\vinc;sim\vinc\vltstd;obj_dir;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\;..\..;..\sim;sim\;sim\imgui;sim\vinc;sim\vinc\vltstd;obj_dir;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/Zc:__cplusplus %(AdditionalOptions)</AdditionalOptions>
+      <PreprocessorDefinitions>VM_COVERAGE=0;VM_SC=0;VM_TRACE=1;VM_TRACE_FST=0;VM_TRACE_VCD=1;WIN32;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -71,6 +73,7 @@
     <ClCompile Include="sim\imgui\implot.cpp" />
     <ClCompile Include="sim\imgui\implot_items.cpp" />
     <ClCompile Include="sim\vinc\verilated.cpp" />
+    <ClCompile Include="sim\vinc\verilated_dpi.cpp" />
     <ClCompile Include="sim\vinc\verilated_save.cpp" />
     <ClCompile Include="sim\vinc\verilated_threads.cpp" />
     <ClCompile Include="sim\vinc\verilated_vcd_c.cpp" />
@@ -86,13 +89,54 @@
     <ClCompile Include="obj_dir\Vtop___024root__DepSet_heccd7ead__0.cpp" />
     <ClCompile Include="obj_dir\Vtop___024root__DepSet_heccd7ead__0__Slow.cpp" />
     <ClCompile Include="obj_dir\Vtop___024root__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_top__DepSet_h0f993197__0.cpp" />
+    <ClCompile Include="obj_dir\Vtop_top__DepSet_h0f993197__0__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_top__DepSet_h6315917a__0__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_top__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_gb__DepSet_h7de44ebf__0.cpp" />
+    <ClCompile Include="obj_dir\Vtop_gb__DepSet_h7de44ebf__0__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_gb__DepSet_hb52a1462__0.cpp" />
+    <ClCompile Include="obj_dir\Vtop_gb__DepSet_hb52a1462__0__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_gb__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_GBse__DepSet_hb0ed993c__0.cpp" />
+    <ClCompile Include="obj_dir\Vtop_GBse__DepSet_hbb09d015__0__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_GBse__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_tv80_core__M3__DepSet_hd6141c7a__0.cpp" />
+    <ClCompile Include="obj_dir\Vtop_tv80_core__M3__DepSet_hd6141c7a__0__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_tv80_core__M3__DepSet_h1a9a66a5__0.cpp" />
+    <ClCompile Include="obj_dir\Vtop_tv80_core__M3__DepSet_h1a9a66a5__0__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_tv80_core__M3__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_cart_top__DepSet_h595a8e70__0.cpp" />
+    <ClCompile Include="obj_dir\Vtop_cart_top__DepSet_h595a8e70__0__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_cart_top__DepSet_h91d7d49b__0__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_cart_top__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_video__DepSet_h17d4e9c9__0__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_video__DepSet_hd3599926__0.cpp" />
+    <ClCompile Include="obj_dir\Vtop_video__DepSet_hd3599926__0__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_video__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_sprites__DepSet_h77d44796__0.cpp" />
+    <ClCompile Include="obj_dir\Vtop_sprites__DepSet_h77d44796__0__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_sprites__DepSet_hbb5a1b79__0__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_sprites__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_dpram__A10__DepSet_h0cb32b89__0__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_dpram__A10__DepSet_ha47f5766__0.cpp" />
+    <ClCompile Include="obj_dir\Vtop_dpram__A10__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_dpram__A7__DepSet_hbdb278a5__0.cpp" />
+    <ClCompile Include="obj_dir\Vtop_dpram__A7__DepSet_hf5004a48__0__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_dpram__A7__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_dpram__Ad__DepSet_h1e180709__0.cpp" />
+    <ClCompile Include="obj_dir\Vtop_dpram__Ad__DepSet_h52965bf4__0__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_dpram__Ad__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_dpram__Af__DepSet_h66149b0c__0.cpp" />
+    <ClCompile Include="obj_dir\Vtop_dpram__Af__DepSet_hca99e7ef__0__Slow.cpp" />
+    <ClCompile Include="obj_dir\Vtop_dpram__Af__Slow.cpp" />
     <ClCompile Include="sim\sim_clock.cpp" />
     <ClCompile Include="sim\sim_bus.cpp" />
     <ClCompile Include="sim\sim_console.cpp" />
     <ClCompile Include="sim\sim_input.cpp" />
     <ClCompile Include="sim\sim_video.cpp" />
     <ClCompile Include="sim\sim_audio.cpp" />
-    <ClCompile Include="sim_main.cpp" />
+    <ClCompile Include="sim_main_gui.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="sim\imgui\imconfig.h" />
