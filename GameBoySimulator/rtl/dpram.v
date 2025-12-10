@@ -55,6 +55,10 @@ module dpram #(
     always @(posedge clka) begin
         if (wren_a) begin
             mem[address_a] = data_a;  // Blocking assign for simulation
+            // Debug: Print writes to HRAM region ($FF80-$FFFE)
+            if (addr_width == 7 && $time > 100000) begin  // Only for zpram (7-bit address)
+                $display("[DPRAM] @%0t Write to HRAM[$%02X] = $%02X", $time, address_a | 16'hFF80, data_a);
+            end
         end
     end
 
