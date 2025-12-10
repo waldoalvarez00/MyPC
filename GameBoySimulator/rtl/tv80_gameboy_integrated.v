@@ -1,12 +1,7 @@
 //
-// TV80-based GameBoy CPU wrapper
-// Replaces VHDL GBse/T80 with Verilog TV80
-//
-// This module provides a drop-in replacement for the GBse module
-// used in the MiSTer GameBoy core, using the TV80 Z80 Verilog core
-// instead of the VHDL T80 core.
-//
-// Mode 3 = GameBoy (LR35902) - modified Z80 without IX/IY registers
+// TV80-based GameBoy CPU with integrated timing control
+// This version integrates the wrapper logic into a single module
+// for precise control over DO/WR_n timing relationships
 //
 // Copyright (c) 2024 - MIT License
 //
@@ -43,16 +38,21 @@ module GBse #(
     output [63:0] SaveStateBus_Dout
 );
 
-    // Internal signals
+    // Internal signals from tv80_core
     wire        intcycle_n;
     wire        no_read;
     wire        write;
     wire        iorq;
+    wire [7:0]  dout_core;
     reg  [7:0]  di_reg;
     wire [6:0]  mcycle;
     wire [6:0]  tstate;
 
-    // Stub savestate output (not implemented in TV80)
+    // Timing control for DO output
+    // We'll register DO one extra time to ensure it's stable before WR_n
+    reg  [7:0]  do_buffered;
+
+    // Stub savestate output
     assign SaveStateBus_Dout = 64'b0;
 
     // Instantiate TV80 core with GameBoy mode
@@ -79,14 +79,29 @@ module GBse #(
         .A          (A),
         .dinst      (DI),
         .di         (di_reg),
-        .dout       (DO),
+        .dout       (dout_core),
         .mc         (mcycle),
         .ts         (tstate),
         .intcycle_n (intcycle_n)
     );
 
-    // Control signal generation (matches T80/GBse timing)
-    // This logic is adapted from tv80s.v with CLKEN support
+    // KEY FIX: Buffer DO to ensure it's stable one clock before WR_n
+    // This breaks the race condition between BusB->dout and WR_n assertion
+    always @(posedge CLK_n or negedge RESET_n) begin
+        if (!RESET_n) begin
+            do_buffered <= 8'h00;
+        end
+        else begin
+            // Update buffered DO every clock cycle (not gated by CLKEN)
+            // This ensures external DO is always one clock behind core dout
+            do_buffered <= dout_core;
+        end
+    end
+
+    // External DO output uses buffered value
+    assign DO = do_buffered;
+
+    // Control signal generation with proper timing
     always @(posedge CLK_n or negedge RESET_n) begin
         if (!RESET_n) begin
             RD_n   <= 1'b1;
@@ -96,9 +111,8 @@ module GBse #(
             di_reg <= 8'h00;
         end
         else begin
-            // IMPORTANT: Control signals must be updated on EVERY clock edge,
-            // not just when CLKEN=1. The CPU core gates internal state changes
-            // with CLKEN, but bus control signals need continuous updates.
+            // Control signals update every clock (not gated by CLKEN)
+            // The CPU core gates internal state with CLKEN, but bus signals need continuous updates
             RD_n   <= 1'b1;
             WR_n   <= 1'b1;
             IORQ_n <= 1'b1;
@@ -129,6 +143,7 @@ module GBse #(
                 end
 
                 // Memory/IO write - T2Write timing variants
+                // CRITICAL: Now that DO is buffered, WR_n sees stable data
                 if (T2Write == 0) begin
                     if (tstate[2] && write == 1'b1) begin
                         WR_n   <= 1'b0;
@@ -154,11 +169,7 @@ module GBse #(
             end
 
             // Data input register latch
-            // CRITICAL: Latch at T2 (not T3) so microcode operations at T2
-            // (like LDZ for JP instruction) see the current data, not stale data
-            // IMPORTANT: Only latch during READ cycles (!write && !no_read)
-            // to avoid corrupting di_reg during write operations
-            // NOTE: This MUST be gated by CLKEN - only latch when CPU advances
+            // Latch at T2 during READ cycles only
             if (CLKEN && tstate[2] && WAIT_n == 1'b1 && !write && !no_read) begin
                 di_reg <= DI;
             end

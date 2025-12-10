@@ -89,7 +89,16 @@ module top (
     output [7:0]  dbg_boot_q /*verilator public_flat*/,
     output [7:0]  dbg_boot_do /*verilator public_flat*/,
     output [15:0] dbg_cpu_tmpaddr /*verilator public_flat*/,
-    output [7:0]  dbg_cpu_ir /*verilator public_flat*/
+    output [7:0]  dbg_cpu_ir /*verilator public_flat*/,
+    output [15:0] dbg_cpu_pc /*verilator public_flat*/,
+    output [15:0] dbg_cpu_sp /*verilator public_flat*/,
+    output [7:0]  dbg_cpu_acc /*verilator public_flat*/,
+    output [7:0]  dbg_cpu_f /*verilator public_flat*/,
+    output        dbg_cpu_write /*verilator public_flat*/,
+    output [6:0]  dbg_cpu_mcycle /*verilator public_flat*/,
+    output [6:0]  dbg_cpu_tstate /*verilator public_flat*/,
+    output [2:0]  dbg_cpu_mcycles /*verilator public_flat*/,
+    output [2:0]  dbg_cpu_mcycles_d /*verilator public_flat*/
 );
 
     // =========================================================================
@@ -529,5 +538,14 @@ module top (
     assign dbg_boot_do = gameboy.boot_do;
     assign dbg_cpu_tmpaddr = gameboy.cpu.i_tv80_core.TmpAddr;
     assign dbg_cpu_ir = gameboy.cpu.i_tv80_core.IR;
+    assign dbg_cpu_pc = gameboy.cpu.i_tv80_core.PC;
+    assign dbg_cpu_sp = gameboy.cpu.i_tv80_core.SP;
+    assign dbg_cpu_acc = gameboy.cpu.i_tv80_core.ACC;
+    assign dbg_cpu_f = gameboy.cpu.i_tv80_core.F;
+    assign dbg_cpu_write = gameboy.cpu.write;
+    assign dbg_cpu_mcycle = gameboy.cpu.mcycle;
+    assign dbg_cpu_tstate = gameboy.cpu.tstate;
+    assign dbg_cpu_mcycles = gameboy.cpu.i_tv80_core.mcycles;
+    assign dbg_cpu_mcycles_d = gameboy.cpu.i_tv80_core.mcycles_d;
 
 endmodule

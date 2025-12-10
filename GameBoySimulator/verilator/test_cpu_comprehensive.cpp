@@ -10,6 +10,7 @@
 // - Register operations
 
 #include <verilated.h>
+#include <map>
 #include "Vtop.h"
 #include "Vtop___024root.h"
 #include "gb_test_common.h"
@@ -369,7 +370,301 @@ void test_jump_branch(Vtop* dut, MisterSDRAMModel* sdram, TestResults& results) 
 }
 
 //=============================================================================
-// Test 4: Real boot ROM execution pattern
+// Test 4: Boot ROM logo copy loop instructions
+//=============================================================================
+void test_logo_copy_instructions(Vtop* dut, MisterSDRAMModel* sdram, TestResults& results) {
+    results.set_suite("Boot ROM Logo Copy Instructions");
+
+    // Test LD A, [DE], INC DE, XOR, CALL/RET, PUSH/POP, SLA, RL, LDI
+    // These are the critical instructions used in the logo copy loop
+
+    // Program:
+    // 0x00: LD SP, $FFFE      (31 FE FF)
+    // 0x03: LD DE, $C000      (11 00 C0) - Point DE to test data
+    // 0x06: LD A, $AA         (3E AA)    - Load test value
+    // 0x08: LD [DE], A        (12)       - Write test value
+    // 0x09: INC DE            (13)       - Increment DE
+    // 0x0A: LD A, $55         (3E 55)    - Load second value
+    // 0x0C: LD [DE], A        (12)       - Write second value
+    // 0x0D: LD DE, $C000      (11 00 C0) - Reset DE to start
+    // 0x10: LD A, [DE]        (1A)       - Read from [DE]
+    // 0x11: LD B, A           (47)       - Copy to B
+    // 0x12: INC DE            (13)       - Move to next byte
+    // 0x13: XOR $FF           (EE FF)    - XOR with FF
+    // 0x15: LD C, A           (4F)       - Save result
+    // 0x16: CALL $0020        (CD 20 00) - Test CALL
+    // 0x19: JR $19            (18 FE)    - Loop forever
+    // 0x20: PUSH AF           (F5)       - Push AF (subroutine)
+    // 0x21: LD A, B           (78)       - Load B
+    // 0x22: SLA A             (CB 27)    - Shift left A
+    // 0x24: LD B, A           (47)       - Save back
+    // 0x25: LD A, C           (79)       - Load C
+    // 0x26: RL A              (CB 17)    - Rotate left A
+    // 0x28: LD C, A           (4F)       - Save back
+    // 0x29: POP AF            (F1)       - Restore AF
+    // 0x2A: LD HL, $C010      (21 10 C0) - Test LDI
+    // 0x2D: LDI [HL], A       (22)       - Write and increment
+    // 0x2E: LDI [HL], A       (22)       - Write and increment
+    // 0x2F: RET               (C9)       - Return
+    uint8_t program[] = {
+        0x31, 0xFE, 0xFF,           // 0x00: LD SP, $FFFE
+        0x11, 0x00, 0xC0,           // 0x03: LD DE, $C000
+        0x3E, 0xAA,                 // 0x06: LD A, $AA
+        0x12,                       // 0x08: LD [DE], A
+        0x13,                       // 0x09: INC DE
+        0x3E, 0x55,                 // 0x0A: LD A, $55
+        0x12,                       // 0x0C: LD [DE], A
+        0x11, 0x00, 0xC0,           // 0x0D: LD DE, $C000
+        0x1A,                       // 0x10: LD A, [DE]
+        0x47,                       // 0x11: LD B, A
+        0x13,                       // 0x12: INC DE
+        0xEE, 0xFF,                 // 0x13: XOR $FF
+        0x4F,                       // 0x15: LD C, A
+        0xCD, 0x1B, 0x00,           // 0x16: CALL $001B
+        0x18, 0xFE,                 // 0x19: JR $19
+        // Subroutine at 0x1B:
+        0xF5,                       // 0x1B: PUSH AF
+        0x78,                       // 0x1C: LD A, B
+        0xCB, 0x27,                 // 0x1D: SLA A
+        0x47,                       // 0x1F: LD B, A
+        0x79,                       // 0x20: LD A, C
+        0xCB, 0x17,                 // 0x21: RL A
+        0x4F,                       // 0x23: LD C, A
+        0xF1,                       // 0x24: POP AF
+        0x21, 0x10, 0xC0,           // 0x25: LD HL, $C010
+        0x22,                       // 0x28: LDI [HL], A
+        0x22,                       // 0x29: LDI [HL], A
+        0xC9                        // 0x2A: RET
+    };
+
+    // Initialize with reset ACTIVE
+    dut->reset = 1;
+    dut->inputs = 0xFF;
+    dut->ioctl_download = 0;
+    dut->ioctl_wr = 0;
+    dut->boot_download = 0;
+    dut->boot_wr = 0;
+    run_cycles_with_sdram(dut, sdram, 50);
+
+    // Load boot ROM while reset is active
+    load_test_program(dut, sdram, program, sizeof(program));
+
+    // Simulate cart download while reset is active
+    dut->ioctl_download = 1;
+    dut->ioctl_index = 0;
+    dut->ioctl_wr = 1;
+    dut->ioctl_addr = 0;
+    dut->ioctl_dout = 0x00C3;
+    tick_with_sdram(dut, sdram);
+    dut->ioctl_wr = 0;
+    dut->ioctl_download = 0;
+    run_cycles_with_sdram(dut, sdram, 100);
+
+    // Now release reset
+    dut->reset = 0;
+    run_cycles_with_sdram(dut, sdram, 50);
+
+    // Track key operations
+    bool hit_de_load = false;       // LD A, [DE]
+    bool hit_inc_de = false;        // INC DE
+    bool hit_xor = false;           // XOR
+    bool hit_call = false;          // CALL
+    bool hit_subroutine = false;    // Address $20
+    bool hit_push = false;          // PUSH AF
+    bool hit_sla = false;           // SLA A
+    bool hit_rl = false;            // RL A
+    bool hit_pop = false;           // POP AF
+    bool hit_ldi = false;           // LDI [HL], A
+    bool hit_ret = false;           // RET
+    bool reached_loop = false;      // Final JR loop
+    uint16_t last_addr = 0xFFFF;
+    int loop_count = 0;
+
+    CPUTrace trace[200];
+    int trace_count = 0;
+
+    // Track CALL instruction execution
+    bool in_call = false;
+    int call_cycle_count = 0;
+    uint16_t call_start_pc = 0;
+    uint16_t call_sp_before = 0;
+
+    // Track RET instruction execution
+    bool in_ret = false;
+    int ret_cycle_count = 0;
+    uint16_t ret_start_pc = 0;
+    uint16_t ret_sp_before = 0;
+    uint8_t stack_low = 0, stack_high = 0;
+
+    // Track stack memory writes and reads
+    std::map<uint16_t, uint8_t> stack_writes;
+    uint16_t last_write_addr = 0;
+    uint8_t last_write_data = 0;
+
+    for (int i = 0; i < 100000 && loop_count < 5; i++) {
+        tick_with_sdram(dut, sdram);
+
+        // Detect CALL instruction (at 0x0016)
+        if (dut->dbg_boot_rom_enabled && dut->dbg_cpu_addr == 0x0016 && !in_call) {
+            in_call = true;
+            call_cycle_count = 0;
+            call_start_pc = dut->dbg_cpu_pc;
+            call_sp_before = dut->dbg_cpu_sp;
+            printf("  [CALL DEBUG] CALL instruction at PC=$%04X, SP=$%04X\n", call_start_pc, call_sp_before);
+        }
+
+        if (in_call) {
+            if (call_cycle_count < 400) {
+                // Print when CPU clock enable is active OR when there's a write
+                if (dut->dbg_cpu_clken || dut->dbg_cpu_wr_n == 0 || dut->dbg_cpu_write != 0) {
+                    printf("  [CALL %2d] clken=%d PC=$%04X SP=$%04X Addr=$%04X IR=$%02X rd=%d wr=%d WR_n=%d write=%d mcycle=%02X tstate=%02X mcycles=%d mcycles_d=%d DI=$%02X DO=$%02X\n",
+                           call_cycle_count, dut->dbg_cpu_clken,
+                           dut->dbg_cpu_pc, dut->dbg_cpu_sp,
+                           dut->dbg_cpu_addr, dut->dbg_cpu_ir,
+                           dut->dbg_cpu_rd_n == 0, dut->dbg_cpu_wr_n == 0,
+                           dut->dbg_cpu_wr_n, dut->dbg_cpu_write, dut->dbg_cpu_mcycle, dut->dbg_cpu_tstate,
+                           dut->dbg_cpu_mcycles, dut->dbg_cpu_mcycles_d,
+                           dut->dbg_cpu_di, dut->dbg_cpu_do);
+                }
+
+                // Capture stack writes
+                if (dut->dbg_cpu_wr_n == 0) {
+                    last_write_addr = dut->dbg_cpu_addr;
+                    last_write_data = dut->dbg_cpu_do;
+                    stack_writes[dut->dbg_cpu_addr] = dut->dbg_cpu_do;
+                    printf("  [CALL DEBUG] Write to [$%04X] = $%02X (total writes: %zu)\n",
+                           dut->dbg_cpu_addr, dut->dbg_cpu_do, stack_writes.size());
+                }
+            }
+            call_cycle_count++;
+
+            // Exit CALL trace after reaching subroutine
+            if (dut->dbg_cpu_addr == 0x001B && call_cycle_count > 5) {
+                printf("  [CALL DEBUG] Jumped to subroutine at PC=$%04X, new SP=$%04X\n",
+                       dut->dbg_cpu_pc, dut->dbg_cpu_sp);
+                in_call = false;
+            }
+        }
+
+        // Detect RET instruction (at 0x002A)
+        if (dut->dbg_boot_rom_enabled && dut->dbg_cpu_addr == 0x002A && !in_ret) {
+            in_ret = true;
+            ret_cycle_count = 0;
+            ret_start_pc = dut->dbg_cpu_pc;
+            ret_sp_before = dut->dbg_cpu_sp;
+            printf("  [RET DEBUG] RET instruction at PC=$%04X, SP=$%04X\n", ret_start_pc, ret_sp_before);
+            printf("  [RET DEBUG] Expected stack contents:\n");
+            printf("    [$%04X] = $%02X (written=%s)\n", ret_sp_before,
+                   stack_writes.count(ret_sp_before) ? stack_writes[ret_sp_before] : 0xFF,
+                   stack_writes.count(ret_sp_before) ? "yes" : "NO");
+            printf("    [$%04X] = $%02X (written=%s)\n", ret_sp_before + 1,
+                   stack_writes.count(ret_sp_before + 1) ? stack_writes[ret_sp_before + 1] : 0xFF,
+                   stack_writes.count(ret_sp_before + 1) ? "yes" : "NO");
+        }
+
+        if (in_ret) {
+            if (ret_cycle_count < 50) {
+                printf("  [RET %2d] PC=$%04X SP=$%04X A=$%02X Addr=$%04X rd=%d wr=%d DI=$%02X DO=$%02X\n",
+                       ret_cycle_count, dut->dbg_cpu_pc, dut->dbg_cpu_sp, dut->dbg_cpu_acc,
+                       dut->dbg_cpu_addr, dut->dbg_cpu_rd_n == 0, dut->dbg_cpu_wr_n == 0,
+                       dut->dbg_cpu_di, dut->dbg_cpu_do);
+
+                // Capture stack reads
+                if (dut->dbg_cpu_rd_n == 0) {
+                    if (dut->dbg_cpu_addr == ret_sp_before) {
+                        stack_low = dut->dbg_cpu_di;
+                        printf("  [RET DEBUG] Read low byte from [$%04X] = $%02X (expected $%02X, %s)\n",
+                               dut->dbg_cpu_addr, stack_low,
+                               stack_writes.count(ret_sp_before) ? stack_writes[ret_sp_before] : 0xFF,
+                               (stack_writes.count(ret_sp_before) && stack_writes[ret_sp_before] == stack_low) ? "MATCH" : "MISMATCH");
+                    } else if (dut->dbg_cpu_addr == (ret_sp_before + 1)) {
+                        stack_high = dut->dbg_cpu_di;
+                        printf("  [RET DEBUG] Read high byte from [$%04X] = $%02X (expected $%02X, %s)\n",
+                               dut->dbg_cpu_addr, stack_high,
+                               stack_writes.count(ret_sp_before + 1) ? stack_writes[ret_sp_before + 1] : 0xFF,
+                               (stack_writes.count(ret_sp_before + 1) && stack_writes[ret_sp_before + 1] == stack_high) ? "MATCH" : "MISMATCH");
+                    }
+                }
+            }
+            ret_cycle_count++;
+
+            // Exit RET trace after PC changes from 0x002A
+            if (dut->dbg_cpu_pc != ret_start_pc && ret_cycle_count > 5) {
+                printf("  [RET DEBUG] Jumped to PC=$%04X (expected $0019, got stack: high=$%02X low=$%02X)\n",
+                       dut->dbg_cpu_pc, stack_high, stack_low);
+                in_ret = false;
+            }
+        }
+
+        if (dut->dbg_boot_rom_enabled && dut->dbg_cpu_addr != last_addr) {
+            if (trace_count < 200) {
+                trace[trace_count].addr = dut->dbg_cpu_addr;
+                trace[trace_count].rd_n = dut->dbg_cpu_rd_n;
+                trace[trace_count].wr_n = dut->dbg_cpu_wr_n;
+                trace[trace_count].cycle = i;
+                trace_count++;
+            }
+
+            // Track instruction execution
+            if (dut->dbg_cpu_addr == 0x0010) hit_de_load = true;
+            if (dut->dbg_cpu_addr == 0x0013) hit_xor = true;
+            if (dut->dbg_cpu_addr == 0x0016) hit_call = true;
+            if (dut->dbg_cpu_addr == 0x001B) hit_subroutine = true;
+            if (dut->dbg_cpu_addr == 0x001B) hit_push = true;
+            if (dut->dbg_cpu_addr == 0x001D) hit_sla = true;
+            if (dut->dbg_cpu_addr == 0x0021) hit_rl = true;
+            if (dut->dbg_cpu_addr == 0x0024) hit_pop = true;
+            if (dut->dbg_cpu_addr == 0x0028) hit_ldi = true;
+            if (dut->dbg_cpu_addr == 0x002A) hit_ret = true;
+            if (dut->dbg_cpu_addr == 0x0019) {
+                reached_loop = true;
+                loop_count++;
+            }
+
+            // Track INC DE execution (happens multiple times)
+            if (dut->dbg_cpu_addr == 0x0009 || dut->dbg_cpu_addr == 0x0012) {
+                hit_inc_de = true;
+            }
+
+            last_addr = dut->dbg_cpu_addr;
+        }
+    }
+
+    print_cpu_trace(trace, trace_count < 80 ? trace_count : 80);
+
+    // Check all instructions executed
+    results.check(hit_de_load, "LD A, [DE] executed");
+    results.check(hit_inc_de, "INC DE executed");
+    results.check(hit_xor, "XOR immediate executed");
+    results.check(hit_call, "CALL instruction executed");
+    results.check(hit_subroutine, "Subroutine reached");
+    results.check(hit_push, "PUSH AF executed");
+    results.check(hit_sla, "SLA instruction executed");
+    results.check(hit_rl, "RL instruction executed");
+    results.check(hit_pop, "POP AF executed");
+    results.check(hit_ldi, "LDI [HL], A executed");
+    results.check(hit_ret, "RET instruction executed");
+    results.check(reached_loop, "Returned from subroutine to main loop");
+
+    printf("  [INFO] Instruction coverage: DE_load=%d INC_DE=%d XOR=%d CALL=%d SUB=%d\n",
+           hit_de_load, hit_inc_de, hit_xor, hit_call, hit_subroutine);
+    printf("  [INFO] Stack ops: PUSH=%d POP=%d, Shifts: SLA=%d RL=%d, Mem: LDI=%d RET=%d\n",
+           hit_push, hit_pop, hit_sla, hit_rl, hit_ldi, hit_ret);
+    printf("  [INFO] Reached loop after return: %d (loop_count=%d)\n", reached_loop, loop_count);
+    printf("  [DEBUG] CPU registers at end: PC=$%04X SP=$%04X A=$%02X\n",
+           dut->dbg_cpu_pc, dut->dbg_cpu_sp, dut->dbg_cpu_acc);
+
+    if (!reached_loop) {
+        printf("  [WARN] CPU did not return to main loop at 0x0019 - possible CALL/RET bug\n");
+        printf("  [WARN] Last PC in trace was $%04X\n", last_addr);
+        printf("  [DEBUG] Expected return address: $0019\n");
+        printf("  [DEBUG] CALL at $0016-$0018 should push $0019 to stack\n");
+        printf("  [DEBUG] Stack should have: [0xFFFC]=$19, [0xFFFD]=$00\n");
+    }
+}
+
+//=============================================================================
+// Test 5: Real boot ROM execution pattern
 //=============================================================================
 void test_real_boot_rom_pattern(Vtop* dut, MisterSDRAMModel* sdram, TestResults& results) {
     results.set_suite("Real Boot ROM Execution Pattern");
@@ -570,6 +865,7 @@ int main(int argc, char** argv) {
     test_basic_instructions(dut, sdram, results);
     test_memory_operations(dut, sdram, results);
     test_jump_branch(dut, sdram, results);
+    test_logo_copy_instructions(dut, sdram, results);
     test_real_boot_rom_pattern(dut, sdram, results);
     test_clock_and_reset(dut, sdram, results);
 

@@ -51,7 +51,7 @@ STUB_RTL="../rtl"
 # RTL file list (shared between builds)
 RTL_FILES="
     gameboy_sim.v
-    ${STUB_RTL}/tv80_gameboy.v
+    ${STUB_RTL}/tv80_gameboy_integrated.v
     ${STUB_RTL}/gbc_snd_converted.v
     ${STUB_RTL}/dpram.v
     ${STUB_RTL}/spram.v

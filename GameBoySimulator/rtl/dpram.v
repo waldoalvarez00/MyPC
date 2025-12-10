@@ -52,15 +52,9 @@ module dpram #(
 
     // Port A - Combinational reads for zero-latency access
     // Use BLOCKING assigns (=) for writes to allow combinational reads in same cycle
-    integer read_count = 0;
     always @(posedge clka) begin
         if (wren_a) begin
             mem[address_a] = data_a;  // Blocking assign for simulation
-        end
-        if (read_count < 30) begin
-            $display("[%0d] dpram Port A: clk edge, addr_a=0x%03x, writing=%d",
-                     read_count, address_a, wren_a);
-            read_count = read_count + 1;
         end
     end
 
@@ -124,10 +118,6 @@ module dpram_dif #(
     // Initialize memory from file if specified, otherwise clear to zeros
     integer j;
     initial begin
-        `ifdef VERILATOR
-        $display("dpram_dif INIT: addr_width_a=%0d, data_width_a=%0d, addr_width_b=%0d, data_width_b=%0d, mem_size=%0d",
-                 addr_width_a, data_width_a, addr_width_b, data_width_b, mem_size);
-        `endif
         if (init_file != "") begin
             $readmemh(init_file, mem);
         end else begin
@@ -140,17 +130,7 @@ module dpram_dif #(
 
     // Port A (8-bit access) - Combinational reads for zero-latency access
     // Use BLOCKING assigns (=) for writes to allow combinational reads in same cycle
-    integer porta_clk_count = 0;
-    reg [11:0] last_addr_a = 0;
     always @(posedge clka) begin
-        // Log address changes in boot ROM range (only for boot ROM instance with mem_size=4096)
-        if (mem_size == 4096 && address_a >= 12'h900 && address_a <= 12'h910 && address_a != last_addr_a && porta_clk_count >= 500) begin
-            $display("[BOOTROM PortA @%0d] addr_a: 0x%03x → 0x%03x, mem[0x%03x]=0x%02x",
-                     porta_clk_count, last_addr_a, address_a, address_a, mem[address_a]);
-        end
-        last_addr_a <= address_a;
-        porta_clk_count = porta_clk_count + 1;
-
         if (wren_a) begin
             mem[address_a] = data_a;  // Blocking assign for simulation
         end
@@ -165,14 +145,6 @@ module dpram_dif #(
         if (wren_b) begin
             mem[{address_b, 1'b0}]     = data_b[7:0];   // Blocking assign
             mem[{address_b, 1'b1}]     = data_b[15:8];  // Blocking assign
-            // verilator lint_off WIDTH
-            if (mem_size == 4096 && address_b >= 11'h480 && address_b <= 11'h4FF) begin
-                `ifdef VERILATOR
-                $display("[BOOTROM PortB] write: addr_b=0x%03x → mem[0x%03x]=0x%02x, mem[0x%03x]=0x%02x",
-                         address_b, {address_b, 1'b0}, data_b[7:0], {address_b, 1'b1}, data_b[15:8]);
-                `endif
-            end
-            // verilator lint_on WIDTH
         end
     end
 
