@@ -2,107 +2,109 @@
 #include "Vtop.h"
 #include "Vtop___024root.h"
 #include "gb_test_common.h"
+#include <stdio.h>
 
 int main() {
     Vtop* dut = new Vtop;
-    MisterSDRAMModel* sdram = new MisterSDRAMModel();
+    MisterSDRAMModel* sdram = new MisterSDRAMModel(8*1024*1024);
 
-    uint8_t dmg_boot[256];
-    FILE* f = fopen("../gameboy_core/BootROMs/bin/dmg_boot.bin", "rb");
-    fread(dmg_boot, 1, 256, f);
+    printf("=== Monitoring $FF50 Write ===\n\n");
+
+    // Load boot ROM
+    uint8_t boot_rom[256];
+    FILE* f = fopen("dmg_boot.bin", "rb");
+    if (!f) f = fopen("../gameboy_core/BootROMs/bin/dmg_boot.bin", "rb");
+    if (!f) return 1;
+    fread(boot_rom, 1, 256, f);
     fclose(f);
 
-    reset_dut_with_sdram(dut, sdram, 100);
-    dut->boot_download = 1;
-    tick_with_sdram(dut, sdram);
-
-    for (size_t addr = 0; addr < 256; addr += 2) {
-        uint16_t word = dmg_boot[addr] | (dmg_boot[addr+1] << 8);
-        dut->boot_addr = addr;
-        dut->boot_data = word;
-        dut->boot_wr = 1;
-        for (int i = 0; i < 8; i++) tick_with_sdram(dut, sdram);
-        dut->boot_wr = 0;
-        for (int i = 0; i < 8; i++) tick_with_sdram(dut, sdram);
-    }
-
+    // Initialize
+    dut->reset = 1;
+    dut->inputs = 0xFF;
+    dut->ioctl_download = 0;
     dut->boot_download = 0;
-    run_cycles_with_sdram(dut, sdram, 200);
+    run_cycles_with_sdram(dut, sdram, 50);
 
-    uint8_t cart[0x8000];
-    memset(cart, 0xFF, sizeof(cart));
-    cart[0x100] = 0x18;
-    cart[0x101] = 0xFE;
-    const uint8_t logo[] = {
-        0xCE,0xED,0x66,0x66,0xCC,0x0D,0x00,0x0B,0x03,0x73,0x00,0x83,0x00,0x0C,0x00,0x0D,
-        0x00,0x08,0x11,0x1F,0x88,0x89,0x00,0x0E,0xDC,0xCC,0x6E,0xE6,0xDD,0xDD,0xD9,0x99,
-        0xBB,0xBB,0x67,0x63,0x6E,0x0E,0xEC,0xCC,0xDD,0xDC,0x99,0x9F,0xBB,0xB9,0x33,0x3E
-    };
-    memcpy(&cart[0x104], logo, sizeof(logo));
+    // Load boot ROM
+    dut->boot_download = 1;
+    for (int i = 0; i < 256; i += 2) {
+        dut->boot_addr = i;
+        dut->boot_data = boot_rom[i] | (boot_rom[i+1] << 8);
+        dut->boot_wr = 1;
+        tick_with_sdram(dut, sdram);
+        dut->boot_wr = 0;
+        tick_with_sdram(dut, sdram);
+    }
+    dut->boot_download = 0;
 
+    // Simulate cart
     dut->ioctl_download = 1;
     dut->ioctl_index = 0;
+    dut->ioctl_wr = 1;
+    dut->ioctl_addr = 0x0100 >> 1;
+    dut->ioctl_dout = 0x00C3;
     tick_with_sdram(dut, sdram);
-
-    for (size_t i = 0; i < sizeof(cart); i++) {
-        dut->ioctl_addr = i;
-        dut->ioctl_dout = cart[i];
-        dut->ioctl_wr = 1;
-        tick_with_sdram(dut, sdram);
-        dut->ioctl_wr = 0;
-    }
-
+    dut->ioctl_wr = 0;
     dut->ioctl_download = 0;
-    run_cycles_with_sdram(dut, sdram, 10);
 
-    printf("Monitoring for $FF50 writes (10M cycles)...\n");
-    
-    int ff50_access_count = 0;
-    int ff50_write_count = 0;
-    
-    for (uint64_t cycle = 0; cycle < 10000000; cycle++) {
+    run_cycles_with_sdram(dut, sdram, 100);
+    dut->reset = 0;
+
+    printf("Monitoring for writes to $FF50...\n\n");
+
+    bool found_ff50_write = false;
+
+    for (int i = 0; i < 100000; i++) {
         tick_with_sdram(dut, sdram);
-        
-        if (dut->dbg_cpu_addr == 0xFF50) {
-            ff50_access_count++;
-            
-            if (!dut->dbg_cpu_wr_n) {
-                ff50_write_count++;
-                printf("\n✅ WRITE to $FF50 at cycle %lu!\n", cycle);
-                printf("   boot_enabled=%d\n", dut->dbg_boot_rom_enabled);
-                
-                // Run a bit more to see if boot ROM disables
-                for (int i = 0; i < 1000; i++) {
+
+        uint16_t addr = dut->dbg_cpu_addr;
+        uint8_t wr_n = dut->dbg_cpu_wr_n;
+        uint8_t cpu_clken = dut->dbg_cpu_clken;
+        uint8_t wr_n_edge = dut->dbg_cpu_wr_n_edge;
+        uint8_t old_wr_n = dut->dbg_old_cpu_wr_n;
+
+        // Check for any access to $FF50
+        if (addr == 0xFF50) {
+            printf("  [%6d] CPU accessing $FF50: wr_n=%d old_wr_n=%d edge=%d clken=%d\n",
+                   i, wr_n, old_wr_n, wr_n_edge, cpu_clken);
+
+            if (wr_n == 0) {
+                printf("             *** WRITE to $FF50 detected! ***\n");
+                found_ff50_write = true;
+
+                // Monitor for several cycles to see edge
+                for (int j = 0; j < 10; j++) {
                     tick_with_sdram(dut, sdram);
-                    if (!dut->dbg_boot_rom_enabled) {
-                        printf("   ✅ Boot ROM DISABLED after %d more cycles!\n", i);
-                        printf("   Final PC: $%04X\n", dut->dbg_cpu_addr);
-                        
-                        delete sdram;
-                        delete dut;
-                        return 0;
-                    }
+                    printf("  [%6d] wr_n=%d old_wr_n=%d edge=%d clken=%d boot_enabled=%d\n",
+                           i+j+1, dut->dbg_cpu_wr_n, dut->dbg_old_cpu_wr_n,
+                           dut->dbg_cpu_wr_n_edge, dut->dbg_cpu_clken,
+                           dut->dbg_boot_rom_enabled ? 1 : 0);
                 }
-                
-                printf("   ❌ Boot ROM still enabled after 1000 cycles\n");
+                break;
             }
         }
-        
-        if (cycle % 1000000 == 0) {
-            printf(".");
-            fflush(stdout);
+
+        // Stop after cart entry
+        if (dut->dbg_cpu_pc >= 0x0102) {
+            printf("\n  Reached cart entry without seeing $FF50 write\n");
+            break;
         }
     }
 
-    printf("\n\n=== Results ===\n");
-    printf("$FF50 accesses: %d\n", ff50_access_count);
-    printf("$FF50 writes: %d\n", ff50_write_count);
-    printf("Boot ROM state: %s\n", dut->dbg_boot_rom_enabled ? "ENABLED" : "disabled");
+    printf("\n--- Results ---\n");
+    printf("Found $FF50 write: %s\n", found_ff50_write ? "YES" : "NO");
+    printf("Boot ROM enabled: %s\n", dut->dbg_boot_rom_enabled ? "YES" : "NO");
 
-    if (ff50_write_count == 0) {
-        printf("\n❌ PROBLEM: Boot ROM NEVER wrote to $FF50!\n");
-        printf("   This means boot ROM didn't complete its sequence\n");
-        printf("   Boot ROM might be stuck in a loop or crashed\n");
+    if (found_ff50_write && dut->dbg_boot_rom_enabled) {
+        printf("\n✗ BUG: $FF50 write occurred but boot ROM still enabled\n");
+        printf("  Possible causes:\n");
+        printf("  - Clock enable (ce/clken) not true during write\n");
+        printf("  - Edge detector not triggering\n");
+        printf("  - Boot ROM disable logic not executing\n");
+    } else if (!found_ff50_write) {
+        printf("\n⚠ CPU never wrote to $FF50\n");
+    } else {
+        printf("\n✓ Boot ROM disabled successfully\n");
     }
 
     delete sdram;

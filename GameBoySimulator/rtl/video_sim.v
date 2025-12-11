@@ -426,20 +426,13 @@ generate
 endgenerate
 
 
-// Use negedge on some registers to pass tests
+// Negedge block - now empty, keeping for potential DMG timing compatibility
+// LCDC moved to posedge block to fix write timing
 always @(negedge clk) begin
 	if(reset) begin
 		lcdc      <= SS_Video1[26:19]; // 8'h00;  // screen must be off since dmg rom writes to vram
 		lyc_r_dmg <= SS_Video2[61:54]; // 8'h00;
-	end else if (ce_cpu) begin
-		if(cpu_sel_reg && cpu_wr) begin
-			case(cpu_addr)
-				8'h40:	lcdc <= cpu_di;
-				8'h45:	lyc_r_dmg <= cpu_di;
-			endcase
-		end
 	end
-
 end
 
 always @(posedge clk) begin
@@ -497,13 +490,19 @@ always @(posedge clk) begin
 		obpd[14] <= SS_OPAL[1][55:48]; obpd[30] <= SS_OPAL[3][55:48]; obpd[46] <= SS_OPAL[5][55:48]; obpd[62] <= SS_OPAL[7][55:48]; //8'h00;
 		obpd[15] <= SS_OPAL[1][63:56]; obpd[31] <= SS_OPAL[3][63:56]; obpd[47] <= SS_OPAL[5][63:56]; obpd[63] <= SS_OPAL[7][63:56]; //8'h00;
 
-	end else if (ce_cpu) begin
+	end else begin
+		// CRITICAL FIX: Don't gate by ce_cpu - writes can occur when ce_cpu=0
+		// cpu_wr is already edge-detected, so no additional gating needed
 		if(cpu_sel_reg && cpu_wr) begin
 			case(cpu_addr)
+				8'h40:	lcdc <= cpu_di;       // MOVED from negedge block
 				8'h41:	stat_r <= cpu_di;
 				8'h42:	scy <= cpu_di;
 				8'h43:	scx <= cpu_di;
-				8'h45:	lyc_r_gbc <= cpu_di;
+				8'h45:	begin
+							lyc_r_gbc <= cpu_di;
+							lyc_r_dmg <= cpu_di;  // MOVED from negedge block
+						end
 				8'h46:	dma <= cpu_di;
 				8'h47:	bgp <= cpu_di;
 				8'h48:	obp0 <= cpu_di;

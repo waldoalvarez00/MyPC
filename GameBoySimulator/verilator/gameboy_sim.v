@@ -76,8 +76,16 @@ module top (
     output        dbg_hdma_active /*verilator public_flat*/,
     output        dbg_dma_rd /*verilator public_flat*/,
     output        dbg_cpu_clken /*verilator public_flat*/,
+    output [7:0]  dbg_ie_r /*verilator public_flat*/,
+    output [4:0]  dbg_if_r /*verilator public_flat*/,
+    output        dbg_irq_n /*verilator public_flat*/,
+    output        dbg_old_cpu_wr_n /*verilator public_flat*/,
+    output        dbg_cpu_wr_n_edge /*verilator public_flat*/,
 
     // Video debug signals
+    output [7:0]  dbg_lcdc /*verilator public_flat*/,
+    output        dbg_video_cpu_sel_reg /*verilator public_flat*/,
+    output        dbg_video_cpu_wr /*verilator public_flat*/,
     output        dbg_lcd_on /*verilator public_flat*/,
     output        dbg_lcd_clkena /*verilator public_flat*/,
     output        dbg_lcd_vsync /*verilator public_flat*/,
@@ -92,6 +100,7 @@ module top (
     output [7:0]  dbg_cpu_ir /*verilator public_flat*/,
     output [15:0] dbg_cpu_pc /*verilator public_flat*/,
     output [15:0] dbg_cpu_sp /*verilator public_flat*/,
+    output [15:0] dbg_cpu_hl /*verilator public_flat*/,
     output [7:0]  dbg_cpu_acc /*verilator public_flat*/,
     output [7:0]  dbg_cpu_f /*verilator public_flat*/,
     output        dbg_cpu_write /*verilator public_flat*/,
@@ -524,8 +533,16 @@ module top (
     assign dbg_hdma_active = gameboy.hdma_active;
     assign dbg_dma_rd = gameboy.dma_rd;
     assign dbg_cpu_clken = gameboy.cpu_clken;
+    assign dbg_ie_r = gameboy.ie_r;
+    assign dbg_if_r = gameboy.if_r;
+    assign dbg_irq_n = gameboy.irq_n;
+    assign dbg_old_cpu_wr_n = gameboy.old_cpu_wr_n;
+    assign dbg_cpu_wr_n_edge = gameboy.cpu_wr_n_edge;
 
     // Video debug assignments
+    assign dbg_lcdc = gameboy.video.lcdc;
+    assign dbg_video_cpu_sel_reg = gameboy.video.cpu_sel_reg;
+    assign dbg_video_cpu_wr = gameboy.video.cpu_wr;
     assign dbg_lcd_on = lcd_on;
     assign dbg_lcd_clkena = lcd_clkena;
     assign dbg_lcd_vsync = lcd_vsync;
@@ -540,6 +557,7 @@ module top (
     assign dbg_cpu_ir = gameboy.cpu.i_tv80_core.IR;
     assign dbg_cpu_pc = gameboy.cpu.i_tv80_core.PC;
     assign dbg_cpu_sp = gameboy.cpu.i_tv80_core.SP;
+    assign dbg_cpu_hl = { gameboy.cpu.i_tv80_core.i_reg.RegsH[2], gameboy.cpu.i_tv80_core.i_reg.RegsL[2] };
     assign dbg_cpu_acc = gameboy.cpu.i_tv80_core.ACC;
     assign dbg_cpu_f = gameboy.cpu.i_tv80_core.F;
     assign dbg_cpu_write = gameboy.cpu.write;

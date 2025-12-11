@@ -1331,10 +1331,10 @@ module tv80_mcode
                             Inc_PC = 1'b1;
 
                             case (IR[4:3])
-                              0 : MCycles = (F[Flag_Z]) ? 3'd2 : 3'd3;
-                              1 : MCycles = (!F[Flag_Z]) ? 3'd2 : 3'd3;
-                              2 : MCycles = (F[Flag_C]) ? 3'd2 : 3'd3;
-                              3 : MCycles = (!F[Flag_C]) ? 3'd2 : 3'd3;
+                              0 : MCycles = (!F[Flag_Z]) ? 3'd2 : 3'd3;  // JR NZ - jump if NOT zero
+                              1 : MCycles = (F[Flag_Z]) ? 3'd2 : 3'd3;   // JR Z  - jump if zero
+                              2 : MCycles = (!F[Flag_C]) ? 3'd2 : 3'd3;  // JR NC - jump if NOT carry
+                              3 : MCycles = (F[Flag_C]) ? 3'd2 : 3'd3;   // JR C  - jump if carry
                             endcase
                           end
                         
