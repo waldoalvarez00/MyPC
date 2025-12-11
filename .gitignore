@@ -109,7 +109,7 @@ GameBoySimulator/verilator/test_boot_rom_vram
 GameBoySimulator/verilator/test_hl_increment
 GameBoySimulator/verilator/test_lcd_output
 GameBoySimulator/verilator/test_lcdc_register
-GameBoySimulator/gameboy_core/
 GameBoySimulator/verilator/test_jr_z_bug
 GameBoySimulator/verilator/test_pc_trace
 GameBoySimulator/verilator/test_bit_instruction
+/GameBoySimulator/gameboy_core/releases
