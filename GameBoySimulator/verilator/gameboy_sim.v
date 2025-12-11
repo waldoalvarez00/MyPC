@@ -59,6 +59,7 @@ module top (
     output        dbg_cart_wr /*verilator public_flat*/,
     output        dbg_sdram_oe /*verilator public_flat*/,
     output        dbg_sdram_we /*verilator public_flat*/,
+    output        dbg_dn_write /*verilator public_flat*/,
     output        dbg_ce_cpu /*verilator public_flat*/,
     output [1:0]  dbg_lcd_mode /*verilator public_flat*/,
     output [22:0] dbg_mbc_addr /*verilator public_flat*/,
@@ -81,6 +82,17 @@ module top (
     output        dbg_irq_n /*verilator public_flat*/,
     output        dbg_old_cpu_wr_n /*verilator public_flat*/,
     output        dbg_cpu_wr_n_edge /*verilator public_flat*/,
+    output [23:0] dbg_sdram_addr /*verilator public_flat*/,
+    output [1:0]  dbg_sdram_ds /*verilator public_flat*/,
+    output [2:0]  dbg_sdram_state /*verilator public_flat*/,
+    output        dbg_sdram_sync /*verilator public_flat*/,
+    output        dbg_sdram_oe_pending /*verilator public_flat*/,
+    output        dbg_sdram_we_pending /*verilator public_flat*/,
+    output [15:0] dbg_sdram_dout_r /*verilator public_flat*/,
+    output        dbg_sdram_oe_r /*verilator public_flat*/,
+    output [15:0] dbg_sdram_do /*verilator public_flat*/,
+    output [7:0]  dbg_rom_do /*verilator public_flat*/,
+    output [7:0]  dbg_cart_do /*verilator public_flat*/,
 
     // Video debug signals
     output [7:0]  dbg_lcdc /*verilator public_flat*/,
@@ -515,6 +527,18 @@ module top (
     assign dbg_cart_wr = cart_wr;
     assign dbg_sdram_oe = sdram_oe;
     assign dbg_sdram_we = sdram_we;
+    assign dbg_sdram_addr = sdram_addr;
+    assign dbg_sdram_ds = sdram_ds;
+    assign dbg_sdram_state = sdram_ctrl.dbg_state;
+    assign dbg_sdram_sync = ce_cpu2x;
+    assign dbg_sdram_oe_pending = sdram_ctrl.dbg_oe_pending;
+    assign dbg_sdram_we_pending = sdram_ctrl.dbg_we_pending;
+    assign dbg_sdram_dout_r = sdram_ctrl.dbg_dout_r;
+    assign dbg_sdram_oe_r = sdram_ctrl.dbg_oe_r;
+    assign dbg_sdram_do = sdram_do;
+    assign dbg_rom_do = rom_do;
+    assign dbg_cart_do = cart_do;
+    assign dbg_dn_write = dn_write;
     assign dbg_ce_cpu = ce_cpu;
     assign dbg_lcd_mode = lcd_mode;
     assign dbg_mbc_addr = mbc_addr;

@@ -26,6 +26,7 @@ void load_test_program(Vtop* dut, MisterSDRAMModel* sdram, const uint8_t* progra
 void run_test(const char* name, const uint8_t* program, int size, uint16_t expected_addr) {
     Vtop* dut = new Vtop;
     MisterSDRAMModel* sdram = new MisterSDRAMModel();
+    sdram->cas_latency = 2;  // Realistic CAS latency
 
     printf("\n=== Test: %s ===\n", name);
 

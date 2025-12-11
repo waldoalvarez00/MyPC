@@ -1,0 +1,57 @@
+==========================================
+GameBoy RTL Unit Test Suite
+==========================================
+
+----------------------------------------
+Running: CPU Clock Enable (test_cpu_clken)
+----------------------------------------
+[1;33mTest not built, run './verilate_gameboy.sh --build-tests' first[0m
+[0;31m[SKIP] CPU Clock Enable - not built[0m
+----------------------------------------
+Running: HDMA Controller (test_hdma)
+----------------------------------------
+[1;33mTest not built, run './verilate_gameboy.sh --build-tests' first[0m
+[0;31m[SKIP] HDMA Controller - not built[0m
+----------------------------------------
+Running: Boot ROM Control (test_boot_rom)
+----------------------------------------
+[1;33mTest not built, run './verilate_gameboy.sh --build-tests' first[0m
+[0;31m[SKIP] Boot ROM Control - not built[0m
+----------------------------------------
+Running: External Bus Arbitration (test_ext_bus)
+----------------------------------------
+[1;33mTest not built, run './verilate_gameboy.sh --build-tests' first[0m
+[0;31m[SKIP] External Bus Arbitration - not built[0m
+----------------------------------------
+Running: OAM DMA Engine (test_oam_dma)
+----------------------------------------
+[1;33mTest not built, run './verilate_gameboy.sh --build-tests' first[0m
+[0;31m[SKIP] OAM DMA Engine - not built[0m
+----------------------------------------
+Running: Memory Banking (test_memory_banking)
+----------------------------------------
+[1;33mTest not built, run './verilate_gameboy.sh --build-tests' first[0m
+[0;31m[SKIP] Memory Banking - not built[0m
+----------------------------------------
+Running: Interrupt Timing (test_interrupts)
+----------------------------------------
+[1;33mTest not built, run './verilate_gameboy.sh --build-tests' first[0m
+[0;31m[SKIP] Interrupt Timing - not built[0m
+----------------------------------------
+Running: Video Output (test_video_output)
+----------------------------------------
+[1;33mTest not built, run './verilate_gameboy.sh --build-tests' first[0m
+[0;31m[SKIP] Video Output - not built[0m
+----------------------------------------
+Running: Audio Output (test_audio)
+----------------------------------------
+[1;33mTest not built, run './verilate_gameboy.sh --build-tests' first[0m
+[0;31m[SKIP] Audio Output - not built[0m
+==========================================
+TEST SUMMARY
+==========================================
+Total:  9
+Passed: [0;32m0[0m
+Failed: [0;31m0[0m
+
+[0;32m=== ALL TESTS PASSED ===[0m

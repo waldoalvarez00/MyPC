@@ -94,14 +94,18 @@ module sdram (
     reg [15:0] sd_data_out;  // Data to write to SDRAM
     reg        data_write;   // Writing data
 
-    // Combinational dout for zero-latency simulation:
-    // In READ state, use sd_data_in directly; otherwise use registered value
-    assign dout = (state == READ) ? sd_data_in : dout_r;
+    // Output captured data from dout_r
+    // In zero-latency simulation mode, data is captured early (line 140-142) when it
+    // briefly appears on sd_data_in. We must use the registered dout_r value, not
+    // sd_data_in directly, because sd_data_in is only valid for 1 cycle.
+    assign dout = dout_r;
 
     // Debug signals (exposed for C++ testbench)
     reg [2:0] dbg_state /*verilator public_flat*/;
     reg dbg_oe_pending /*verilator public_flat*/;
     reg dbg_we_pending /*verilator public_flat*/;
+    reg [15:0] dbg_dout_r /*verilator public_flat*/;
+    reg dbg_oe_r /*verilator public_flat*/;
 
     initial begin
         state = IDLE;
@@ -128,6 +132,20 @@ module sdram (
         dbg_state <= state;
         dbg_oe_pending <= oe_pending;
         dbg_we_pending <= we_pending;
+        dbg_dout_r <= dout_r;
+        dbg_oe_r <= oe_r;
+
+        // CRITICAL FIX: Capture read data immediately when it becomes valid
+        // In zero-latency simulation mode, the C++ SDRAM model processes commands
+        // and returns data BETWEEN Verilog clock edges. The data appears on sd_data_in
+        // after CMD_READ is issued, but the Verilog code executing at posedge clk sees
+        // it only on the NEXT cycle. To capture transient data that appears for just
+        // 1 cycle, we must latch sd_data_in whenever it's non-zero during a read.
+        // This fixes the timing mismatch where data briefly appears at cycle N but
+        // is gone by the time we would normally capture it in READ state at cycle N+1.
+        if (!init && oe_r && sd_data_in != 16'h0000) begin
+            dout_r <= sd_data_in;
+        end
 
         if (init) begin
             state <= IDLE;
@@ -237,11 +255,11 @@ module sdram (
                     end
 
                     READ: begin
-                        // Zero-latency simulation mode - data available immediately
-                        // (C++ model provides it with cas_latency=0)
-                        // Note: dout is combinational (directly from sd_data_in in READ state)
-                        // but we also register it for other states
-                        dout_r <= sd_data_in;
+                        // Zero-latency simulation mode - data already captured above (line 140-142)
+                        // The fix at line 140 captures sd_data_in as soon as it becomes valid,
+                        // which happens BEFORE we enter this READ state. Don't overwrite dout_r
+                        // here because sd_data_in is already gone (back to 0x0000) by now.
+                        // OLD CODE (removed): dout_r <= sd_data_in;
                         state <= PRECHARGE;
                         cycle <= 0;
                     end

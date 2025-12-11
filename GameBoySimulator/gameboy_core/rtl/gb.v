@@ -304,7 +304,36 @@ wire clk_cpu = clk_sys & ce_cpu;
 
 // when hdma is enabled stop CPU (GBC). Finish read/write before stopping CPU
 wire hdma_cpu_stop = (isGBC & hdma_active & cpu_rd_n & cpu_wr_n);
-wire cpu_clken = ~hdma_cpu_stop & ce_cpu;
+
+// SDRAM wait state logic for proper CAS latency handling
+// When CPU reads from external bus (cart ROM/RAM in SDRAM), insert wait states
+reg [1:0] sdram_wait_counter;
+reg sdram_wait_active;
+wire cpu_reading_ext_bus = (sel_ext_bus & ~cpu_rd_n & ~cpu_mreq_n);
+
+// CRITICAL: Use 'ce' (not 'ce_cpu') to avoid circular dependency
+// ce_cpu depends on sdram_ready, so we must use the base clock enable
+always @(posedge clk_sys) begin
+	if (reset) begin
+		sdram_wait_counter <= 2'd0;
+		sdram_wait_active <= 1'b0;
+	end else if (ce) begin  // FIXED: Use 'ce' instead of 'ce_cpu'
+		if (cpu_reading_ext_bus && !sdram_wait_active) begin
+			// Start wait state when CPU reads from external bus
+			sdram_wait_counter <= 2'd2;  // CAS latency = 2 cycles
+			sdram_wait_active <= 1'b1;
+		end else if (sdram_wait_active) begin
+			if (sdram_wait_counter > 0) begin
+				sdram_wait_counter <= sdram_wait_counter - 2'd1;
+			end else begin
+				sdram_wait_active <= 1'b0;  // Wait complete
+			end
+		end
+	end
+end
+
+wire sdram_ready = ~sdram_wait_active;  // Ready when not waiting
+wire cpu_clken = ~hdma_cpu_stop & ce_cpu & sdram_ready;
 
 reg reset_r  = 1;
 // reset_ss is output from gb_savestates module (line 1076) - used to reset savestate registers
@@ -351,7 +380,7 @@ GBse cpu (
 	.RESET_n           ( !reset_ss        ),
 	.CLK_n             ( clk_sys         ),
 	.CLKEN             ( cpu_clken       ),
-	.WAIT_n            ( 1'b1            ),
+	.WAIT_n            ( sdram_ready     ),  // Connected to SDRAM wait state logic
 	.INT_n             ( irq_n           ),
 	.NMI_n             ( 1'b1            ),
 	.BUSRQ_n           ( 1'b1            ),

@@ -11,6 +11,7 @@ int main(int argc, char** argv) {
 
     Vtop* dut = new Vtop;
     MisterSDRAMModel* sdram = new MisterSDRAMModel();
+    sdram->cas_latency = 2;  // Realistic CAS latency
 
     printf("=== Boot ROM Memory Direct Access Test ===\n\n");
 

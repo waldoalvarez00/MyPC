@@ -107,6 +107,7 @@ int main(int argc, char** argv) {
 
     top = new Vtop();
     sdram = new MisterSDRAMModel(32, INTERFACE_NATIVE_SDRAM);
+    sdram->cas_latency = 2;  // Realistic CAS latency
     sdram->debug = false;
 
     // Initialize signals

@@ -13,6 +13,7 @@ int main(int argc, char** argv) {
 
     printf("Creating SDRAM model...\n");
     MisterSDRAMModel* sdram = new MisterSDRAMModel();
+    sdram->cas_latency = 2;  // Realistic CAS latency
 
     printf("Resetting DUT...\n");
     reset_dut_with_sdram(dut, sdram, 100);

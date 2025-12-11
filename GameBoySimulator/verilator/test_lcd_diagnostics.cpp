@@ -177,6 +177,7 @@ int main(int argc, char** argv) {
 
     Vtop* dut = new Vtop;
     MisterSDRAMModel* sdram = new MisterSDRAMModel();
+    sdram->cas_latency = 2;  // Realistic CAS latency
 
     // Reset
     reset_dut_with_sdram(dut, sdram, 100);

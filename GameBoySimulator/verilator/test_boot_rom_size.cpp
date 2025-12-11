@@ -37,6 +37,7 @@ void test_size(int size) {
 
     Vtop* dut = new Vtop;
     MisterSDRAMModel* sdram = new MisterSDRAMModel();
+    sdram->cas_latency = 2;  // Realistic CAS latency
 
     // Create test program
     uint8_t* program = new uint8_t[size];

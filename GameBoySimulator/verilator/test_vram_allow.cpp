@@ -12,6 +12,7 @@ int main(int argc, char** argv) {
 
     Vtop* dut = new Vtop;
     MisterSDRAMModel* sdram = new MisterSDRAMModel();
+    sdram->cas_latency = 2;  // Realistic CAS latency
 
     // Load DMG boot ROM (the real one)
     uint8_t dmg_boot[256];

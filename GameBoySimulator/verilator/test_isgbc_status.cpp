@@ -7,6 +7,7 @@
 int main() {
     Vtop* dut = new Vtop;
     MisterSDRAMModel* sdram = new MisterSDRAMModel();
+    sdram->cas_latency = 2;  // Realistic CAS latency
 
     uint8_t dmg_boot[256];
     FILE* f = fopen("../gameboy_core/BootROMs/bin/dmg_boot.bin", "rb");

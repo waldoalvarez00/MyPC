@@ -16,6 +16,7 @@ void tick(Vtop* dut, MisterSDRAMModel* sdram) {
 int main() {
     Vtop* dut = new Vtop;
     MisterSDRAMModel* sdram = new MisterSDRAMModel(8*1024*1024);
+    sdram->cas_latency = 2;  // Realistic CAS latency
     
     printf("Testing VRAM writes after dpram clock fix...\n");
     

@@ -375,10 +375,11 @@ always @(posedge clk_sys) begin
 	dn_write <= ioctl_wait_r;
 	if(dn_write) {ioctl_wait_r, dn_write} <= 0;
 
-	// cart_ready can still be gated for timing purposes
-	if(speed?ce_cpu2x:ce_cpu) begin
-		if(dn_write) cart_ready_r <= 1;
-	end
+	// CRITICAL FIX #2: cart_ready must also be set when dn_write pulses, regardless of ce_cpu!
+	// Since dn_write now pulses when ce_cpu=0 (from fix above), cart_ready_r must capture
+	// that pulse without waiting for ce_cpu=1. Otherwise cart_ready stays 0 forever,
+	// blocking all cart ROM reads (cart.v:389 forces cart_do=0 when ~cart_ready).
+	if(dn_write) cart_ready_r <= 1;
 end
 
 assign cart_ready = cart_ready_r;

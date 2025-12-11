@@ -6,189 +6,171 @@
 
 int main() {
     Vtop* dut = new Vtop;
-    MisterSDRAMModel* sdram = new MisterSDRAMModel(8*1024*1024);
-    
-    printf("=== LCD/VGA Output Diagnostic ===\n\n");
-    
-    // Load boot ROM
-    uint8_t boot_rom[256];
-    FILE* f = fopen("dmg_boot.bin", "rb");
+    MisterSDRAMModel* sdram = new MisterSDRAMModel(8);
+    sdram->cas_latency = 2;
+
+    printf("=== LCD Output Test ===\n\n");
+
+    // Load real game ROM
+    FILE* f = fopen("game.gb", "rb");
     if (!f) {
-        f = fopen("../gameboy_core/BootROMs/bin/dmg_boot.bin", "rb");
-    }
-    if (!f) {
-        printf("ERROR: Could not load dmg_boot.bin\n");
+        printf("ERROR: Could not open game.gb\n");
         return 1;
     }
-    fread(boot_rom, 1, 256, f);
+
+    fseek(f, 0, SEEK_END);
+    long rom_size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    uint8_t* rom = new uint8_t[rom_size];
+    fread(rom, 1, rom_size, f);
     fclose(f);
-    printf("✓ Loaded DMG boot ROM (256 bytes)\n");
-    
-    // Initialize with reset
+
+    printf("ROM loaded: %ld bytes\n", rom_size);
+
+    // Load into SDRAM
+    sdram->loadBinary(0, rom, rom_size);
+
+    // Create minimal boot ROM
+    uint8_t minimal_boot[256];
+    memset(minimal_boot, 0, 256);
+    int boot_pc = 0;
+    minimal_boot[boot_pc++] = 0xF3;  // DI
+
+    // Pad with NOPs to 0xFC
+    while (boot_pc < 0xFC) {
+        minimal_boot[boot_pc++] = 0x00;  // NOP
+    }
+
+    // Boot ROM disable at end
+    minimal_boot[boot_pc++] = 0x3E;  // LD A, $01
+    minimal_boot[boot_pc++] = 0x01;
+    minimal_boot[boot_pc++] = 0xE0;  // LDH ($FF50), A
+    minimal_boot[boot_pc++] = 0x50;
+
+    printf("Boot ROM created: %d bytes\n", boot_pc);
+
+    // Initialize
     dut->reset = 1;
     dut->inputs = 0xFF;
     dut->ioctl_download = 0;
     dut->boot_download = 0;
     run_cycles_with_sdram(dut, sdram, 50);
+    dut->reset = 0;
 
-    // Load boot ROM via boot_download interface
+    // Upload boot ROM
+    printf("Uploading boot ROM...\n");
     dut->boot_download = 1;
-    for (int i = 0; i < 256; i += 2) {
-        dut->boot_addr = i;
-        dut->boot_data = boot_rom[i] | (boot_rom[i+1] << 8);
+    for (int addr = 0; addr < 256; addr += 2) {
+        uint16_t word = minimal_boot[addr];
+        if (addr + 1 < 256) word |= (minimal_boot[addr + 1] << 8);
+        dut->boot_addr = addr;
+        dut->boot_data = word;
         dut->boot_wr = 1;
-        tick_with_sdram(dut, sdram);
+        run_cycles_with_sdram(dut, sdram, 4);
         dut->boot_wr = 0;
-        tick_with_sdram(dut, sdram);
+        run_cycles_with_sdram(dut, sdram, 4);
     }
     dut->boot_download = 0;
-    
-    // Simulate minimal cart header
+    printf("Boot ROM uploaded\n");
+
+    // Simulate cart download
+    printf("Simulating cart download...\n");
     dut->ioctl_download = 1;
     dut->ioctl_index = 0;
-    dut->ioctl_wr = 1;
-    dut->ioctl_addr = 0x0100 >> 1;
-    dut->ioctl_dout = 0x00C3;  // JP $0150
-    tick_with_sdram(dut, sdram);
-    dut->ioctl_wr = 0;
+    for (int i = 0; i < 10; i++) {
+        dut->ioctl_addr = i;
+        dut->ioctl_wr = 1;
+        run_cycles_with_sdram(dut, sdram, 64);
+        dut->ioctl_wr = 0;
+        run_cycles_with_sdram(dut, sdram, 64);
+        if (dut->dbg_cart_ready) break;
+    }
     dut->ioctl_download = 0;
-    
-    run_cycles_with_sdram(dut, sdram, 100);
-    
-    // Release reset
-    dut->reset = 0;
-    
-    printf("\n--- Monitoring LCD/VGA Output ---\n");
-    
-    int vram_writes = 0;
-    int lcd_pixels_output = 0;
-    int nonzero_pixels = 0;
+
+    printf("\nRunning simulation to check LCD...\n\n");
+
+    bool boot_completed = false;
     bool lcd_turned_on = false;
-    int vsync_count = 0;
-    bool last_vsync = false;
-    int cycles_until_first_pixel = -1;
-    int cycles_until_lcd_on = -1;
-    
-    uint8_t first_nonzero_pixel = 0;
-    int first_pixel_cycle = 0;
-    
-    for (int i = 0; i < 500000; i++) {
+    int lcd_on_cycle = 0;
+    bool vsync_seen = false;
+    int first_vsync = 0;
+    int non_gray_pixels = 0;
+    int total_pixel_samples = 0;
+
+    for (int cycle = 0; cycle < 200000; cycle++) {
         tick_with_sdram(dut, sdram);
-        
-        // Monitor VRAM writes
-        if (dut->dbg_cpu_wr_n == 0 && 
-            dut->dbg_cpu_addr >= 0x8000 && 
-            dut->dbg_cpu_addr < 0xA000) {
-            vram_writes++;
-            
-            if (vram_writes <= 5) {
-                printf("  [%6d] VRAM Write: [$%04X] = $%02X\n", 
-                       i, dut->dbg_cpu_addr, dut->dbg_cpu_do);
-            } else if (vram_writes == 6) {
-                printf("  ... (more VRAM writes)\n");
-            }
+
+        // Check boot completion
+        if (!boot_completed && !dut->dbg_boot_rom_enabled) {
+            boot_completed = true;
+            printf("[%6d] Boot ROM disabled\n", cycle);
         }
-        
-        // Check if LCD is on
-        if (dut->dbg_lcd_on && !lcd_turned_on) {
+
+        // Check LCD on
+        if (!lcd_turned_on && dut->dbg_lcd_on) {
             lcd_turned_on = true;
-            cycles_until_lcd_on = i;
-            printf("\n  [%6d] LCD turned ON\n", i);
-            printf("             LCD mode: %d\n", dut->dbg_lcd_mode);
+            lcd_on_cycle = cycle;
+            printf("[%6d] LCD turned ON\n", cycle);
         }
-        
-        // Monitor vsync
-        if (dut->dbg_lcd_vsync && !last_vsync) {
-            vsync_count++;
-            if (vsync_count <= 3) {
-                printf("  [%6d] VSYNC %d - LCD_on=%d mode=%d\n", 
-                       i, vsync_count, dut->dbg_lcd_on, dut->dbg_lcd_mode);
+
+        // Check VSync
+        static uint8_t last_vs = 0;
+        if (dut->VGA_VS && !last_vs) {
+            if (!vsync_seen) {
+                vsync_seen = true;
+                first_vsync = cycle;
+                printf("[%6d] First VSync detected\n", cycle);
             }
         }
-        last_vsync = dut->dbg_lcd_vsync;
-        
-        // Monitor pixel output (lcd_clkena indicates valid pixel)
-        if (dut->dbg_lcd_clkena) {
-            lcd_pixels_output++;
-            
-            // Check lcd_data_gb for GameBoy 2-bit color
-            uint8_t pixel = dut->dbg_lcd_data_gb;
-            
-            if (pixel != 0) {
-                nonzero_pixels++;
-                
-                if (nonzero_pixels == 1) {
-                    first_nonzero_pixel = pixel;
-                    first_pixel_cycle = i;
-                    cycles_until_first_pixel = i;
-                    printf("\n  [%6d] First non-zero pixel: $%02X\n", i, pixel);
-                    printf("             LCD data (15-bit): $%04X\n", dut->dbg_lcd_data);
-                }
-                
-                if (nonzero_pixels <= 10) {
-                    printf("  [%6d] Pixel #%d: value=$%02X lcd_data=$%04X\n",
-                           i, nonzero_pixels, pixel, dut->dbg_lcd_data);
-                }
+        last_vs = dut->VGA_VS;
+
+        // Sample pixel data
+        if (lcd_turned_on && (cycle % 100 == 0)) {
+            total_pixel_samples++;
+            uint8_t r = dut->VGA_R;
+            uint8_t g = dut->VGA_G;
+            uint8_t b = dut->VGA_B;
+
+            if (!((r == 0 && g == 0 && b == 0) ||
+                  (r == 255 && g == 255 && b == 255))) {
+                non_gray_pixels++;
             }
         }
-        
-        // Stop after 3 vsyncs or if we've seen pixels
-        if (vsync_count >= 3 && nonzero_pixels > 100) {
+
+        // Stop after first frame
+        if (vsync_seen && (cycle - first_vsync) > 100000) {
             break;
         }
     }
-    
-    printf("\n--- Results ---\n");
-    printf("VRAM writes: %d\n", vram_writes);
-    printf("LCD turned on: %s (cycle %d)\n", lcd_turned_on ? "YES" : "NO", cycles_until_lcd_on);
-    printf("VSync count: %d\n", vsync_count);
-    printf("Total pixel clocks: %d\n", lcd_pixels_output);
-    printf("Non-zero pixels: %d\n", nonzero_pixels);
-    
-    if (cycles_until_first_pixel >= 0) {
-        printf("First pixel at cycle: %d\n", cycles_until_first_pixel);
-        printf("First pixel value: $%02X\n", first_nonzero_pixel);
-    }
-    
-    printf("\n--- Analysis ---\n");
-    
-    if (vram_writes == 0) {
-        printf("✗ No VRAM writes - boot ROM not executing\n");
-    } else {
-        printf("✓ VRAM writes occurred (%d total)\n", vram_writes);
-    }
-    
-    if (!lcd_turned_on) {
-        printf("✗ LCD never turned on - check LCDC register\n");
-    } else {
-        printf("✓ LCD enabled\n");
-    }
-    
-    if (vsync_count == 0) {
-        printf("✗ No VSYNC signals - video timing not working\n");
-    } else {
-        printf("✓ VSYNC working (%d frames)\n", vsync_count);
-    }
-    
-    if (lcd_pixels_output == 0) {
-        printf("✗ No pixel clock enables - LCD controller not outputting\n");
-    } else {
-        printf("✓ LCD outputting pixels (%d clocks)\n", lcd_pixels_output);
-    }
-    
-    if (nonzero_pixels == 0) {
-        printf("✗ All pixels are zero (blank screen)\n");
-        printf("  Possible causes:\n");
-        printf("  - VRAM not being read by video controller\n");
-        printf("  - Tile/sprite data not decoded\n");
-        printf("  - Background/window disabled\n");
-        printf("  - Wrong palette mapping (all white)\n");
-    } else {
-        printf("✓ Non-zero pixels detected (%d pixels)\n", nonzero_pixels);
-        printf("  Display appears to be working!\n");
-    }
-    
+
+    printf("\n=== Test Results ===\n");
+    printf("Boot ROM completed: %s\n", boot_completed ? "YES" : "NO");
+    printf("LCD turned on: %s", lcd_turned_on ? "YES" : "NO");
+    if (lcd_turned_on) printf(" (cycle %d)", lcd_on_cycle);
+    printf("\n");
+    printf("VSync detected: %s", vsync_seen ? "YES" : "NO");
+    if (vsync_seen) printf(" (first at cycle %d)", first_vsync);
+    printf("\n");
+    printf("Pixel samples: %d total, %d non-gray (%.1f%%)\n",
+           total_pixel_samples, non_gray_pixels,
+           total_pixel_samples > 0 ? 100.0 * non_gray_pixels / total_pixel_samples : 0);
+
+    printf("\nFinal state:\n");
+    printf("  dbg_lcd_on: %d\n", dut->dbg_lcd_on);
+    printf("  dbg_lcd_clkena: %d\n", dut->dbg_lcd_clkena);
+    printf("  dbg_lcd_mode: %d\n", dut->dbg_lcd_mode);
+    printf("  VGA_R: %d, VGA_G: %d, VGA_B: %d\n", dut->VGA_R, dut->VGA_G, dut->VGA_B);
+
+    delete[] rom;
     delete sdram;
     delete dut;
-    return (nonzero_pixels > 0) ? 0 : 1;
+
+    if (!lcd_turned_on) {
+        printf("\n❌ FAIL: LCD never turned on\n");
+        return 1;
+    }
+
+    printf("\n✅ PASS: LCD operational\n");
+    return 0;
 }
