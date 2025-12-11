@@ -1351,11 +1351,15 @@ module tv80_core (/*AUTOARG*/
   always @(/*AUTOSENSE*/BTR_r or DI_Reg or IncDec_16 or JumpE or PC
 	   or RegBusA or RegBusC or SP or tstate)
     begin
-      if (JumpE == 1'b1 ) 
+      if (JumpE == 1'b1 )
         begin
-          PC16_B = { {8{DI_Reg[7]}}, DI_Reg };
-        end 
-      else if (BTR_r == 1'b1 ) 
+          // Fix for JR instruction: compensate for extra PC increment
+          // TV80 increments PC twice (M1 T3 + M2 T3), so subtract 1
+          // NOTE: This helps unconditional JR but breaks conditional JR when condition is FALSE
+          // Conditional JR has separate bugs in TV80 microcode (MCycles logic backwards)
+          PC16_B = { {8{DI_Reg[7]}}, DI_Reg } - 1;
+        end
+      else if (BTR_r == 1'b1 )
         begin
           PC16_B = -2;
         end

@@ -1,0 +1,53 @@
+=== JR Instruction Detailed Analysis ===
+
+Test Configuration:
+  0x0150: JP $0160 (verifies JP works)
+  0x0160: JR +2 (should jump to 0x0163)
+  0x0162: HALT (should skip)
+  0x0163: NOP (target)
+
+Uploading boot ROM...
+Simulating cart download...
+Ready
+
+Running simulation...
+
+Boot completed at cycle 39824
+
+--- Cart ROM Execution ---
+  [ 1] PC=$FF50
+  [ 2] PC=$0100 (byte=0xC3)
+  [ 3] PC=$0101 (byte=0x50)
+  [ 4] PC=$0102 (byte=0x01)
+  [ 5] PC=$0150 (byte=0xC3)
+  [ 6] PC=$0151 (byte=0x60)
+  [ 7] PC=$0152 (byte=0x01)
+  [ 8] PC=$0160 (byte=0x18 = JR opcode) [cpu_clken=0 ce_cpu=0 cart_rd=0]
+  [ 9] PC=$0161 (byte=0x02 = JR offset) [cpu_clken=0 ce_cpu=0 cart_rd=0]
+  [10] PC=$0162 (byte=0x76 = HALT ← BUG) [cpu_clken=0 ce_cpu=0 cart_rd=0]
+
+❌ JR FAILED: Hit HALT at 0x0162!
+   Cycle breakdown:
+     0x0160 (JR opcode): 1 PC changes
+     0x0161 (JR offset): 1 PC changes
+     0x0162 (HALT): 1 PC changes ← Should be 0!
+     0x0163 (target): 0 PC changes
+
+
+=== Analysis ===
+Reached 0x0160 (JR instruction): YES
+JR executed successfully: NO
+
+⚠️  CONCLUSION: JR instruction does NOT execute!
+   PC increments byte-by-byte instead of jumping.
+   This is a CPU core or wait state timing issue.
+
+Hypothesis:
+   1. TV80 core may have bug with JR in GameBoy mode
+   2. Wait state logic may not trigger correctly for 2-byte instructions
+   3. JR offset calculation may be incorrect
+
+Next steps:
+   1. Check if real game ROM uses JR instructions
+   2. Test with zero CAS latency (cas_latency=0)
+   3. Examine TV80 core JR implementation

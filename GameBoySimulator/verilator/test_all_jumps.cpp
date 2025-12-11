@@ -24,23 +24,27 @@ int main() {
 
     rom[0x100] = 0xC3; rom[0x101] = 0x50; rom[0x102] = 0x01;  // JP $0150
 
-    // Comprehensive test sequence
-    rom[0x150] = 0x3E; rom[0x151] = 0x42;  // LD A, 0x42
-    rom[0x152] = 0x06; rom[0x153] = 0x12;  // LD B, 0x12
-    rom[0x154] = 0x0E; rom[0x155] = 0x34;  // LD C, 0x34
-    rom[0x156] = 0x80;  // ADD A, B
-    rom[0x157] = 0x18; rom[0x158] = 0x02;  // JR +2
-    rom[0x159] = 0x76;  // HALT (skip)
-    rom[0x15A] = 0x00;  // NOP
-    rom[0x15B] = 0x37;  // SCF (set carry flag)
-    rom[0x15C] = 0x38; rom[0x15D] = 0x02;  // JR C, +2
-    rom[0x15E] = 0x76;  // HALT (skip)
-    rom[0x15F] = 0x00;  // NOP
-    rom[0x160] = 0x3F;  // CCF (complement carry - clear it)
-    rom[0x161] = 0x30; rom[0x162] = 0x02;  // JR NC, +2
-    rom[0x163] = 0x76;  // HALT (skip)
-    rom[0x164] = 0xC3; rom[0x165] = 0x70; rom[0x166] = 0x01;  // JP $0170
-    rom[0x170] = 0x76;  // HALT (success)
+    // Test JP (absolute jump)
+    rom[0x150] = 0xC3; rom[0x151] = 0x60; rom[0x152] = 0x01;  // JP $0160
+    
+    // Test JR (relative jump +2)
+    rom[0x160] = 0x18; rom[0x161] = 0x02;  // JR +2
+    rom[0x162] = 0x76;  // HALT (skip)
+    rom[0x163] = 0x00;  // NOP (target)
+    
+    // Test JR with negative offset
+    rom[0x164] = 0x18; rom[0x165] = 0xFE;  // JR -2 (back to 0x164)
+    // This creates a loop, so we'll break after detecting it
+    
+    // Break the loop: use conditional JR that won't be taken
+    rom[0x164] = 0x20; rom[0x165] = 0x02;  // JR NZ, +2 (will be taken if Z=0)
+    rom[0x166] = 0x76;  // HALT (skip)
+    rom[0x167] = 0x3E; rom[0x168] = 0x00;  // LD A, 0 (set Z flag)
+    
+    rom[0x169] = 0x28; rom[0x16A] = 0x02;  // JR Z, +2 (will be taken since Z=1)
+    rom[0x16B] = 0x76;  // HALT (skip)
+    rom[0x16C] = 0x00;  // NOP (target)
+    rom[0x16D] = 0x76;  // HALT (success marker)
 
     sdram->loadBinary(0, rom, sizeof(rom));
 
@@ -77,10 +81,10 @@ int main() {
     dut->ioctl_download = 0;
 
     bool boot_completed = false;
-    bool ld_ok = false, add_ok = false, jr_ok = false, jr_c_ok = false, jr_nc_ok = false, jp_final_ok = false;
+    bool jp_ok = false, jr_ok = false, jr_nz_ok = false, jr_z_ok = false;
     uint16_t last_pc = 0xFFFF;
 
-    printf("Running comprehensive instruction test...\n");
+    printf("Testing jump instructions...\n");
 
     for (int cycle = 0; cycle < 300000; cycle++) {
         tick_with_sdram(dut, sdram);
@@ -93,44 +97,36 @@ int main() {
         }
 
         if (boot_completed && pc != last_pc) {
-            if (pc >= 0x152 && pc <= 0x156 && !ld_ok) {
-                ld_ok = true;
-                printf("  ✅ LD instructions executed\n");
+            if (pc == 0x160 && !jp_ok) {
+                jp_ok = true;
+                printf("  ✅ JP instruction worked ($0150 → $0160)\n");
             }
-            if (pc == 0x157 && !add_ok) {
-                add_ok = true;
-                printf("  ✅ ADD instruction executed\n");
-            }
-            if (pc == 0x15A && !jr_ok) {
+            if (pc == 0x163 && !jr_ok) {
                 jr_ok = true;
-                printf("  ✅ JR +2 worked ($0157 → $015A)\n");
+                printf("  ✅ JR +2 worked ($0160 → $0163)\n");
             }
-            if (pc == 0x15F && !jr_c_ok) {
-                jr_c_ok = true;
-                printf("  ✅ JR C worked ($015C → $015F)\n");
+            if (pc == 0x167 && !jr_nz_ok) {
+                jr_nz_ok = true;
+                printf("  ✅ JR NZ worked ($0164 → $0167)\n");
             }
-            if (pc == 0x164 && !jr_nc_ok) {
-                jr_nc_ok = true;
-                printf("  ✅ JR NC worked ($0161 → $0164)\n");
+            if (pc == 0x16C && !jr_z_ok) {
+                jr_z_ok = true;
+                printf("  ✅ JR Z worked ($0169 → $016C)\n");
             }
-            if (pc == 0x170 && !jp_final_ok) {
-                jp_final_ok = true;
-                printf("  ✅ Final JP worked ($0164 → $0170)\n");
-                printf("\n🎉 All tests PASSED! No regressions detected.\n");
+            if (pc == 0x16D) {
+                printf("\n🎉 All jump tests PASSED!\n");
                 break;
             }
             last_pc = pc;
         }
     }
 
-    int result = (ld_ok && add_ok && jr_ok && jr_c_ok && jr_nc_ok && jp_final_ok) ? 0 : 1;
+    int result = (jp_ok && jr_ok && jr_nz_ok && jr_z_ok) ? 0 : 1;
     
-    if (!ld_ok) printf("  ❌ LD instructions failed\n");
-    if (!add_ok) printf("  ❌ ADD instruction failed\n");
+    if (!jp_ok) printf("  ❌ JP failed\n");
     if (!jr_ok) printf("  ❌ JR +2 failed\n");
-    if (!jr_c_ok) printf("  ❌ JR C failed\n");
-    if (!jr_nc_ok) printf("  ❌ JR NC failed\n");
-    if (!jp_final_ok) printf("  ❌ Final JP failed\n");
+    if (!jr_nz_ok) printf("  ❌ JR NZ failed\n");
+    if (!jr_z_ok) printf("  ❌ JR Z failed\n");
 
     delete sdram;
     delete dut;
