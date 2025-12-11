@@ -164,3 +164,4 @@ GameBoySimulator/verilator/test_jr_detailed
 GameBoySimulator/verilator/test_jr_mcycle_analysis
 GameBoySimulator/verilator/test_jr_pc_transitions
 GameBoySimulator/verilator/test_jr_zero_latency
+GameBoySimulator/verilator/test_nop_debug
