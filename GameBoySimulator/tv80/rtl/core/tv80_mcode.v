@@ -408,6 +408,8 @@ module tv80_mcode
                   if (MCycle[1])
                     begin
                       Write = 1'b1;
+                      Set_Addr_To = aBC;
+                      Set_BusB_To = 4'b0111;
                     end
                 end // case: 8'b00000010
               
@@ -422,7 +424,11 @@ module tv80_mcode
                         Set_BusB_To = 4'b0111;
                       end
                     MCycle[1] :
-                      Write = 1'b1;
+                      begin
+                        Write = 1'b1;
+                        Set_Addr_To = aDE;
+                        Set_BusB_To = 4'b0111;
+                      end
                     default :;
                   endcase // case(MCycle)
                 end // case: 8'b00010010
@@ -443,6 +449,8 @@ module tv80_mcode
                           begin
                             Write = 1'b1;
                             IncDec_16 = 4'b1110;
+                            Set_Addr_To = aXY;
+                            Set_BusB_To = 4'b0111;
                           end
                         default :;
                       endcase // case(MCycle)
@@ -581,6 +589,8 @@ module tv80_mcode
                           begin
                             Write = 1'b1;
                             IncDec_16 = 4'b0110;
+                            Set_Addr_To = aXY;
+                            Set_BusB_To = 4'b0111;
                           end
                         default :;
                       endcase
@@ -635,21 +645,29 @@ module tv80_mcode
                         TStates = 3'b101;
                         IncDec_16 = 4'b1111;
                         Set_Addr_To = aSP;
-                        if (DPAIR == 2'b11 ) 
-                          begin
-                            Set_BusB_To = 4'b0111;
-                          end 
-                        else
-                          begin
-                            Set_BusB_To[2:1] = DPAIR;
-                            Set_BusB_To[0] = 1'b0;
-                            Set_BusB_To[3] = 1'b0;
-                          end
                       end // case: 1
                     
                     MCycle[1] :
                       begin
                         IncDec_16 = 4'b1111;
+                        Set_Addr_To = aSP;
+                        // First stack write: high byte
+                        if (DPAIR == 2'b11 ) 
+                          begin
+                            Set_BusB_To = 4'b0111;
+                          end 
+                        else 
+                          begin
+                            Set_BusB_To[2:1] = DPAIR;
+                            Set_BusB_To[0] = 1'b0;
+                            Set_BusB_To[3] = 1'b0;
+                          end
+                        Write = 1'b1;
+                      end // case: 2
+                    
+                    MCycle[2] :
+                      begin
+                        // Second stack write: low byte
                         Set_Addr_To = aSP;
                         if (DPAIR == 2'b11 ) 
                           begin
@@ -662,10 +680,7 @@ module tv80_mcode
                             Set_BusB_To[3] = 1'b0;
                           end
                         Write = 1'b1;
-                      end // case: 2
-                    
-                    MCycle[2] :
-                      Write = 1'b1;
+                      end
                     default :;
                   endcase // case(MCycle)
                 end // case: 8'b11000101,8'b11010101,8'b11100101,8'b11110101
@@ -769,17 +784,19 @@ module tv80_mcode
                   if (Mode == 3 ) 
                     begin
                       // RETI (same timing as RET in GameBoy mode)
-                      MCycles = 3'b100;  // 4 cycles in GBZ80
+                      // Keep the same "settle" cycle insertion as RET to avoid
+                      // IR/decode timing issues under WAIT-stretched fetches.
+                      MCycles = 3'b101;  // 5 cycles in GBZ80 (incl. settle)
                       case (1'b1) // MCycle
-                        MCycle[1] :
-                          Set_Addr_To = aSP;
                         MCycle[2] :
+                          Set_Addr_To = aSP;
+                        MCycle[3] :
                           begin
                             IncDec_16 = 4'b0111;
                             Set_Addr_To = aSP;
                             LDZ = 1'b1;
                           end
-                        MCycle[3] :
+                        MCycle[4] :
                           begin
                             Jump = 1'b1;
                             IncDec_16 = 4'b0111;
@@ -1206,6 +1223,8 @@ module tv80_mcode
                                 begin
                                   Write = 1'b1;
                                   IORQ = 1'b1;
+                                  Set_Addr_To = aBC;
+                                  Set_BusB_To = 4'b0111; // ACC
                                 end
                               
                               default :;
@@ -1231,7 +1250,11 @@ module tv80_mcode
                                 end
                               
                               MCycle[3] :
-                                Write = 1'b1;
+                                begin
+                                  Write = 1'b1;
+                                  Set_Addr_To = aZI;
+                                  Set_BusB_To = 4'b0111; // ACC
+                                end
                               default :;
                             endcase // case(MCycle)
                           end // case: default :...
@@ -1414,21 +1437,22 @@ module tv80_mcode
                         TStates = 3'b100;
                         Set_Addr_To = aSP;
                         LDW = 1'b1;
-                        Set_BusB_To = 4'b1101;  // PC high - prep for MCycle[3] write
                       end
                     MCycle[3] :
                       begin
                         Write = 1'b1;
                         IncDec_16 = 4'b1111;
                         Set_Addr_To = aSP;
-                        Set_BusB_To = 4'b1100;  // PC low - prep for MCycle[4] write
+                        // CALL pushes return address (PC after operand fetch) onto the stack.
+                        // First push high byte, then low byte.
+                        Set_BusB_To = 4'b1101;  // PC high
                       end
                     MCycle[4] :
                       begin
                         Write = 1'b1;
                         Call = 1'b1;
                         Set_Addr_To = aSP;  // Use updated SP after decrement from MCycle[3]
-                        // Don't set Set_BusB_To here - use value from MCycle[3]
+                        Set_BusB_To = 4'b1100;  // PC low
                       end
                     default :;
                   endcase // case(MCycle)
@@ -1459,7 +1483,6 @@ module tv80_mcode
                                 IncDec_16 = 4'b1111;
                                 Set_Addr_To = aSP;
                                 TStates = 3'b100;
-                                Set_BusB_To = 4'b1101;  // PC high - prep for MCycle[3] write
                               end
                             else
                               begin
@@ -1472,7 +1495,7 @@ module tv80_mcode
                             Write = 1'b1;
                             IncDec_16 = 4'b1111;
                             Set_Addr_To = aSP;
-                            Set_BusB_To = 4'b1100;  // PC low - prep for MCycle[4] write
+                            Set_BusB_To = 4'b1101;  // PC high
                           end
 
                         MCycle[4] :
@@ -1480,7 +1503,7 @@ module tv80_mcode
                             Write = 1'b1;
                             Call = 1'b1;
                             Set_Addr_To = aSP;  // Use updated SP after decrement from MCycle[3]
-                            // Don't set Set_BusB_To here - use value from MCycle[3]
+                            Set_BusB_To = 4'b1100;  // PC low
                           end
                         
                         default :;
@@ -1564,7 +1587,13 @@ module tv80_mcode
                                 end
                               
                               MCycle[2] :
-                                Write = 1'b1;
+                                begin
+                                  // Write cycle must explicitly drive both the address source
+                                  // and the write data source (mcode is combinational).
+                                  Write = 1'b1;
+                                  Set_Addr_To = aIOA;
+                                  Set_BusB_To = 4'b0111; // ACC
+                                end
                               default :;
                             endcase // case(MCycle)
                           end // case: 2'b00
@@ -1664,25 +1693,24 @@ module tv80_mcode
                           case (1'b1) // MCycle
                             MCycle[1] :
                               begin
-                                if (is_cc_true(F, IR[5:3]))
-                                  begin
-                                    Set_Addr_To = aSP;
-                                  end
-                                else
-                                  begin
-                                    MCycles = 3'b010;
-                                  end
+                                if (!is_cc_true(F, IR[5:3]))
+                                  MCycles = 3'b010;
                                 TStates = 3'b101;
                               end
 
                             MCycle[2] :
+                              begin
+                                Set_Addr_To = aSP;
+                              end
+
+                            MCycle[3] :
                               begin
                                 IncDec_16 = 4'b0111;
                                 Set_Addr_To = aSP;
                                 LDZ = 1'b1;
                               end
 
-                            MCycle[3] :
+                            MCycle[4] :
                               begin
                                 Jump = 1'b1;
                                 IncDec_16 = 4'b0111;

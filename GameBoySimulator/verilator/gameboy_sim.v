@@ -103,23 +103,50 @@ module top (
     output        dbg_lcd_vsync /*verilator public_flat*/,
     output [14:0] dbg_lcd_data /*verilator public_flat*/,
     output        dbg_isGBC_game /*verilator public_flat*/,
-    output [1:0]  dbg_lcd_data_gb /*verilator public_flat*/,
-    output [7:0]  dbg_cpu_do /*verilator public_flat*/,
-    output [7:0]  dbg_cpu_di /*verilator public_flat*/,
-    output [7:0]  dbg_boot_q /*verilator public_flat*/,
-    output [7:0]  dbg_boot_do /*verilator public_flat*/,
+	    output [1:0]  dbg_lcd_data_gb /*verilator public_flat*/,
+	    output        dbg_video_vram_rd /*verilator public_flat*/,
+	    output [12:0] dbg_video_vram_addr /*verilator public_flat*/,
+	    output [7:0]  dbg_video_vram_data /*verilator public_flat*/,
+	    output [7:0]  dbg_video_vram1_data /*verilator public_flat*/,
+	    output [1:0]  dbg_video_bg_pix_data /*verilator public_flat*/,
+	    output [2:0]  dbg_video_bg_fetch_cycle /*verilator public_flat*/,
+	    output [2:0]  dbg_video_bg_shift_cnt /*verilator public_flat*/,
+	    output        dbg_video_bg_reload_shift /*verilator public_flat*/,
+	    output        dbg_video_mode3 /*verilator public_flat*/,
+	    output [7:0]  dbg_video_tile_shift_0 /*verilator public_flat*/,
+	    output [7:0]  dbg_video_tile_shift_1 /*verilator public_flat*/,
+	    output [7:0]  dbg_cpu_do /*verilator public_flat*/,
+	    output [7:0]  dbg_cpu_di /*verilator public_flat*/,
+	    output [7:0]  dbg_boot_q /*verilator public_flat*/,
+	    output [7:0]  dbg_boot_do /*verilator public_flat*/,
     output [15:0] dbg_cpu_tmpaddr /*verilator public_flat*/,
     output [7:0]  dbg_cpu_ir /*verilator public_flat*/,
     output [15:0] dbg_cpu_pc /*verilator public_flat*/,
-    output [15:0] dbg_cpu_sp /*verilator public_flat*/,
-    output [15:0] dbg_cpu_hl /*verilator public_flat*/,
-    output [7:0]  dbg_cpu_acc /*verilator public_flat*/,
-    output [7:0]  dbg_cpu_f /*verilator public_flat*/,
-    output        dbg_cpu_write /*verilator public_flat*/,
-    output [6:0]  dbg_cpu_mcycle /*verilator public_flat*/,
-    output [6:0]  dbg_cpu_tstate /*verilator public_flat*/,
+	    output [15:0] dbg_cpu_sp /*verilator public_flat*/,
+	    output [15:0] dbg_cpu_hl /*verilator public_flat*/,
+	    output [15:0] dbg_cpu_de /*verilator public_flat*/,
+	    output [15:0] dbg_cpu_bc /*verilator public_flat*/,
+	    output [7:0]  dbg_cpu_acc /*verilator public_flat*/,
+	    output [7:0]  dbg_cpu_f /*verilator public_flat*/,
+	    output        dbg_cpu_write /*verilator public_flat*/,
+	    output [6:0]  dbg_cpu_mcycle /*verilator public_flat*/,
+	    output [6:0]  dbg_cpu_tstate /*verilator public_flat*/,
+	    output [3:0]  dbg_cpu_set_busb_to /*verilator public_flat*/,
+	    output [3:0]  dbg_cpu_set_busa_to /*verilator public_flat*/,
     output [2:0]  dbg_cpu_mcycles /*verilator public_flat*/,
-    output [2:0]  dbg_cpu_mcycles_d /*verilator public_flat*/
+    output [2:0]  dbg_cpu_mcycles_d /*verilator public_flat*/,
+
+    // Extra CPU internal debug
+    output        dbg_cpu_alternate /*verilator public_flat*/,
+    output [15:0] dbg_cpu_hl_alt /*verilator public_flat*/,
+    output [15:0] dbg_cpu_regbusc /*verilator public_flat*/,
+    output [7:0]  dbg_cpu_di_latched /*verilator public_flat*/,
+    output [4:0]  dbg_cpu_read_to_reg_r /*verilator public_flat*/,
+    output        dbg_cpu_regweh /*verilator public_flat*/,
+    output        dbg_cpu_regwel /*verilator public_flat*/,
+    output [2:0]  dbg_cpu_regaddra /*verilator public_flat*/,
+    output [1:0]  dbg_cpu_prefix /*verilator public_flat*/,
+    output [1:0]  dbg_cpu_iset /*verilator public_flat*/
 );
 
     // =========================================================================
@@ -195,7 +222,11 @@ module top (
 
         // System interface
         .clk        (clk_sys),
-        .sync       (ce_cpu2x),
+        // Drive the simplified SDRAM controller every clk_sys tick so that
+        // SDRAM command sequencing (ACT/READ/WRITE/PRE) runs at the SDRAM clock
+        // rate (64MHz) instead of the CPU clock enables (8MHz). With CAS=2 this
+        // makes data ready well within a single CPU T-state, matching real hardware.
+        .sync       (1'b1),
         .init       (reset),
 
         // CPU interface
@@ -204,7 +235,10 @@ module top (
         .ds         (sdram_ds),
         .we         (sdram_we),
         .oe         (sdram_oe),
-        .autorefresh(1'b1),
+        // The C++ Mister SDRAM model doesn't require refresh in simulation, and
+        // periodic refresh bursts can delay back-to-back byte reads in ways the
+        // fixed CPU WAIT_n window doesn't account for (shows up as stale opcode/imm bytes).
+        .autorefresh(1'b0),
         .refresh    (1'b0),
         .dout       (sdram_do)
     );
@@ -451,7 +485,7 @@ module top (
         .ioctl_dout         (boot_data),
 
         .boot_gba_en        (1'b0),
-        .fast_boot_en       (1'b1),  // Enable fast boot
+        .fast_boot_en       (1'b0),  // Full DMG boot (Nintendo logo + checks)
 
         // Audio
         .audio_l            (audio_l),
@@ -572,22 +606,47 @@ module top (
     assign dbg_lcd_vsync = lcd_vsync;
     assign dbg_lcd_data = lcd_data;
     assign dbg_isGBC_game = isGBC_game;
-    assign dbg_lcd_data_gb = lcd_data_gb;
-    assign dbg_cpu_do = gameboy.cpu_do;
-    assign dbg_cpu_di = gameboy.cpu_di;
-    assign dbg_boot_q = gameboy.boot_q;
-    assign dbg_boot_do = gameboy.boot_do;
+	    assign dbg_lcd_data_gb = lcd_data_gb;
+	    assign dbg_video_vram_rd = gameboy.video.vram_rd;
+	    assign dbg_video_vram_addr = gameboy.video.vram_addr;
+	    assign dbg_video_vram_data = gameboy.video.vram_data;
+	    assign dbg_video_vram1_data = gameboy.video.vram1_data;
+	    assign dbg_video_bg_pix_data = gameboy.video.bg_pix_data;
+	    assign dbg_video_bg_fetch_cycle = gameboy.video.bg_fetch_cycle;
+	    assign dbg_video_bg_shift_cnt = gameboy.video.bg_shift_cnt;
+	    assign dbg_video_bg_reload_shift = gameboy.video.bg_reload_shift;
+	    assign dbg_video_mode3 = gameboy.video.mode3;
+	    assign dbg_video_tile_shift_0 = gameboy.video.tile_shift_0;
+	    assign dbg_video_tile_shift_1 = gameboy.video.tile_shift_1;
+	    assign dbg_cpu_do = gameboy.cpu_do;
+	    assign dbg_cpu_di = gameboy.cpu_di;
+	    assign dbg_boot_q = gameboy.boot_q;
+	    assign dbg_boot_do = gameboy.boot_do;
     assign dbg_cpu_tmpaddr = gameboy.cpu.i_tv80_core.TmpAddr;
     assign dbg_cpu_ir = gameboy.cpu.i_tv80_core.IR;
-    assign dbg_cpu_pc = gameboy.cpu.i_tv80_core.PC;
-    assign dbg_cpu_sp = gameboy.cpu.i_tv80_core.SP;
-    assign dbg_cpu_hl = { gameboy.cpu.i_tv80_core.i_reg.RegsH[2], gameboy.cpu.i_tv80_core.i_reg.RegsL[2] };
-    assign dbg_cpu_acc = gameboy.cpu.i_tv80_core.ACC;
-    assign dbg_cpu_f = gameboy.cpu.i_tv80_core.F;
-    assign dbg_cpu_write = gameboy.cpu.write;
-    assign dbg_cpu_mcycle = gameboy.cpu.mcycle;
-    assign dbg_cpu_tstate = gameboy.cpu.tstate;
+	    assign dbg_cpu_pc = gameboy.cpu.i_tv80_core.PC;
+	    assign dbg_cpu_sp = gameboy.cpu.i_tv80_core.SP;
+	    assign dbg_cpu_hl = { gameboy.cpu.i_tv80_core.i_reg.RegsH[2], gameboy.cpu.i_tv80_core.i_reg.RegsL[2] };
+	    assign dbg_cpu_de = { gameboy.cpu.i_tv80_core.i_reg.RegsH[1], gameboy.cpu.i_tv80_core.i_reg.RegsL[1] };
+	    assign dbg_cpu_bc = { gameboy.cpu.i_tv80_core.i_reg.RegsH[0], gameboy.cpu.i_tv80_core.i_reg.RegsL[0] };
+	    assign dbg_cpu_acc = gameboy.cpu.i_tv80_core.ACC;
+	    assign dbg_cpu_f = gameboy.cpu.i_tv80_core.F;
+	    assign dbg_cpu_write = gameboy.cpu.write;
+	    assign dbg_cpu_mcycle = gameboy.cpu.mcycle;
+	    assign dbg_cpu_tstate = gameboy.cpu.tstate;
+	    assign dbg_cpu_set_busb_to = gameboy.cpu.i_tv80_core.Set_BusB_To;
+	    assign dbg_cpu_set_busa_to = gameboy.cpu.i_tv80_core.Set_BusA_To;
     assign dbg_cpu_mcycles = gameboy.cpu.i_tv80_core.mcycles;
     assign dbg_cpu_mcycles_d = gameboy.cpu.i_tv80_core.mcycles_d;
+    assign dbg_cpu_alternate = gameboy.cpu.i_tv80_core.Alternate;
+    assign dbg_cpu_hl_alt = { gameboy.cpu.i_tv80_core.i_reg.RegsH[6], gameboy.cpu.i_tv80_core.i_reg.RegsL[6] };
+    assign dbg_cpu_regbusc = gameboy.cpu.i_tv80_core.RegBusC;
+    assign dbg_cpu_di_latched = gameboy.cpu.di_reg;
+    assign dbg_cpu_read_to_reg_r = gameboy.cpu.i_tv80_core.Read_To_Reg_r;
+    assign dbg_cpu_regweh = gameboy.cpu.i_tv80_core.RegWEH;
+    assign dbg_cpu_regwel = gameboy.cpu.i_tv80_core.RegWEL;
+    assign dbg_cpu_regaddra = gameboy.cpu.i_tv80_core.RegAddrA;
+    assign dbg_cpu_prefix = gameboy.cpu.i_tv80_core.Prefix;
+    assign dbg_cpu_iset = gameboy.cpu.i_tv80_core.ISet;
 
 endmodule

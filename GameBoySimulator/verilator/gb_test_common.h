@@ -102,7 +102,10 @@ void tick_with_sdram(T* dut, MisterSDRAMModel* sdram) {
     dut->eval();
 
     // Process SDRAM on rising edge
-    uint16_t rdata = 0;
+    // Hold last SDRAM read data on the bus until the model updates it.
+    // The SDRAM model intentionally doesn't clear rdata every cycle, but if we
+    // reinitialize here we effectively drive 0x0000 between valid beats.
+    uint16_t rdata = dut->sd_data_in;
     bool compl_out = false;
     bool config_done = false;
 

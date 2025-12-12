@@ -305,28 +305,61 @@ wire clk_cpu = clk_sys & ce_cpu;
 // when hdma is enabled stop CPU (GBC). Finish read/write before stopping CPU
 wire hdma_cpu_stop = (isGBC & hdma_active & cpu_rd_n & cpu_wr_n);
 
-// SDRAM wait state logic for proper CAS latency handling
-// When CPU reads from external bus (cart ROM/RAM in SDRAM), insert wait states
-// NOTE: ce is 1/8 clk_sys (see speedcontrol.vhd), so CAS=2 => 16 clk_sys ticks
-reg [4:0] sdram_wait_counter;
+	// SDRAM wait state logic for proper CAS latency handling.
+	// When CPU reads from external bus (cart ROM/RAM in SDRAM), insert wait states.
+	//
+	// The Verilator SDRAM stub (`rtl/sdram_sim.sv`) runs at `clk_sys` and models
+	// CAS/tRCD. Stalling for a single CPU tick is sufficient for CAS=2 at typical
+	// SDRAM clocks, and avoids distorting the boot ROM timing.
+	localparam [7:0] SDRAM_WAIT_TICKS = 8'd16;
+
+reg [7:0] sdram_wait_counter;
 reg sdram_wait_active;
 // Only stall for SDRAM-backed cartridge ROM/RAM reads.
-// Exclude boot ROM overlay and internal WRAM/HRAM so boot and stack ops
-// are not artificially stretched.
-wire cpu_reading_ext_bus = ((sel_rom | sel_cram) & ~cpu_rd_n & ~cpu_mreq_n & ~sel_boot_rom);
+//
+// IMPORTANT:
+// `cart_rd` can remain asserted across multiple byte reads (opcode + immediate
+// bytes) while TV80 stretches the bus cycle with WAIT_n. If we only arm on the
+// `cart_rd` rising edge (once), then subsequent immediate byte reads can occur
+// without a fresh wait window and the CPU may sample stale SDRAM data.
+//
+// Arm a new wait window whenever the CPU presents a *new address* while `cart_rd`
+// is asserted. This effectively provides a wait per byte read even if RD stays low.
+reg [15:0] cart_rd_addr;
+reg        cart_rd_addr_valid;
+wire cart_rd_new_addr = cart_rd && (!cart_rd_addr_valid || (cpu_addr != cart_rd_addr));
+
+// Assert WAIT immediately when a new external read address appears, not one
+// clk_sys later when the registered wait_active flag is set.
+//
+// This avoids a race where TV80 can advance/samples DI before WAIT_n goes low,
+// causing intermittent bad opcode/imm bytes (shows up as Nintendo logo mismatches
+// and early boot lockups).
+wire sdram_wait_req = cart_rd_new_addr;
 
 always @(posedge clk_sys) begin
 	if (reset) begin
-		sdram_wait_counter <= 5'd0;
+		sdram_wait_counter <= 8'd0;
 		sdram_wait_active <= 1'b0;
+		cart_rd_addr <= 16'h0000;
+		cart_rd_addr_valid <= 1'b0;
 	end else begin
-		if (cpu_reading_ext_bus && !sdram_wait_active) begin
-			// Start wait state when CPU reads from external bus
-			sdram_wait_counter <= 5'd16;  // CAS latency (2 ce ticks) at clk_sys rate
+		// Clear the per-read address tracking once the read strobe drops.
+		if (!cart_rd) begin
+			cart_rd_addr_valid <= 1'b0;
+		end
+
+		// Start (or restart) a wait window whenever the CPU presents a new external
+		// read address. This guarantees a per-byte wait even if the CPU keeps RD low
+		// across stretched T-states or quickly issues back-to-back reads.
+		if (sdram_wait_req) begin
+			cart_rd_addr <= cpu_addr;
+			cart_rd_addr_valid <= 1'b1;
+			sdram_wait_counter <= SDRAM_WAIT_TICKS;
 			sdram_wait_active <= 1'b1;
 		end else if (sdram_wait_active) begin
 			if (sdram_wait_counter > 0) begin
-				sdram_wait_counter <= sdram_wait_counter - 5'd1;
+				sdram_wait_counter <= sdram_wait_counter - 8'd1;
 			end else begin
 				sdram_wait_active <= 1'b0;  // Wait complete
 			end
@@ -334,8 +367,8 @@ always @(posedge clk_sys) begin
 	end
 end
 
-wire sdram_ready = ~sdram_wait_active;  // Ready when not waiting
-wire cpu_clken = ~hdma_cpu_stop & ce_cpu & sdram_ready;
+wire sdram_ready = ~(sdram_wait_active | sdram_wait_req);  // Ready when not waiting/starting wait
+wire cpu_clken = ~hdma_cpu_stop & ce_cpu;
 
 reg reset_r  = 1;
 // reset_ss is output from gb_savestates module (line 1076) - used to reset savestate registers
@@ -705,9 +738,13 @@ timer timer (
 // ------------------------------ video -------------------------------
 // --------------------------------------------------------------------
 
-// cpu tries to read or write the lcd controller registers
-wire [12:0] video_addr;
-wire video_rd, dma_rd;
+	// cpu tries to read or write the lcd controller registers
+	wire [12:0] video_addr;
+	wire video_rd, dma_rd;
+`ifdef GAMEBOY_SIM
+	wire [7:0] vram_do_video;
+	wire [7:0] vram1_do_video;
+`endif
 
 wire [7:0] dma_data = (isGBC & dma_sel_wram) ? wram_do :
                         dma_sel_ext_bus ? ext_bus_di :
@@ -748,10 +785,18 @@ video video (
 	.vram_cpu_allow ( vram_cpu_allow ),
 	.vram_rd     ( video_rd      ),
 	.vram_addr   ( video_addr    ),
+`ifdef GAMEBOY_SIM
+	.vram_data   ( vram_do_video ),
+`else
 	.vram_data   ( vram_do       ),
+`endif
 	
 	// vram connection bank1 (GBC)
+`ifdef GAMEBOY_SIM
+	.vram1_data  ( vram1_do_video ),
+`else
 	.vram1_data  ( vram1_do      ),
+`endif
 	
 	.dma_rd      ( dma_rd        ),
 	.dma_addr    ( dma_addr      ),
@@ -778,47 +823,84 @@ wire cpu_wr_vram = sel_vram && !cpu_wr_n_edge && vram_cpu_allow;
 
 wire hdma_rd;
 
-wire [7:0] vram_di = (hdma_read_wram_bus) ? wram_do :
-                        (hdma_read_ext_bus) ? ext_bus_di :
-                        cpu_do;
+	wire [7:0] vram_di = (hdma_read_wram_bus) ? wram_do :
+	                        (hdma_read_ext_bus) ? ext_bus_di :
+	                        cpu_do;
 
-wire vram_wren = video_rd?1'b0:!vram_bank&&((hdma_rd&&isGBC)||cpu_wr_vram);
-wire vram1_wren = video_rd?1'b0:vram_bank&&((hdma_rd&&isGBC)||cpu_wr_vram);
+`ifdef GAMEBOY_SIM
+	// In simulation we use port B for PPU reads, so don't block CPU/HDMA writes
+	// based on `video_rd` (which would incorrectly drop valid writes).
+	wire vram_wren = !vram_bank && ((hdma_rd&&isGBC) || cpu_wr_vram);
+	wire vram1_wren = vram_bank && ((hdma_rd&&isGBC) || cpu_wr_vram);
+`else
+	wire vram_wren = video_rd?1'b0:!vram_bank&&((hdma_rd&&isGBC)||cpu_wr_vram);
+	wire vram1_wren = video_rd?1'b0:vram_bank&&((hdma_rd&&isGBC)||cpu_wr_vram);
+`endif
 
-wire [15:0] hdma_target_addr;
-wire [12:0] vram_addr = video_rd?video_addr:(hdma_rd&&isGBC)?hdma_target_addr[12:0]:(dma_rd&&dma_sel_vram)?dma_addr[12:0]:cpu_addr[12:0];
+	wire [15:0] hdma_target_addr;
+	wire [12:0] vram_addr = video_rd?video_addr:(hdma_rd&&isGBC)?hdma_target_addr[12:0]:(dma_rd&&dma_sel_vram)?dma_addr[12:0]:cpu_addr[12:0];
+
+// In the Verilator simulation harness we can use the second RAM port for the
+// video fetch path (PPU), avoiding same-cycle address multiplexing between CPU
+// and PPU which otherwise leaves the pixel pipeline sampling stale VRAM data.
+`ifdef GAMEBOY_SIM
+	wire [12:0] vram_addr_cpu = (hdma_rd&&isGBC)?hdma_target_addr[12:0]:(dma_rd&&dma_sel_vram)?dma_addr[12:0]:cpu_addr[12:0];
+	wire [12:0] vram_addr_video = video_addr;
+`endif
 
 wire [7:0] Savestate_RAMReadData_VRAM0, Savestate_RAMReadData_VRAM1;
 
 dpram #(13) vram0 (
 	.clock     (clk_sys  ),  // CRITICAL FIX: dpram uses single clock input
 	.clock_a   (clk_cpu  ),  // Legacy port (unused)
+`ifdef GAMEBOY_SIM
+	.address_a (vram_addr_cpu),
+`else
 	.address_a (vram_addr),
+`endif
 	.wren_a    (vram_wren),
 	.data_a    (vram_di  ),
 	.q_a       (vram_do  ),
 
 	.clock_b   (clk_sys),
+`ifdef GAMEBOY_SIM
+	.address_b (vram_addr_video),
+	.wren_b    (1'b0),
+	.data_b    (8'h00),
+	.q_b       (vram_do_video)
+`else
 	.address_b (Savestate_RAMAddr[12:0]),
 	.wren_b    (Savestate_RAMRWrEn[1] & !Savestate_RAMAddr[13]),
 	.data_b    (Savestate_RAMWriteData),
 	.q_b       (Savestate_RAMReadData_VRAM0)
+`endif
 );
 
 //separate 8k for vbank1 for gbc because of BG reads
 dpram #(13) vram1 (
 	.clock     (clk_sys   ),  // CRITICAL FIX: dpram uses single clock input
 	.clock_a   (clk_cpu   ),  // Legacy port (unused)
+`ifdef GAMEBOY_SIM
+	.address_a (vram_addr_cpu),
+`else
 	.address_a (vram_addr ),
+`endif
 	.wren_a    (vram1_wren),
 	.data_a    (vram_di   ),
 	.q_a       (vram1_do  ),
 
 	.clock_b   (clk_sys),
+`ifdef GAMEBOY_SIM
+	.address_b (vram_addr_video),
+	.wren_b    (1'b0),
+	.data_b    (8'h00),
+	.q_b       (vram1_do_video)
+`else
 	.address_b (Savestate_RAMAddr[12:0]),
 	.wren_b    (Savestate_RAMRWrEn[1] & Savestate_RAMAddr[13]),
 	.data_b    (Savestate_RAMWriteData),
 	.q_b       (Savestate_RAMReadData_VRAM1)
+`endif
 );
 
 assign Savestate_RAMReadData_VRAM = Savestate_RAMAddr[13] ? Savestate_RAMReadData_VRAM1 : Savestate_RAMReadData_VRAM0;
@@ -873,7 +955,8 @@ hdma hdma(
 // --------------------------------------------------------------------
 
 // 127 bytes internal zero page ram from $ff80 to $fffe
-// CRITICAL FIX: Use cpu_wr_n_edge like wram, not raw cpu_wr_n
+// Use a single write pulse per CPU cycle to avoid repeated writes while WR_n
+// remains asserted across stretched T-states.
 wire cpu_wr_zpram = sel_zpram && !cpu_wr_n_edge;
 
 dpram #(7) zpram (

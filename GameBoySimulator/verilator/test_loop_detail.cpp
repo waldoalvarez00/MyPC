@@ -6,7 +6,8 @@
 
 int main() {
     Vtop* dut = new Vtop;
-    MisterSDRAMModel* sdram = new MisterSDRAMModel(8*1024*1024);
+    // MisterSDRAMModel ctor takes size in MB (not bytes).
+    MisterSDRAMModel* sdram = new MisterSDRAMModel(8);
     sdram->cas_latency = 2;  // Realistic CAS latency
 
     printf("=== Detailed Loop Analysis ($0006-$000C) ===\n\n");

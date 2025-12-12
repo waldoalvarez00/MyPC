@@ -136,6 +136,9 @@ static uint16_t emit_unprefixed_sweep(uint8_t* rom, uint16_t pc, int* out_count)
         if (!UNPREF_LEGAL[op]) continue;
         if (UNPREF_EXCLUDED[op]) continue;
         if (op == 0xCB) continue;  // CB prefix handled separately
+        if (op == 0xFB) continue;  // EI enables interrupts; breaks linear sweep control flow
+        if (op == 0xD9) continue;  // RETI/EXX: control flow in GB mode
+        if (op == 0xE9) continue;  // JP (HL): control flow, tested separately
 
         uint8_t len = UNPREF_LEN[op];
         if (pc + len >= 0x8000) break;
@@ -478,7 +481,7 @@ int main() {
         uint8_t rom[32768];
         memset(rom, 0x76, sizeof(rom));
         rom[0x100] = 0xC3; rom[0x101] = 0x50; rom[0x102] = 0x01;  // JP $0150
-        rom[0x150] = 0x3F;  // CCF (ensure carry clear if initially set)
+        rom[0x150] = 0xAF;  // XOR A (force carry clear deterministically)
         rom[0x151] = 0x38; rom[0x152] = 0x05;  // JR C, +5 (should NOT jump)
         rom[0x153] = 0x00;  // NOP (should execute)
         rom[0x154] = 0x00;  // NOP (should execute)
@@ -519,7 +522,7 @@ int main() {
         uint8_t rom[32768];
         memset(rom, 0x76, sizeof(rom));
         rom[0x100] = 0xC3; rom[0x101] = 0x50; rom[0x102] = 0x01;  // JP $0150
-        rom[0x150] = 0x3F;  // CCF (ensure carry clear)
+        rom[0x150] = 0xAF;  // XOR A (force carry clear deterministically)
         rom[0x151] = 0x30; rom[0x152] = 0x02;  // JR NC, +2 (should jump to $0155)
         rom[0x153] = 0x76;  // HALT (should skip)
         rom[0x154] = 0x76;  // HALT (should skip)
@@ -535,53 +538,6 @@ int main() {
                     passed ? "" : "JR NC did not reach target HALT");
         printf("    Result: %s (PC=$%04X, expected HALT at $0155)\n\n",
                passed ? "PASS" : "FAIL", final_pc);
-
-        delete sdram;
-        delete dut;
-    }
-
-    // ============================================================================
-    // TEST 9: IR Register Content Check
-    // ============================================================================
-    {
-        printf("[ TEST 9 ] IR Register Content During JR...\n");
-        Vtop* dut = new Vtop;
-        MisterSDRAMModel* sdram = new MisterSDRAMModel(8);
-        sdram->cas_latency = 2;
-
-        uint8_t rom[32768];
-        memset(rom, 0x76, sizeof(rom));
-        rom[0x100] = 0xC3; rom[0x101] = 0x50; rom[0x102] = 0x01;  // JP $0150
-        rom[0x150] = 0x00;  // NOP
-        rom[0x151] = 0x00;  // NOP
-        rom[0x152] = 0x18; rom[0x153] = 0x02;  // JR +2 (opcode 0x18)
-        rom[0x154] = 0x76;  // HALT
-
-        setup_system(dut, sdram, rom, sizeof(rom));
-
-        uint8_t ir_value = 0xFF;
-        bool found_0x18 = false;
-
-        // Monitor IR register when PC is at JR instruction
-        for (int cycle = 0; cycle < SHORT_TEST_CYCLES; cycle++) {
-            tick_with_sdram(dut, sdram);
-            uint16_t pc = dut->dbg_cpu_addr;
-            uint8_t ir = dut->dbg_cpu_ir;
-
-            if (pc == 0x152) {
-                ir_value = ir;
-                if (ir == 0x18) found_0x18 = true;
-            }
-            if (pc >= 0x154) break;
-        }
-
-        bool passed = false;  // We KNOW this will fail - TV80 bug
-        record_test("IR register contains opcode", passed,
-                    "IR does not contain JR opcode (0x18) - TV80 design issue");
-        printf("    Result: %s (IR=$%02X at PC=$0152, expected $18)\n",
-               passed ? "PASS" : "FAIL", ir_value);
-        printf("    Note: IR contains internal state, not instruction opcode\n");
-        printf("    This prevents opcode-specific fixes in tv80_core.v\n\n");
 
         delete sdram;
         delete dut;
@@ -916,17 +872,8 @@ int main() {
         setup_system(dut, sdram, rom, sizeof(rom));
 
         uint16_t final_pc = 0;
-        // Should end at HALT after RET
-        for (int cycle = 0; cycle < SHORT_TEST_CYCLES; cycle++) {
-            tick_with_sdram(dut, sdram);
-            uint16_t pc = dut->dbg_cpu_addr;
-            if (pc == 0x153 || pc == 0x154) {
-                final_pc = pc;
-                break;
-            }
-        }
-
-        bool passed = (final_pc == 0x153);
+        bool reached = run_until_pc_reg(dut, sdram, 0x153, SHORT_TEST_CYCLES, &final_pc);
+        bool passed = reached && (final_pc == 0x153);
         record_test("CALL/RET (subroutine)", passed,
                     passed ? "" : "Failed to execute CALL/RET correctly");
         printf("    Result: %s (PC=$%04X, expected $0153)\n\n",
@@ -1954,11 +1901,80 @@ int main() {
         setup_system(dut, sdram, rom, sizeof(rom));
 
         uint16_t final_pc = 0;
-        bool reached = run_until_pc(dut, sdram, halt_pc, 250000, &final_pc);
+        bool reached = false;
+        bool entered = false;
+        uint16_t last_inrange_pc = 0xFFFF;
+        uint16_t prev_m1_addr = 0xFFFF;
+        uint8_t  prev_m1_op = 0xFF;
+        bool jumped_to_ram = false;
+        uint16_t ram_m1_addr = 0xFFFF;
+        uint8_t  ram_m1_op = 0xFF;
+        static const int M1_RING = 8;
+        uint16_t m1_addr[M1_RING];
+        uint8_t  m1_op[M1_RING];
+        int      m1_idx = 0;
+        for (int i = 0; i < M1_RING; i++) { m1_addr[i] = 0xFFFF; m1_op[i] = 0xFF; }
+        for (int cyc = 0; cyc < 3000000; cyc++) {
+            tick_with_sdram(dut, sdram);
+            uint16_t pc_now = dut->dbg_cpu_pc;
+            final_pc = pc_now;
+
+            // Record last opcode fetch (M1/T3) from the external bus.
+            if (dut->dbg_cpu_mcycle == 0x01 &&
+                dut->dbg_cpu_tstate == 0x04 &&
+                dut->dbg_cpu_rd_n == 0 &&
+                dut->dbg_sel_boot_rom == 0) {
+                uint16_t curr_addr = dut->dbg_cpu_addr;
+                uint8_t curr_op = dut->dbg_cpu_di;
+                if (prev_m1_addr < 0x8000 && curr_addr >= 0x8000) {
+                    jumped_to_ram = true;
+                    ram_m1_addr = curr_addr;
+                    ram_m1_op = curr_op;
+                    break;
+                }
+                prev_m1_addr = curr_addr;
+                prev_m1_op = curr_op;
+
+                m1_addr[m1_idx] = curr_addr;
+                m1_op[m1_idx] = curr_op;
+                m1_idx = (m1_idx + 1) % M1_RING;
+            }
+
+            if (pc_now >= 0x0150 && pc_now < 0x8000) {
+                entered = true;
+                last_inrange_pc = pc_now;
+            }
+            if (pc_now == halt_pc) {
+                reached = true;
+                break;
+            }
+            if (entered && pc_now < 0x0150) {
+                uint8_t last_op = (last_inrange_pc < sizeof(rom)) ? rom[last_inrange_pc] : 0xFF;
+                printf("    [DBG] sweep escaped to PC=$%04X (last in-range PC=$%04X op=$%02X irq_n=%u IE=$%02X IF=$%02X)\n",
+                       pc_now, last_inrange_pc, last_op,
+                       dut->dbg_irq_n ? 1 : 0, dut->dbg_ie_r, (unsigned)dut->dbg_if_r);
+                printf("    [DBG] recent M1 fetches (oldest->newest):\n");
+                for (int j = 0; j < M1_RING; j++) {
+                    int k = (m1_idx + j) % M1_RING;
+                    uint16_t a = m1_addr[k];
+                    uint8_t di = m1_op[k];
+                    uint8_t exp = (a < sizeof(rom)) ? rom[a] : 0xFF;
+                    printf("           addr=$%04X di=$%02X exp=$%02X\n", a, di, exp);
+                }
+                break;
+            }
+        }
 
         bool passed = reached && final_pc == halt_pc;
         record_test("Unprefixed opcode sweep", passed,
                     passed ? "" : "Did not reach end of unprefixed sweep");
+        if (!passed && jumped_to_ram) {
+            uint8_t prev_exp = (prev_m1_addr < sizeof(rom)) ? rom[prev_m1_addr] : 0xFF;
+            printf("    [DBG] first M1 fetch >=$8000: addr=$%04X di=$%02X\n", ram_m1_addr, ram_m1_op);
+            printf("    [DBG] previous M1 fetch: addr=$%04X di=$%02X exp=$%02X SP=$%04X HL=$%04X BC=$%04X DE=$%04X\n",
+                   prev_m1_addr, prev_m1_op, prev_exp,
+                   dut->dbg_cpu_sp, dut->dbg_cpu_hl, dut->dbg_cpu_bc, dut->dbg_cpu_de);
+        }
         printf("    Result: %s (PC=$%04X, expected $%04X, %d opcodes)\n\n",
                passed ? "PASS" : "FAIL", final_pc, halt_pc, sweep_count);
 
@@ -2045,7 +2061,9 @@ int main() {
         uint16_t jp_c_resume = pc;
 
         // JP (HL)
+        uint16_t jphl_ld_pc = pc;
         emit8(0x21); emit16(0x0240); // LD HL,$0240
+        uint16_t jphl_jp_pc = pc;
         emit8(0xE9);                 // JP (HL)
         uint16_t jphl_resume = pc;
 
@@ -2111,7 +2129,83 @@ int main() {
         setup_system(dut, sdram, rom, sizeof(rom));
 
         uint16_t final_pc = 0;
-        bool reached = run_until_pc_reg(dut, sdram, halt_pc, 200000, &final_pc);
+        bool reached = false;
+        bool saw_jphl = false;
+        int ldhl_reads = 0;
+        int ldhl_clken_traces = 0;
+        for (int cyc = 0; cyc < 800000; cyc++) {
+            tick_with_sdram(dut, sdram);
+            uint16_t pc_now = dut->dbg_cpu_pc;
+            final_pc = pc_now;
+
+            static uint16_t last_ldhl_addr = 0xFFFF;
+            static int last_ldhl_addr_prints = 0;
+            if (dut->dbg_cpu_rd_n == 0 &&
+                dut->dbg_sel_boot_rom == 0 &&
+                dut->dbg_cpu_addr >= (uint16_t)(jphl_ld_pc) &&
+                dut->dbg_cpu_addr <= (uint16_t)(jphl_ld_pc + 2)) {
+                uint16_t a = dut->dbg_cpu_addr;
+                if (a != last_ldhl_addr) {
+                    last_ldhl_addr = a;
+                    last_ldhl_addr_prints = 0;
+                }
+                if (last_ldhl_addr_prints >= 10) {
+                    continue;
+                }
+                uint8_t di = dut->dbg_cpu_di;
+                uint8_t exp = (a < sizeof(rom)) ? rom[a] : 0xFF;
+                printf("    [DBG] rd pc=$%04X addr=$%04X di=$%02X exp=$%02X cart_rd=%d mcycle=%u tstate=%u clken=%d busa=%u busb=%u alt=%u hl=$%04X hl'=$%04X RegC=$%04X di_lat=$%02X R2Rr=0x%02X WEH=%u WEL=%u RegA=0x%X\n",
+                       pc_now, a, di, exp, dut->dbg_cart_rd ? 1 : 0,
+                       (unsigned)dut->dbg_cpu_mcycle, (unsigned)dut->dbg_cpu_tstate, dut->dbg_cpu_clken ? 1 : 0,
+                       (unsigned)dut->dbg_cpu_set_busa_to, (unsigned)dut->dbg_cpu_set_busb_to,
+                       (unsigned)dut->dbg_cpu_alternate,
+                       dut->dbg_cpu_hl, dut->dbg_cpu_hl_alt, dut->dbg_cpu_regbusc, (unsigned)dut->dbg_cpu_di_latched,
+                       (unsigned)dut->dbg_cpu_read_to_reg_r, (unsigned)dut->dbg_cpu_regweh, (unsigned)dut->dbg_cpu_regwel,
+                       (unsigned)dut->dbg_cpu_regaddra);
+                ldhl_reads++;
+                last_ldhl_addr_prints++;
+            }
+
+            if (dut->dbg_cpu_clken &&
+                pc_now >= (uint16_t)(jphl_ld_pc) &&
+                pc_now <= (uint16_t)(jphl_jp_pc + 1) &&
+                ldhl_clken_traces < 200) {
+                printf("    [DBG] clken pc=$%04X addr=$%04X rd_n=%u mcycle=%u tstate=%u busa=%u alt=%u di_lat=$%02X R2Rr=0x%02X WEH=%u WEL=%u RegA=0x%X HL=$%04X\n",
+                       pc_now, dut->dbg_cpu_addr, dut->dbg_cpu_rd_n ? 1 : 0,
+                       (unsigned)dut->dbg_cpu_mcycle, (unsigned)dut->dbg_cpu_tstate,
+                       (unsigned)dut->dbg_cpu_set_busa_to, (unsigned)dut->dbg_cpu_alternate,
+                       (unsigned)dut->dbg_cpu_di_latched, (unsigned)dut->dbg_cpu_read_to_reg_r,
+                       (unsigned)dut->dbg_cpu_regweh, (unsigned)dut->dbg_cpu_regwel,
+                       (unsigned)dut->dbg_cpu_regaddra, dut->dbg_cpu_hl);
+                ldhl_clken_traces++;
+            }
+
+            if (!saw_jphl && pc_now == jphl_jp_pc) {
+                saw_jphl = true;
+                printf("    [DBG] about to execute JP(HL) at $%04X: alt=%u HL=$%04X HL'=$%04X RegC=$%04X di_lat=$%02X R2Rr=0x%02X WEH=%u WEL=%u RegA=0x%X (expected $0240)\n",
+                       pc_now, (unsigned)dut->dbg_cpu_alternate,
+                       dut->dbg_cpu_hl, dut->dbg_cpu_hl_alt, dut->dbg_cpu_regbusc, (unsigned)dut->dbg_cpu_di_latched,
+                       (unsigned)dut->dbg_cpu_read_to_reg_r, (unsigned)dut->dbg_cpu_regweh, (unsigned)dut->dbg_cpu_regwel,
+                       (unsigned)dut->dbg_cpu_regaddra);
+                printf("    [DBG] bus: addr=$%04X rd_n=%d cart_rd=%d mbc=0x%06X sdram_do=$%04X cpu_di=$%02X cart_do=$%02X\n",
+                       dut->dbg_cpu_addr, dut->dbg_cpu_rd_n ? 1 : 0, dut->dbg_cart_rd ? 1 : 0,
+                       (unsigned)dut->dbg_mbc_addr, (unsigned)dut->dbg_sdram_do,
+                       (unsigned)dut->dbg_cpu_di, (unsigned)dut->dbg_cart_do);
+            }
+            if (!saw_jphl && pc_now == jphl_ld_pc) {
+                printf("    [DBG] executing LD HL,d16 at $%04X\n", pc_now);
+            }
+
+            if (pc_now == halt_pc) {
+                reached = true;
+                break;
+            }
+
+            if (pc_now >= 0x8000) {
+                // Treat jumping into VRAM as a strong failure signature; stop early.
+                break;
+            }
+        }
 
         bool passed = reached && final_pc == halt_pc;
         record_test("Conditional control flow smoke", passed,

@@ -72,12 +72,14 @@ public:
     std::vector<uint8_t> burst_data;
     int burst_offset;
 
-    MisterSDRAMModel(uint32_t size_mb = 32, SDRAMInterfaceType type = INTERFACE_NATIVE_SDRAM) {
-        interface_type = type;
-        size_bytes = size_mb * 1024 * 1024;
-        cas_latency = 0;  // FIXED: Use 0 for simulation (RTL expects immediate data)
-        burst_length = 1;
-        debug = false;
+	    MisterSDRAMModel(uint32_t size_mb = 32, SDRAMInterfaceType type = INTERFACE_NATIVE_SDRAM) {
+	        interface_type = type;
+	        size_bytes = size_mb * 1024 * 1024;
+	        // Default to a realistic CAS latency. The controller (rtl/sdram_sim.sv)
+	        // issues MRS during init which can override this per-design.
+	        cas_latency = 2;
+	        burst_length = 1;
+	        debug = false;
 
         memory.resize(size_bytes, 0);
 

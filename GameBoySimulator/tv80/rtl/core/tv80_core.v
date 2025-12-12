@@ -397,15 +397,28 @@ module tv80_core (/*AUTOARG*/
           mcycles <= `TV80DELAY 3'b000;
           dout <= `TV80DELAY 8'b00000000;
 
+`ifdef GAMEBOY_SIM
+          // Many open/fast boot ROMs assume A/flags start at 0 on reset and
+          // don't explicitly clear them before initializing VRAM/IO.
+          ACC <= `TV80DELAY 8'h00;
+          F <= `TV80DELAY 8'h00;
+          Ap <= `TV80DELAY 8'h00;
+          Fp <= `TV80DELAY 8'h00;
+`else
           ACC <= `TV80DELAY 8'hFF;
           F <= `TV80DELAY 8'hFF;
           Ap <= `TV80DELAY 8'hFF;
           Fp <= `TV80DELAY 8'hFF;
+`endif
           I <= `TV80DELAY 0;
           `ifdef TV80_REFRESH
           R <= `TV80DELAY 0;
           `endif
+`ifdef GAMEBOY_SIM
+          SP <= `TV80DELAY 16'hFFFE;
+`else
           SP <= `TV80DELAY 16'hFFFF;
+`endif
           Alternate <= `TV80DELAY 1'b0;
 
           Read_To_Reg_r <= `TV80DELAY 5'b00000;
@@ -458,7 +471,13 @@ module tv80_core (/*AUTOARG*/
                           R[6:0] <= `TV80DELAY R[6:0] + 1;
                         end
                       `endif
-                      if (Jump == 1'b0 && Call == 1'b0 && NMICycle == 1'b0 && IntCycle == 1'b0 && ~ (Halt_FF == 1'b1 || Halt == 1'b1) ) 
+                      // PC must advance after the opcode fetch for multi-byte instructions.
+                      // For CALL (and similar flow-control ops), the microcode relies on the
+                      // standard M1 increment to move PC to the immediate operand bytes.
+                      // Gating this increment on `Call==0` causes CALL to push an incorrect
+                      // return address (observed as $4080 for CALL at $0040 in the DMG boot ROM),
+                      // which then makes RET jump to garbage and breaks the boot flow.
+                      if (Jump == 1'b0 && NMICycle == 1'b0 && IntCycle == 1'b0 && ~ (Halt_FF == 1'b1 || Halt == 1'b1) ) 
                         begin
                           PC <= `TV80DELAY PC16;
                         end
@@ -556,7 +575,17 @@ module tv80_core (/*AUTOARG*/
                           end 
                         else 
                           begin
-                            case (Set_Addr_To)
+                            // At the instruction boundary (end of the last MCycle),
+                            // make sure the external address bus returns to PC for the
+                            // next opcode fetch. Without this, stack operations like
+                            // PUSH can leave `A` pointing at SP for one M1 cycle,
+                            // causing the core to fetch the next opcode from the stack
+                            // (observed in DMG boot ROM at $00BC: F5; next opcode fetch
+                            // incorrectly reads from $FFFA instead of $00BD).
+                            if (last_mcycle) begin
+                              A <= `TV80DELAY PC;
+                            end else begin
+                              case (Set_Addr_To)
                               aXY :
                                 begin
                                   if (XY_State == 2'b00 ) 
@@ -637,7 +666,8 @@ module tv80_core (/*AUTOARG*/
                                 begin                                    
                                   A <= `TV80DELAY PC;
                                 end
-                            endcase // case(Set_Addr_To)
+                              endcase // case(Set_Addr_To)
+                            end
                             
                           end // else: !if(mcycle[2] && IntCycle == 1'b1 && IStatus == 2'b10 )
                       
@@ -827,18 +857,22 @@ module tv80_core (/*AUTOARG*/
                 end // if (T_Res == 1'b1 && I_INRC == 1'b1 )
               
 
-              if (tstate[1] && Auto_Wait_t1 == 1'b0 ) 
+              // Update dout during both T2 and T3. Some write sequences (notably
+              // PUSH/POP around the DMG boot ROM logo routine) can change the
+              // bus selection late enough that sampling only in T2 leaves dout
+              // stuck at a stale value for the write cycle.
+              if ((tstate[1] || tstate[2]) && Auto_Wait_t1 == 1'b0 ) 
                 begin
-                  dout <= `TV80DELAY BusB;
+                  dout <= `TV80DELAY BusB_next;
                   if (I_RLD == 1'b1 ) 
                     begin
-                      dout[3:0] <= `TV80DELAY BusA[3:0];
-                      dout[7:4] <= `TV80DELAY BusB[3:0];
+                      dout[3:0] <= `TV80DELAY BusA_next[3:0];
+                      dout[7:4] <= `TV80DELAY BusB_next[3:0];
                     end
                   if (I_RRD == 1'b1 ) 
                     begin
-                      dout[3:0] <= `TV80DELAY BusB[7:4];
-                      dout[7:4] <= `TV80DELAY BusA[3:0];
+                      dout[3:0] <= `TV80DELAY BusB_next[7:4];
+                      dout[7:4] <= `TV80DELAY BusA_next[3:0];
                     end
                 end
 
@@ -1054,76 +1088,63 @@ module tv80_core (/*AUTOARG*/
   //
   //-------------------------------------------------------------------------
 
-  // BusB is registered but updates EVERY clock cycle (not gated by ClkEn)
-  // This ensures BusB is always current with Set_BusB_To when dout samples it
-  always @ (posedge clk)
-    begin
-      case (Set_BusB_To)
-        4'b0111 :
-          BusB <= `TV80DELAY ACC;
-        4'b0000 , 4'b0001 , 4'b0010 , 4'b0011 , 4'b0100 , 4'b0101 :
-          begin
-            if (Set_BusB_To[0] == 1'b1 )
-              begin
-                BusB <= `TV80DELAY RegBusB[7:0];
-              end
-            else
-              begin
-                BusB <= `TV80DELAY RegBusB[15:8];
-              end
-          end
-        4'b0110 :
-          BusB <= `TV80DELAY DI_Reg;
-        4'b1000 :
-          BusB <= `TV80DELAY SP[7:0];
-        4'b1001 :
-          BusB <= `TV80DELAY SP[15:8];
-        4'b1010 :
-          BusB <= `TV80DELAY 8'b00000001;
-        4'b1011 :
-          BusB <= `TV80DELAY F;
-        4'b1100 :
-          BusB <= `TV80DELAY PC[7:0];
-        4'b1101 :
-          BusB <= `TV80DELAY PC[15:8];
-        4'b1110 :
-          BusB <= `TV80DELAY 8'b00000000;
-        default :
-          BusB <= `TV80DELAY 8'h0;
-      endcase
-    end
+  // Compute BusA/BusB combinationally and then register.
+  // This avoids stale write data when `dout` is updated in the same clock edge:
+  // with separate posedge blocks, `dout <= BusB` can observe the previous BusB
+  // value due to nonblocking update ordering (breaks PUSH/POP timing in DMG boot).
+  reg [7:0] BusB_next;
+  reg [7:0] BusA_next;
 
-  always @ (posedge clk)
-    begin
-      if (ClkEn_wire == 1'b1 )
-        begin
-          case (Set_BusA_To)
-            4'b0111 :
-              BusA <= `TV80DELAY ACC;
-            4'b0000 , 4'b0001 , 4'b0010 , 4'b0011 , 4'b0100 , 4'b0101 :
-              begin
-                if (Set_BusA_To[0] == 1'b1 )
-                  begin
-                    BusA <= `TV80DELAY RegBusA[7:0];
-                  end
-                else
-                  begin
-                    BusA <= `TV80DELAY RegBusA[15:8];
-                  end
-              end
-            4'b0110 :
-              BusA <= `TV80DELAY DI_Reg;
-            4'b1000 :
-              BusA <= `TV80DELAY SP[7:0];
-            4'b1001 :
-              BusA <= `TV80DELAY SP[15:8];
-            4'b1010 :
-              BusA <= `TV80DELAY 8'b00000000;
-            default :
-              BusA <= `TV80DELAY  8'h0;
-          endcase
-        end
-    end
+  always @* begin
+    case (Set_BusB_To)
+      4'b0111 :
+        BusB_next = ACC;
+      4'b0000 , 4'b0001 , 4'b0010 , 4'b0011 , 4'b0100 , 4'b0101 :
+        BusB_next = Set_BusB_To[0] ? RegBusB[7:0] : RegBusB[15:8];
+      4'b0110 :
+        BusB_next = DI_Reg;
+      4'b1000 :
+        BusB_next = SP[7:0];
+      4'b1001 :
+        BusB_next = SP[15:8];
+      4'b1010 :
+        BusB_next = 8'b00000001;
+      4'b1011 :
+        BusB_next = F;
+      4'b1100 :
+        BusB_next = PC[7:0];
+      4'b1101 :
+        BusB_next = PC[15:8];
+      4'b1110 :
+        BusB_next = 8'b00000000;
+      default :
+        BusB_next = 8'h00;
+    endcase
+
+    case (Set_BusA_To)
+      4'b0111 :
+        BusA_next = ACC;
+      4'b0000 , 4'b0001 , 4'b0010 , 4'b0011 , 4'b0100 , 4'b0101 :
+        BusA_next = Set_BusA_To[0] ? RegBusA[7:0] : RegBusA[15:8];
+      4'b0110 :
+        BusA_next = DI_Reg;
+      4'b1000 :
+        BusA_next = SP[7:0];
+      4'b1001 :
+        BusA_next = SP[15:8];
+      4'b1010 :
+        BusA_next = 8'b00000000;
+      default :
+        BusA_next = 8'h00;
+    endcase
+  end
+
+  always @ (posedge clk) begin
+    BusB <= `TV80DELAY BusB_next;
+    BusA <= `TV80DELAY BusA_next;
+  end
+
+  // (BusA register update moved above)
 
   //-------------------------------------------------------------------------
   //

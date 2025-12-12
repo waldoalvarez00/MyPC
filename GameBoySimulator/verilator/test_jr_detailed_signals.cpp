@@ -35,17 +35,26 @@ void setup_system(Vtop* dut, MisterSDRAMModel* sdram, uint8_t* rom, size_t rom_s
     }
     dut->boot_download = 0;
 
+    // Initialize cart logic without corrupting SDRAM ROM contents.
+    // Step 1: Pulse cart_download high (no writes) so cart regs reset deterministically.
     dut->ioctl_download = 1;
     dut->ioctl_index = 0;
-    for (int i = 0; i < 10; i++) {
-        dut->ioctl_addr = i;
-        dut->ioctl_wr = 1;
-        run_cycles_with_sdram(dut, sdram, 64);
-        dut->ioctl_wr = 0;
-        run_cycles_with_sdram(dut, sdram, 64);
-        if (dut->dbg_cart_ready) break;
-    }
+    run_cycles_with_sdram(dut, sdram, 64);
     dut->ioctl_download = 0;
+
+    // Step 2: Pulse ioctl_wr once while cart_download is low.
+    // This generates dn_write inside cart.v and sets cart_ready, but does NOT write SDRAM.
+    dut->ioctl_addr = 0;
+    dut->ioctl_dout = 0;
+    dut->ioctl_wr = 1;
+    run_cycles_with_sdram(dut, sdram, 4);
+    dut->ioctl_wr = 0;
+    run_cycles_with_sdram(dut, sdram, 64);
+
+    // Wait for cart to report ready
+    for (int i = 0; i < 2000 && !dut->dbg_cart_ready; i++) {
+        tick_with_sdram(dut, sdram);
+    }
 
     for (int cycle = 0; cycle < 50000; cycle++) {
         tick_with_sdram(dut, sdram);

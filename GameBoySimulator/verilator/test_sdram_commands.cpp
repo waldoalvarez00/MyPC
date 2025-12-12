@@ -22,7 +22,8 @@ const char* decode_sdram_cmd(bool cs, bool ras, bool cas, bool we) {
 
 int main() {
     Vtop* dut = new Vtop;
-    MisterSDRAMModel* sdram = new MisterSDRAMModel(8*1024*1024);
+    // MisterSDRAMModel ctor takes size in MB (not bytes).
+    MisterSDRAMModel* sdram = new MisterSDRAMModel(8);
     sdram->cas_latency = 2;  // Realistic CAS latency
     sdram->debug = true;  // Enable SDRAM model debug output
 
