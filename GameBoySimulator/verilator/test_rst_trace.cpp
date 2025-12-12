@@ -35,17 +35,22 @@ static void setup_system(Vtop* dut, MisterSDRAMModel* sdram, uint8_t* rom, size_
     }
     dut->boot_download = 0;
 
+    // Initialize cart logic without corrupting SDRAM ROM contents.
     dut->ioctl_download = 1;
     dut->ioctl_index = 0;
-    for (int i = 0; i < 10; i++) {
-        dut->ioctl_addr = i;
-        dut->ioctl_wr = 1;
-        run_cycles_with_sdram(dut, sdram, 64);
-        dut->ioctl_wr = 0;
-        run_cycles_with_sdram(dut, sdram, 64);
-        if (dut->dbg_cart_ready) break;
-    }
+    run_cycles_with_sdram(dut, sdram, 64);
     dut->ioctl_download = 0;
+
+    dut->ioctl_addr = 0;
+    dut->ioctl_dout = 0;
+    dut->ioctl_wr = 1;
+    run_cycles_with_sdram(dut, sdram, 4);
+    dut->ioctl_wr = 0;
+    run_cycles_with_sdram(dut, sdram, 64);
+
+    for (int i = 0; i < 2000 && !dut->dbg_cart_ready; i++) {
+        tick_with_sdram(dut, sdram);
+    }
 
     for (int cycle = 0; cycle < 50000; cycle++) {
         tick_with_sdram(dut, sdram);

@@ -1733,10 +1733,11 @@ module tv80_mcode
                   // RST p
                   if (Mode == 3)
                     begin
-                      // GBZ80: insert an internal prep cycle between the two stack writes
-                      // so BusB can switch from PC high to low without being stretched
-                      // inside an active write cycle.
-                      MCycles = 3'b100;  // 4 cycles total
+                      // GBZ80: RST overlaps M1 fetch. IR updates late in Mode 3,
+                      // so BusB can lag by a sysclk when M2 starts. Insert a dummy
+                      // internal cycle after M1 to let BusB settle to PC high before
+                      // the first stack write. This avoids pushing a zero high byte.
+                      MCycles = 3'd5;  // 5 cycles total (M1 + 4 internal)
                       case (1'b1) // MCycle
                         MCycle[0] :
                           begin
@@ -1748,18 +1749,25 @@ module tv80_mcode
                           end
                         MCycle[1] :
                           begin
+                            // Dummy settle cycle (no bus read/write)
+                            NoRead = 1'b1;
+                            Set_Addr_To = aSP;
+                            Set_BusB_To = 4'b1101; // keep PC high stable
+                          end
+                        MCycle[2] :
+                          begin
                             Write = 1'b1;          // write PC high to SP-1
                             Set_Addr_To = aSP;
                             Set_BusB_To = 4'b1101; // keep high stable
                           end
-                        MCycle[2] :
+                        MCycle[3] :
                           begin
                             NoRead = 1'b1;
                             IncDec_16 = 4'b1111;   // SP-- for low byte
                             Set_Addr_To = aSP;
                             Set_BusB_To = 4'b1100; // PC low
                           end
-                        MCycle[3] :
+                        MCycle[4] :
                           begin
                             Write = 1'b1;          // write PC low to SP-2
                             RstP = 1'b1;
