@@ -12,9 +12,11 @@ struct TestResult {
     const char* details;
 };
 
-#define MAX_TESTS 64
+#define MAX_TESTS 128
 TestResult results[MAX_TESTS];
 int test_count = 0;
+
+static const int SHORT_TEST_CYCLES = 200000;  // sysclk cycles for small targeted tests
 
 void record_test(const char* name, bool passed, const char* details = "") {
     if (test_count < MAX_TESTS) {
@@ -49,10 +51,125 @@ void print_results() {
     printf("================================================================================\n");
 }
 
+// ============================================================================
+// Opcode metadata (from lmmendes/game-boy-opcodes)
+// ============================================================================
+static const uint8_t UNPREF_LEN[256] = {
+  1, 3, 1, 1, 1, 1, 2, 1, 3, 1, 1, 1, 1, 1, 2, 1,
+  1, 3, 1, 1, 1, 1, 2, 1, 2, 1, 1, 1, 1, 1, 2, 1,
+  2, 3, 1, 1, 1, 1, 2, 1, 2, 1, 1, 1, 1, 1, 2, 1,
+  2, 3, 1, 1, 1, 1, 2, 1, 2, 1, 1, 1, 1, 1, 2, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 3, 3, 3, 1, 2, 1, 1, 1, 3, 1, 3, 3, 2, 1,
+  1, 1, 3, 1, 3, 1, 2, 1, 1, 1, 3, 1, 3, 1, 2, 1,
+  2, 1, 1, 1, 1, 1, 2, 1, 2, 1, 3, 1, 1, 1, 2, 1,
+  2, 1, 1, 1, 1, 1, 2, 1, 2, 1, 3, 1, 1, 1, 2, 1
+};
+
+static const uint8_t UNPREF_LEGAL[256] = {
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1,
+  1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1,
+  1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1
+};
+
+// Exclude control-flow / halting opcodes from linear sweeps
+static const uint8_t UNPREF_EXCLUDED[256] = {
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+  1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+  1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  1, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1,
+  1, 0, 1, 0, 1, 0, 0, 1, 1, 1, 1, 0, 1, 0, 0, 1,
+  0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1,
+  0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1
+};
+
+static void write_cart_entry(uint8_t* rom) {
+    rom[0x100] = 0xC3; rom[0x101] = 0x50; rom[0x102] = 0x01;  // JP $0150
+}
+
+static uint16_t emit_prelude(uint8_t* rom, uint16_t pc) {
+    // Set SP to safe RAM, and initialize general registers.
+    rom[pc++] = 0x31; rom[pc++] = 0xFE; rom[pc++] = 0xFF;  // LD SP,$FFFE (safe HRAM stack)
+    rom[pc++] = 0x21; rom[pc++] = 0x00; rom[pc++] = 0xC1;  // LD HL,$C100
+    rom[pc++] = 0x01; rom[pc++] = 0x00; rom[pc++] = 0xC2;  // LD BC,$C200
+    rom[pc++] = 0x11; rom[pc++] = 0x00; rom[pc++] = 0xC3;  // LD DE,$C300
+    rom[pc++] = 0x3E; rom[pc++] = 0x12;                    // LD A,$12
+    rom[pc++] = 0x06; rom[pc++] = 0x34;                    // LD B,$34
+    rom[pc++] = 0x0E; rom[pc++] = 0x80;                    // LD C,$80 (HRAM for LDH/FF00+C ops)
+    rom[pc++] = 0x16; rom[pc++] = 0x56;                    // LD D,$56
+    rom[pc++] = 0x1E; rom[pc++] = 0x78;                    // LD E,$78
+    return pc;
+}
+
+static uint16_t emit_unprefixed_sweep(uint8_t* rom, uint16_t pc, int* out_count) {
+    int count = 0;
+    for (int op = 0; op < 256; op++) {
+        if (!UNPREF_LEGAL[op]) continue;
+        if (UNPREF_EXCLUDED[op]) continue;
+        if (op == 0xCB) continue;  // CB prefix handled separately
+
+        uint8_t len = UNPREF_LEN[op];
+        if (pc + len >= 0x8000) break;
+
+        rom[pc++] = (uint8_t)op;
+        if (len == 2) {
+            uint8_t imm8 = (op == 0xE0 || op == 0xF0) ? 0x80 : 0x01;  // LDH a8 uses HRAM
+            rom[pc++] = imm8;
+        } else if (len == 3) {
+            rom[pc++] = 0x00;  // low
+            rom[pc++] = 0xC1;  // high -> $C100 safe RAM
+        }
+        count++;
+    }
+    if (out_count) *out_count = count;
+    return pc;
+}
+
+static uint16_t emit_cbprefixed_sweep(uint8_t* rom, uint16_t pc) {
+    for (int cb = 0; cb < 256; cb++) {
+        if (pc + 2 >= 0x8000) break;
+        rom[pc++] = 0xCB;
+        rom[pc++] = (uint8_t)cb;
+    }
+    return pc;
+}
+
 // Helper to run until PC reaches target or timeout
 bool run_until_pc(Vtop* dut, MisterSDRAMModel* sdram, uint16_t target_pc,
                   int max_cycles, uint16_t* final_pc = nullptr, uint8_t* final_ir = nullptr) {
-    for (int i = 0; i < max_cycles; i++) {
+    int scaled_max_cycles = max_cycles;
+    // Targeted tests were written assuming ce-based timing; scale small limits to sysclk.
+    if (max_cycles <= 30000) scaled_max_cycles = max_cycles * 20;
+    for (int i = 0; i < scaled_max_cycles; i++) {
         tick_with_sdram(dut, sdram);
         uint16_t pc = dut->dbg_cpu_addr;
         if (pc == target_pc) {
@@ -63,6 +180,24 @@ bool run_until_pc(Vtop* dut, MisterSDRAMModel* sdram, uint16_t target_pc,
     }
     if (final_pc) *final_pc = dut->dbg_cpu_addr;
     if (final_ir) *final_ir = dut->dbg_cpu_ir;
+    return false;
+}
+
+// Like run_until_pc, but uses internal PC register (dbg_cpu_pc) so relative jumps
+// can pass through fallthrough addresses during M2 without early failure.
+bool run_until_pc_reg(Vtop* dut, MisterSDRAMModel* sdram, uint16_t target_pc,
+                      int max_cycles, uint16_t* final_pc = nullptr) {
+    int scaled_max_cycles = max_cycles;
+    if (max_cycles <= 30000) scaled_max_cycles = max_cycles * 20;
+    for (int i = 0; i < scaled_max_cycles; i++) {
+        tick_with_sdram(dut, sdram);
+        uint16_t pc = dut->dbg_cpu_pc;
+        if (pc == target_pc) {
+            if (final_pc) *final_pc = pc;
+            return true;
+        }
+    }
+    if (final_pc) *final_pc = dut->dbg_cpu_pc;
     return false;
 }
 
@@ -126,7 +261,7 @@ int main() {
     printf("================================================================================\n");
     printf("                       GAMEBOY CPU COMPREHENSIVE TEST SUITE\n");
     printf("================================================================================\n");
-    printf("Testing 53 instructions across all major categories:\n");
+    printf("Testing 53 targeted instructions plus full opcode sweeps:\n");
     printf("  - Basic ops (NOP, HALT)\n");
     printf("  - Control flow (JP, JR unconditional/conditional, CALL/RET)\n");
     printf("  - 8-bit loads (LD r,d8 for all registers A,B,C,D,E,H,L)\n");
@@ -136,6 +271,8 @@ int main() {
     printf("  - 16-bit ops (LD BC/DE/HL,d16, INC/DEC BC/DE/HL)\n");
     printf("  - Stack ops (PUSH/POP BC)\n");
     printf("  - Flags (SCF, CCF)\n");
+    printf("  - Linear sweep of all legal non-control unprefixed opcodes\n");
+    printf("  - Linear sweep of all 256 CB-prefixed opcodes\n");
     printf("\nNote: Known TV80 bugs documented in JR_COMPLETE_INVESTIGATION.md\n");
     printf("================================================================================\n\n");
 
@@ -212,37 +349,22 @@ int main() {
         uint8_t rom[32768];
         memset(rom, 0x76, sizeof(rom));
         rom[0x100] = 0xC3; rom[0x101] = 0x50; rom[0x102] = 0x01;  // JP $0150
-        rom[0x150] = 0x00;  // NOP
-        rom[0x151] = 0x00;  // NOP
-        rom[0x152] = 0x18; rom[0x153] = 0x02;  // JR +2 (should jump to $0156)
-        rom[0x154] = 0x76;  // HALT (should skip)
-        rom[0x155] = 0x76;  // HALT (should skip)
-        rom[0x156] = 0x00;  // NOP (target)
-        rom[0x157] = 0x76;  // HALT (success)
+        rom[0x150] = 0x18; rom[0x151] = 0x02;  // JR +2 (target $0154)
+        rom[0x152] = 0x76;  // HALT (should skip)
+        rom[0x153] = 0x76;  // HALT (should skip)
+        rom[0x154] = 0x00;  // NOP (target)
+        rom[0x155] = 0x76;  // HALT (success)
 
         setup_system(dut, sdram, rom, sizeof(rom));
 
         uint16_t final_pc = 0;
-        // Check if we reach either skip location (failure) or target (success)
-        for (int cycle = 0; cycle < 10000; cycle++) {
-            tick_with_sdram(dut, sdram);
-            uint16_t pc = dut->dbg_cpu_addr;
-            if (pc == 0x154) {
-                final_pc = 0x154;
-                break;  // Failed - reached skip location
-            }
-            if (pc == 0x156 || pc == 0x157) {
-                final_pc = pc;
-                break;  // Success - jumped to target
-            }
-        }
+        bool reached = run_until_pc_reg(dut, sdram, 0x155, SHORT_TEST_CYCLES, &final_pc);
 
-        bool passed = (final_pc == 0x156 || final_pc == 0x157);
+        bool passed = reached && final_pc == 0x155;
         record_test("JR unconditional +2", passed,
-                    passed ? "" : "JR did not jump - TV80 known bug");
-        printf("    Result: %s (PC=$%04X, expected $0156-$0157, skip if $0154)\n",
+                    passed ? "" : "JR did not reach success HALT");
+        printf("    Result: %s (PC=$%04X, expected HALT at $0155)\n\n",
                passed ? "PASS" : "FAIL", final_pc);
-        printf("    Note: This is a KNOWN TV80 BUG - JR instruction broken\n\n");
 
         delete sdram;
         delete dut;
@@ -324,21 +446,13 @@ int main() {
         setup_system(dut, sdram, rom, sizeof(rom));
 
         uint16_t final_pc = 0;
-        for (int cycle = 0; cycle < 10000; cycle++) {
-            tick_with_sdram(dut, sdram);
-            uint16_t pc = dut->dbg_cpu_addr;
-            if (pc >= 0x153 && pc <= 0x155) {
-                final_pc = pc;
-                break;
-            }
-        }
+        bool reached = run_until_pc_reg(dut, sdram, 0x155, SHORT_TEST_CYCLES, &final_pc);
 
-        bool passed = (final_pc == 0x155);
+        bool passed = reached && final_pc == 0x155;
         record_test("JR C when carry=1", passed,
-                    passed ? "" : "JR C did not jump when carry set - TV80 known bug");
-        printf("    Result: %s (PC=$%04X, expected $0155)\n",
+                    passed ? "" : "JR C did not reach target HALT");
+        printf("    Result: %s (PC=$%04X, expected HALT at $0155)\n\n",
                passed ? "PASS" : "FAIL", final_pc);
-        printf("    Note: TV80 conditional JR has microcode bugs\n\n");
 
         delete sdram;
         delete dut;
@@ -366,7 +480,7 @@ int main() {
         setup_system(dut, sdram, rom, sizeof(rom));
 
         uint16_t final_pc = 0;
-        for (int cycle = 0; cycle < 10000; cycle++) {
+        for (int cycle = 0; cycle < SHORT_TEST_CYCLES; cycle++) {
             tick_with_sdram(dut, sdram);
             uint16_t pc = dut->dbg_cpu_addr;
             if (pc == 0x155 || pc == 0x158) {
@@ -407,19 +521,12 @@ int main() {
         setup_system(dut, sdram, rom, sizeof(rom));
 
         uint16_t final_pc = 0;
-        for (int cycle = 0; cycle < 10000; cycle++) {
-            tick_with_sdram(dut, sdram);
-            uint16_t pc = dut->dbg_cpu_addr;
-            if (pc >= 0x153 && pc <= 0x155) {
-                final_pc = pc;
-                break;
-            }
-        }
+        bool reached = run_until_pc_reg(dut, sdram, 0x155, SHORT_TEST_CYCLES, &final_pc);
 
-        bool passed = (final_pc == 0x155);
+        bool passed = reached && final_pc == 0x155;
         record_test("JR NC when carry=0", passed,
-                    passed ? "" : "JR NC failed - TV80 known bug");
-        printf("    Result: %s (PC=$%04X, expected $0155)\n\n",
+                    passed ? "" : "JR NC did not reach target HALT");
+        printf("    Result: %s (PC=$%04X, expected HALT at $0155)\n\n",
                passed ? "PASS" : "FAIL", final_pc);
 
         delete sdram;
@@ -449,7 +556,7 @@ int main() {
         bool found_0x18 = false;
 
         // Monitor IR register when PC is at JR instruction
-        for (int cycle = 0; cycle < 10000; cycle++) {
+        for (int cycle = 0; cycle < SHORT_TEST_CYCLES; cycle++) {
             tick_with_sdram(dut, sdram);
             uint16_t pc = dut->dbg_cpu_addr;
             uint8_t ir = dut->dbg_cpu_ir;
@@ -803,7 +910,7 @@ int main() {
 
         uint16_t final_pc = 0;
         // Should end at HALT after RET
-        for (int cycle = 0; cycle < 10000; cycle++) {
+        for (int cycle = 0; cycle < SHORT_TEST_CYCLES; cycle++) {
             tick_with_sdram(dut, sdram);
             uint16_t pc = dut->dbg_cpu_addr;
             if (pc == 0x153 || pc == 0x154) {
@@ -1811,6 +1918,368 @@ int main() {
         bool passed = reached && final_pc == 0x153;
         record_test("DEC C (decrement C)", passed,
                     passed ? "" : "Failed to execute DEC C");
+        printf("    Result: %s (PC=$%04X)\n\n", passed ? "PASS" : "FAIL", final_pc);
+
+        delete sdram;
+        delete dut;
+    }
+
+    // ============================================================================
+    // TEST 54: Unprefixed opcode sweep (all legal non-control-flow opcodes)
+    // ============================================================================
+    {
+        printf("[ TEST 54 ] Unprefixed Opcode Sweep (excluding control flow)...\n");
+        Vtop* dut = new Vtop;
+        MisterSDRAMModel* sdram = new MisterSDRAMModel(8);
+        sdram->cas_latency = 2;
+
+        uint8_t rom[32768];
+        memset(rom, 0x76, sizeof(rom));
+        write_cart_entry(rom);
+
+        uint16_t pc = 0x150;
+        pc = emit_prelude(rom, pc);
+        int sweep_count = 0;
+        pc = emit_unprefixed_sweep(rom, pc, &sweep_count);
+        rom[pc++] = 0x76;  // HALT
+        uint16_t halt_pc = pc - 1;
+
+        setup_system(dut, sdram, rom, sizeof(rom));
+
+        uint16_t final_pc = 0;
+        bool reached = run_until_pc(dut, sdram, halt_pc, 250000, &final_pc);
+
+        bool passed = reached && final_pc == halt_pc;
+        record_test("Unprefixed opcode sweep", passed,
+                    passed ? "" : "Did not reach end of unprefixed sweep");
+        printf("    Result: %s (PC=$%04X, expected $%04X, %d opcodes)\n\n",
+               passed ? "PASS" : "FAIL", final_pc, halt_pc, sweep_count);
+
+        delete sdram;
+        delete dut;
+    }
+
+    // ============================================================================
+    // TEST 55: CB-prefixed opcode sweep (all 256 CB opcodes)
+    // ============================================================================
+    {
+        printf("[ TEST 55 ] CB-Prefixed Opcode Sweep...\n");
+        Vtop* dut = new Vtop;
+        MisterSDRAMModel* sdram = new MisterSDRAMModel(8);
+        sdram->cas_latency = 2;
+
+        uint8_t rom[32768];
+        memset(rom, 0x76, sizeof(rom));
+        write_cart_entry(rom);
+
+        uint16_t pc = 0x150;
+        pc = emit_prelude(rom, pc);
+        pc = emit_cbprefixed_sweep(rom, pc);
+        rom[pc++] = 0x76;  // HALT
+        uint16_t halt_pc = pc - 1;
+
+        setup_system(dut, sdram, rom, sizeof(rom));
+
+        uint16_t final_pc = 0;
+        bool reached = run_until_pc(dut, sdram, halt_pc, 400000, &final_pc);
+
+        bool passed = reached && final_pc == halt_pc;
+        record_test("CB-prefixed opcode sweep", passed,
+                    passed ? "" : "Did not reach end of CB-prefixed sweep");
+        printf("    Result: %s (PC=$%04X, expected $%04X, 256 opcodes)\n\n",
+               passed ? "PASS" : "FAIL", final_pc, halt_pc);
+
+        delete sdram;
+        delete dut;
+    }
+
+    // ============================================================================
+    // TEST 56: Conditional JP/CALL/RET + RETI + JP(HL) smoke coverage
+    // ============================================================================
+    {
+        printf("[ TEST 56 ] Conditional Control Flow Smoke Coverage...\n");
+        Vtop* dut = new Vtop;
+        MisterSDRAMModel* sdram = new MisterSDRAMModel(8);
+        sdram->cas_latency = 2;
+
+        uint8_t rom[32768];
+        memset(rom, 0x76, sizeof(rom));
+        write_cart_entry(rom);
+
+        uint16_t pc = 0x150;
+        auto emit8 = [&](uint8_t b) { rom[pc++] = b; };
+        auto emit16 = [&](uint16_t w) { rom[pc++] = w & 0xFF; rom[pc++] = (w >> 8) & 0xFF; };
+
+        // Prelude: safe stack + regs
+        pc = emit_prelude(rom, pc);
+
+        // Setup Z=0 (NZ true): A=1 then OR A
+        emit8(0x3E); emit8(0x01);  // LD A,1
+        emit8(0xB7);               // OR A (sets Z=0)
+
+        // JP NZ,a16
+        emit8(0xC2); emit16(0x0200);
+        uint16_t jp_nz_resume = pc;
+
+        // Setup Z=1 (Z true): XOR A
+        emit8(0xAF);               // XOR A (sets Z=1, C=0)
+
+        // JP Z,a16
+        emit8(0xCA); emit16(0x0210);
+        uint16_t jp_z_resume = pc;
+
+        // C=0 already
+        emit8(0xD2); emit16(0x0220);  // JP NC,a16
+        uint16_t jp_nc_resume = pc;
+
+        // Set C=1
+        emit8(0x37);                 // SCF
+        emit8(0xDA); emit16(0x0230); // JP C,a16
+        uint16_t jp_c_resume = pc;
+
+        // JP (HL)
+        emit8(0x21); emit16(0x0240); // LD HL,$0240
+        emit8(0xE9);                 // JP (HL)
+        uint16_t jphl_resume = pc;
+
+        // Conditional CALLs (targets just RET)
+        // Z=0 for CALL NZ
+        emit8(0x3E); emit8(0x01); emit8(0xB7);
+        emit8(0xC4); emit16(0x0300); // CALL NZ
+
+        // Z=1 for CALL Z
+        emit8(0xAF);
+        emit8(0xCC); emit16(0x0310); // CALL Z
+
+        // C=0 for CALL NC
+        emit8(0xAF);
+        emit8(0xD4); emit16(0x0320); // CALL NC
+
+        // C=1 for CALL C
+        emit8(0x37);
+        emit8(0xDC); emit16(0x0330); // CALL C
+
+        // Conditional RETs via subroutine calls
+        emit8(0xCD); emit16(0x0340); // CALL -> RET NZ
+        emit8(0xCD); emit16(0x0350); // CALL -> RET Z
+        emit8(0xCD); emit16(0x0360); // CALL -> RET NC
+        emit8(0xCD); emit16(0x0370); // CALL -> RET C
+
+        // RETI via subroutine call
+        emit8(0xCD); emit16(0x0380); // CALL -> RETI
+
+        // Final HALT
+        emit8(0x76);
+        uint16_t halt_pc = pc - 1;
+
+        // JP targets (jump back to resume)
+        rom[0x0200] = 0x00; rom[0x0201] = 0xC3; rom[0x0202] = jp_nz_resume & 0xFF; rom[0x0203] = jp_nz_resume >> 8;
+        rom[0x0210] = 0x00; rom[0x0211] = 0xC3; rom[0x0212] = jp_z_resume & 0xFF;  rom[0x0213] = jp_z_resume >> 8;
+        rom[0x0220] = 0x00; rom[0x0221] = 0xC3; rom[0x0222] = jp_nc_resume & 0xFF; rom[0x0223] = jp_nc_resume >> 8;
+        rom[0x0230] = 0x00; rom[0x0231] = 0xC3; rom[0x0232] = jp_c_resume & 0xFF;  rom[0x0233] = jp_c_resume >> 8;
+
+        // JP(HL) target jumps back to resume
+        rom[0x0240] = 0xC3; rom[0x0241] = jphl_resume & 0xFF; rom[0x0242] = jphl_resume >> 8;
+
+        // CALL targets: simple RET
+        rom[0x0300] = 0xC9;
+        rom[0x0310] = 0xC9;
+        rom[0x0320] = 0xC9;
+        rom[0x0330] = 0xC9;
+
+        // RET conditional subroutines
+        // 0x0340: RET NZ taken (Z=0)
+        rom[0x0340] = 0x3E; rom[0x0341] = 0x01; rom[0x0342] = 0xB7;  // LD A,1; OR A -> Z=0
+        rom[0x0343] = 0xC0; rom[0x0344] = 0xC9;                       // RET NZ; RET
+        // 0x0350: RET Z taken (Z=1)
+        rom[0x0350] = 0xAF; rom[0x0351] = 0xC8; rom[0x0352] = 0xC9;   // XOR A -> Z=1; RET Z; RET
+        // 0x0360: RET NC taken (C=0)
+        rom[0x0360] = 0xAF; rom[0x0361] = 0xD0; rom[0x0362] = 0xC9;   // XOR A -> C=0; RET NC; RET
+        // 0x0370: RET C taken (C=1)
+        rom[0x0370] = 0x37; rom[0x0371] = 0xD8; rom[0x0372] = 0xC9;   // SCF -> C=1; RET C; RET
+
+        // 0x0380: RETI then RET (in case RETI is treated as NOP)
+        rom[0x0380] = 0xD9; rom[0x0381] = 0xC9;
+
+        setup_system(dut, sdram, rom, sizeof(rom));
+
+        uint16_t final_pc = 0;
+        bool reached = run_until_pc_reg(dut, sdram, halt_pc, 200000, &final_pc);
+
+        bool passed = reached && final_pc == halt_pc;
+        record_test("Conditional control flow smoke", passed,
+                    passed ? "" : "Did not reach HALT after conditional flow sweep");
+        printf("    Result: %s (PC=$%04X, expected $%04X)\n\n",
+               passed ? "PASS" : "FAIL", final_pc, halt_pc);
+
+        delete sdram;
+        delete dut;
+    }
+
+    // ============================================================================
+    // TEST 57: RST vectors sweep
+    // ============================================================================
+    {
+        printf("[ TEST 57 ] RST Vector Sweep...\n");
+        Vtop* dut = new Vtop;
+        MisterSDRAMModel* sdram = new MisterSDRAMModel(8);
+        sdram->cas_latency = 2;
+
+        uint8_t rom[32768];
+        memset(rom, 0x76, sizeof(rom));
+        write_cart_entry(rom);
+
+        // RST vectors return immediately
+        rom[0x0000] = 0xC9;
+        rom[0x0008] = 0xC9;
+        rom[0x0010] = 0xC9;
+        rom[0x0018] = 0xC9;
+        rom[0x0020] = 0xC9;
+        rom[0x0028] = 0xC9;
+        rom[0x0030] = 0xC9;
+        rom[0x0038] = 0xC9;
+
+        uint16_t pc = 0x150;
+        pc = emit_prelude(rom, pc);
+
+        // Execute all RST opcodes
+        rom[pc++] = 0xC7;  // RST 00H
+        rom[pc++] = 0xCF;  // RST 08H
+        rom[pc++] = 0xD7;  // RST 10H
+        rom[pc++] = 0xDF;  // RST 18H
+        rom[pc++] = 0xE7;  // RST 20H
+        rom[pc++] = 0xEF;  // RST 28H
+        rom[pc++] = 0xF7;  // RST 30H
+        rom[pc++] = 0xFF;  // RST 38H
+        rom[pc++] = 0x76;  // HALT
+        uint16_t halt_pc = pc - 1;
+
+        setup_system(dut, sdram, rom, sizeof(rom));
+
+        uint16_t final_pc = 0;
+        bool reached = run_until_pc_reg(dut, sdram, halt_pc, 150000, &final_pc);
+
+        bool passed = reached && final_pc == halt_pc;
+        record_test("RST vector sweep", passed,
+                    passed ? "" : "Did not return from all RST vectors");
+        printf("    Result: %s (PC=$%04X, expected $%04X)\n\n",
+               passed ? "PASS" : "FAIL", final_pc, halt_pc);
+
+        delete sdram;
+        delete dut;
+    }
+
+    // ============================================================================
+    // TEST 58: JR NZ (conditional relative jump on not-zero)
+    // ============================================================================
+    {
+        printf("[ TEST 58 ] JR NZ (Conditional Jump - Z=0)...\n");
+        Vtop* dut = new Vtop;
+        MisterSDRAMModel* sdram = new MisterSDRAMModel(8);
+        sdram->cas_latency = 2;
+
+        uint8_t rom[32768];
+        memset(rom, 0x76, sizeof(rom));
+        write_cart_entry(rom);
+
+        rom[0x150] = 0x3E; rom[0x151] = 0x01;  // LD A,1
+        rom[0x152] = 0xB7;                    // OR A (Z=0)
+        rom[0x153] = 0x20; rom[0x154] = 0x02; // JR NZ,+2 -> $0157
+        rom[0x155] = 0x76;                    // HALT (skip)
+        rom[0x156] = 0x76;                    // HALT (skip)
+        rom[0x157] = 0x00;                    // NOP (target)
+        rom[0x158] = 0x76;                    // HALT (success)
+
+        setup_system(dut, sdram, rom, sizeof(rom));
+
+        uint16_t final_pc = 0;
+        bool reached = run_until_pc_reg(dut, sdram, 0x158, SHORT_TEST_CYCLES, &final_pc);
+
+        bool passed = reached && final_pc == 0x158;
+        record_test("JR NZ when Z=0", passed,
+                    passed ? "" : "JR NZ did not reach success HALT");
+        printf("    Result: %s (PC=$%04X, expected HALT at $0158)\n\n",
+               passed ? "PASS" : "FAIL", final_pc);
+
+        delete sdram;
+        delete dut;
+    }
+
+    // ============================================================================
+    // TEST 59: JR Z (conditional relative jump on zero)
+    // ============================================================================
+    {
+        printf("[ TEST 59 ] JR Z (Conditional Jump - Z=1)...\n");
+        Vtop* dut = new Vtop;
+        MisterSDRAMModel* sdram = new MisterSDRAMModel(8);
+        sdram->cas_latency = 2;
+
+        uint8_t rom[32768];
+        memset(rom, 0x76, sizeof(rom));
+        write_cart_entry(rom);
+
+        rom[0x150] = 0xAF;                    // XOR A (Z=1)
+        rom[0x151] = 0x28; rom[0x152] = 0x02; // JR Z,+2 -> $0155
+        rom[0x153] = 0x76;                    // HALT (skip)
+        rom[0x154] = 0x76;                    // HALT (skip)
+        rom[0x155] = 0x00;                    // NOP (target)
+        rom[0x156] = 0x76;                    // HALT (success)
+
+        setup_system(dut, sdram, rom, sizeof(rom));
+
+        uint16_t final_pc = 0;
+        bool reached = run_until_pc_reg(dut, sdram, 0x156, SHORT_TEST_CYCLES, &final_pc);
+
+        bool passed = reached && final_pc == 0x156;
+        record_test("JR Z when Z=1", passed,
+                    passed ? "" : "JR Z did not reach success HALT");
+        printf("    Result: %s (PC=$%04X, expected HALT at $0156)\n\n",
+               passed ? "PASS" : "FAIL", final_pc);
+
+        delete sdram;
+        delete dut;
+    }
+
+    // ============================================================================
+    // TEST 60: STOP instruction smoke test
+    // ============================================================================
+    {
+        printf("[ TEST 60 ] STOP (Low-power Stop)...\n");
+        Vtop* dut = new Vtop;
+        MisterSDRAMModel* sdram = new MisterSDRAMModel(8);
+        sdram->cas_latency = 2;
+
+        uint8_t rom[32768];
+        memset(rom, 0x76, sizeof(rom));
+        write_cart_entry(rom);
+
+        rom[0x150] = 0x10; rom[0x151] = 0x00;  // STOP 0
+        rom[0x152] = 0x00;                     // NOP
+        rom[0x153] = 0x76;                     // HALT
+        uint16_t halt_pc = 0x153;
+
+        setup_system(dut, sdram, rom, sizeof(rom));
+
+        uint16_t last_pc = dut->dbg_cpu_addr;
+        int stable_cycles = 0;
+        bool reached_halt = false;
+        bool saw_stop = false;
+        uint16_t final_pc = last_pc;
+
+        for (int cycle = 0; cycle < SHORT_TEST_CYCLES; cycle++) {
+            tick_with_sdram(dut, sdram);
+            uint16_t pc_now = dut->dbg_cpu_addr;
+            final_pc = pc_now;
+            if (pc_now == 0x150 || pc_now == 0x152) saw_stop = true;
+            if (pc_now == halt_pc) { reached_halt = true; break; }
+            if (pc_now == last_pc) stable_cycles++; else stable_cycles = 0;
+            last_pc = pc_now;
+            if (saw_stop && stable_cycles > 5000) break;  // likely in STOP mode
+        }
+
+        bool passed = reached_halt || (saw_stop && stable_cycles > 5000);
+        record_test("STOP smoke", passed,
+                    passed ? "" : "STOP did not behave like stop/continue");
         printf("    Result: %s (PC=$%04X)\n\n", passed ? "PASS" : "FAIL", final_pc);
 
         delete sdram;

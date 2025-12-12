@@ -307,24 +307,23 @@ wire hdma_cpu_stop = (isGBC & hdma_active & cpu_rd_n & cpu_wr_n);
 
 // SDRAM wait state logic for proper CAS latency handling
 // When CPU reads from external bus (cart ROM/RAM in SDRAM), insert wait states
-reg [1:0] sdram_wait_counter;
+// NOTE: ce is 1/8 clk_sys (see speedcontrol.vhd), so CAS=2 => 16 clk_sys ticks
+reg [4:0] sdram_wait_counter;
 reg sdram_wait_active;
 wire cpu_reading_ext_bus = (sel_ext_bus & ~cpu_rd_n & ~cpu_mreq_n);
 
-// CRITICAL: Use 'ce' (not 'ce_cpu') to avoid circular dependency
-// ce_cpu depends on sdram_ready, so we must use the base clock enable
 always @(posedge clk_sys) begin
 	if (reset) begin
-		sdram_wait_counter <= 2'd0;
+		sdram_wait_counter <= 5'd0;
 		sdram_wait_active <= 1'b0;
-	end else if (ce) begin  // FIXED: Use 'ce' instead of 'ce_cpu'
+	end else begin
 		if (cpu_reading_ext_bus && !sdram_wait_active) begin
 			// Start wait state when CPU reads from external bus
-			sdram_wait_counter <= 2'd2;  // CAS latency = 2 cycles
+			sdram_wait_counter <= 5'd16;  // CAS latency (2 ce ticks) at clk_sys rate
 			sdram_wait_active <= 1'b1;
 		end else if (sdram_wait_active) begin
 			if (sdram_wait_counter > 0) begin
-				sdram_wait_counter <= sdram_wait_counter - 2'd1;
+				sdram_wait_counter <= sdram_wait_counter - 5'd1;
 			end else begin
 				sdram_wait_active <= 1'b0;  // Wait complete
 			end

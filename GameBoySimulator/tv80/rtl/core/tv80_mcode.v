@@ -768,19 +768,18 @@ module tv80_mcode
                 begin
                   if (Mode == 3 ) 
                     begin
-                      // RETI
-                      MCycles = 3'b011;
+                      // RETI (same timing as RET in GameBoy mode)
+                      MCycles = 3'b100;  // 4 cycles in GBZ80
                       case (1'b1) // MCycle
-                        MCycle[0] :
-                          Set_Addr_To = aSP;
                         MCycle[1] :
+                          Set_Addr_To = aSP;
+                        MCycle[2] :
                           begin
                             IncDec_16 = 4'b0111;
                             Set_Addr_To = aSP;
                             LDZ = 1'b1;
                           end
-                        
-                        MCycle[2] :
+                        MCycle[3] :
                           begin
                             Jump = 1'b1;
                             IncDec_16 = 4'b0111;
@@ -1330,11 +1329,13 @@ module tv80_mcode
                           begin
                             Inc_PC = 1'b1;
 
+                            // FIXED: Reversed MCycles logic - condition TRUE should jump (MCycles=3)
+                            // Previously backwards: TRUE→2 (no jump), FALSE→3 (jump)
                             case (IR[4:3])
-                              0 : MCycles = (!F[Flag_Z]) ? 3'd2 : 3'd3;  // JR NZ - jump if NOT zero
-                              1 : MCycles = (F[Flag_Z]) ? 3'd2 : 3'd3;   // JR Z  - jump if zero
-                              2 : MCycles = (!F[Flag_C]) ? 3'd2 : 3'd3;  // JR NC - jump if NOT carry
-                              3 : MCycles = (F[Flag_C]) ? 3'd2 : 3'd3;   // JR C  - jump if carry
+                              0 : MCycles = (!F[Flag_Z]) ? 3'd3 : 3'd2;  // JR NZ - jump if NOT zero (FIXED)
+                              1 : MCycles = (F[Flag_Z]) ? 3'd3 : 3'd2;   // JR Z  - jump if zero (FIXED)
+                              2 : MCycles = (!F[Flag_C]) ? 3'd3 : 3'd2;  // JR NC - jump if NOT carry (FIXED)
+                              3 : MCycles = (F[Flag_C]) ? 3'd3 : 3'd2;   // JR C  - jump if carry (FIXED)
                             endcase
                           end
                         
@@ -1492,22 +1493,23 @@ module tv80_mcode
                   // RET
                   if (Mode == 3)
                     begin
-                      // GameBoy mode: 4 cycles
-                      MCycles = 3'b100;
+                      // GameBoy mode: insert one settle cycle after M1 to
+                      // ensure IR/decode is stable under SDRAM wait.
+                      MCycles = 3'b101;
                       case (1'b1) // MCycle
-                        MCycle[1] :
+                        MCycle[2] :
                           begin
                             Set_Addr_To = aSP;
                           end
 
-                        MCycle[2] :
+                        MCycle[3] :
                           begin
                             IncDec_16 = 4'b0111;
                             Set_Addr_To = aSP;
                             LDZ = 1'b1;
                           end
 
-                        MCycle[3] :
+                        MCycle[4] :
                           begin
                             Jump = 1'b1;
                             IncDec_16 = 4'b0111;
@@ -1729,32 +1731,68 @@ module tv80_mcode
               8'b11000111,8'b11001111,8'b11010111,8'b11011111,8'b11100111,8'b11101111,8'b11110111,8'b11111111  :
                 begin
                   // RST p
-                  MCycles = 3'b011;
-                  case (1'b1) // MCycle
-                    MCycle[0] :
-                      begin
-                        TStates = 3'b101;
-                        IncDec_16 = 4'b1111;
-                        Set_Addr_To = aSP;
-                        Set_BusB_To = 4'b1101;
-                      end
-                    
-                    MCycle[1] :
-                      begin
-                        Write = 1'b1;
-                        IncDec_16 = 4'b1111;
-                        Set_Addr_To = aSP;
-                        Set_BusB_To = 4'b1100;
-                      end
-                    
-                    MCycle[2] :
-                      begin
-                        Write = 1'b1;
-                        RstP = 1'b1;
-                      end
-                    
-                    default :;
-                  endcase // case(MCycle)
+                  if (Mode == 3)
+                    begin
+                      // GBZ80: insert an internal prep cycle between the two stack writes
+                      // so BusB can switch from PC high to low without being stretched
+                      // inside an active write cycle.
+                      MCycles = 3'b100;  // 4 cycles total
+                      case (1'b1) // MCycle
+                        MCycle[0] :
+                          begin
+                            TStates = 3'b101;
+                            IncDec_16 = 4'b1111;   // SP--
+                            Set_Addr_To = aSP;
+                            Set_BusB_To = 4'b1101; // PC high
+                          end
+                        MCycle[1] :
+                          begin
+                            Write = 1'b1;          // write PC high to SP-1
+                            Set_Addr_To = aSP;
+                            Set_BusB_To = 4'b1101; // keep high stable
+                          end
+                        MCycle[2] :
+                          begin
+                            IncDec_16 = 4'b1111;   // SP-- for low byte
+                            Set_Addr_To = aSP;
+                            Set_BusB_To = 4'b1100; // PC low
+                          end
+                        MCycle[3] :
+                          begin
+                            Write = 1'b1;          // write PC low to SP-2
+                            RstP = 1'b1;
+                            Set_Addr_To = aSP;
+                            Set_BusB_To = 4'b1100; // keep low stable
+                          end
+                        default :;
+                      endcase
+                    end
+                  else
+                    begin
+                      MCycles = 3'b011;
+                      case (1'b1) // MCycle
+                        MCycle[0] :
+                          begin
+                            TStates = 3'b101;
+                            IncDec_16 = 4'b1111;
+                            Set_Addr_To = aSP;
+                            Set_BusB_To = 4'b1101;
+                          end
+                        MCycle[1] :
+                          begin
+                            Write = 1'b1;
+                            IncDec_16 = 4'b1111;
+                            Set_Addr_To = aSP;
+                            Set_BusB_To = 4'b1100;
+                          end
+                        MCycle[2] :
+                          begin
+                            Write = 1'b1;
+                            RstP = 1'b1;
+                          end
+                        default :;
+                      endcase
+                    end
                 end // case: 8'b11000111,8'b11001111,8'b11010111,8'b11011111,8'b11100111,8'b11101111,8'b11110111,8'b11111111
               
               // INPUT AND OUTPUT GROUP
