@@ -99,8 +99,10 @@ int main() {
                 if (pc_reg == vectors[i] && !seen_vec[i]) {
                     seen_vec[i] = true;
                     vec_hits++;
-                    printf("Cycle %6d: Entered vector $%04X (RST %02X)\n",
-                           cycle, vectors[i], rst_ops[i]);
+                    printf("Cycle %6d: Entered vector $%04X (RST %02X) boot_en=%d sel_boot=%d IR=$%02X DI=$%02X\n",
+                           cycle, vectors[i], rst_ops[i],
+                           dut->dbg_boot_rom_enabled, dut->dbg_sel_boot_rom,
+                           dut->dbg_cpu_ir, dut->dbg_cpu_di);
                 }
             }
             last_pc = pc_reg;
@@ -127,4 +129,3 @@ int main() {
     delete dut;
     return 0;
 }
-

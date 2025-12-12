@@ -261,7 +261,7 @@ int main() {
     printf("================================================================================\n");
     printf("                       GAMEBOY CPU COMPREHENSIVE TEST SUITE\n");
     printf("================================================================================\n");
-    printf("Testing 53 targeted instructions plus full opcode sweeps:\n");
+    printf("Testing 56 targeted instructions plus full opcode sweeps:\n");
     printf("  - Basic ops (NOP, HALT)\n");
     printf("  - Control flow (JP, JR unconditional/conditional, CALL/RET)\n");
     printf("  - 8-bit loads (LD r,d8 for all registers A,B,C,D,E,H,L)\n");
@@ -491,10 +491,9 @@ int main() {
 
         bool passed = (final_pc == 0x155);
         record_test("JR C when carry=0", passed,
-                    passed ? "" : "JR C jumped when carry clear - TV80 known bug");
-        printf("    Result: %s (PC=$%04X, expected $0155, failure at $0158)\n",
+                    passed ? "" : "JR C jumped when carry clear");
+        printf("    Result: %s (PC=$%04X, expected $0155, failure at $0158)\n\n",
                passed ? "PASS" : "FAIL", final_pc);
-        printf("    Note: TV80 microcode logic is backwards for conditional JR\n\n");
 
         delete sdram;
         delete dut;
@@ -2241,10 +2240,131 @@ int main() {
     }
 
     // ============================================================================
-    // TEST 60: STOP instruction smoke test
+    // TEST 60: JR NZ (conditional relative jump on not-zero) - Z=1 (not taken)
     // ============================================================================
     {
-        printf("[ TEST 60 ] STOP (Low-power Stop)...\n");
+        printf("[ TEST 60 ] JR NZ (Conditional Jump - Z=1)...\n");
+        Vtop* dut = new Vtop;
+        MisterSDRAMModel* sdram = new MisterSDRAMModel(8);
+        sdram->cas_latency = 2;
+
+        uint8_t rom[32768];
+        memset(rom, 0x76, sizeof(rom));
+        write_cart_entry(rom);
+
+        rom[0x150] = 0xAF;                    // XOR A (Z=1)
+        rom[0x151] = 0x20; rom[0x152] = 0x02; // JR NZ,+2 (should NOT jump)
+        rom[0x153] = 0x76;                    // HALT (success - fallthrough)
+        rom[0x155] = 0x76;                    // HALT (failure - jumped)
+
+        setup_system(dut, sdram, rom, sizeof(rom));
+
+        uint16_t final_pc = 0;
+        for (int cycle = 0; cycle < SHORT_TEST_CYCLES; cycle++) {
+            tick_with_sdram(dut, sdram);
+            uint16_t pc_now = dut->dbg_cpu_addr;
+            if (pc_now == 0x153 || pc_now == 0x155) {
+                final_pc = pc_now;
+                break;
+            }
+        }
+
+        bool passed = (final_pc == 0x153);
+        record_test("JR NZ when Z=1", passed,
+                    passed ? "" : "JR NZ jumped when Z set");
+        printf("    Result: %s (PC=$%04X, expected HALT at $0153)\n\n",
+               passed ? "PASS" : "FAIL", final_pc);
+
+        delete sdram;
+        delete dut;
+    }
+
+    // ============================================================================
+    // TEST 61: JR Z (conditional relative jump on zero) - Z=0 (not taken)
+    // ============================================================================
+    {
+        printf("[ TEST 61 ] JR Z (Conditional Jump - Z=0)...\n");
+        Vtop* dut = new Vtop;
+        MisterSDRAMModel* sdram = new MisterSDRAMModel(8);
+        sdram->cas_latency = 2;
+
+        uint8_t rom[32768];
+        memset(rom, 0x76, sizeof(rom));
+        write_cart_entry(rom);
+
+        rom[0x150] = 0x3E; rom[0x151] = 0x01;  // LD A,1
+        rom[0x152] = 0xB7;                    // OR A (Z=0)
+        rom[0x153] = 0x28; rom[0x154] = 0x02; // JR Z,+2 (should NOT jump)
+        rom[0x155] = 0x76;                    // HALT (success - fallthrough)
+        rom[0x157] = 0x76;                    // HALT (failure - jumped)
+
+        setup_system(dut, sdram, rom, sizeof(rom));
+
+        uint16_t final_pc = 0;
+        for (int cycle = 0; cycle < SHORT_TEST_CYCLES; cycle++) {
+            tick_with_sdram(dut, sdram);
+            uint16_t pc_now = dut->dbg_cpu_addr;
+            if (pc_now == 0x155 || pc_now == 0x157) {
+                final_pc = pc_now;
+                break;
+            }
+        }
+
+        bool passed = (final_pc == 0x155);
+        record_test("JR Z when Z=0", passed,
+                    passed ? "" : "JR Z jumped when Z clear");
+        printf("    Result: %s (PC=$%04X, expected HALT at $0155)\n\n",
+               passed ? "PASS" : "FAIL", final_pc);
+
+        delete sdram;
+        delete dut;
+    }
+
+    // ============================================================================
+    // TEST 62: JR NC (conditional relative jump on not-carry) - C=1 (not taken)
+    // ============================================================================
+    {
+        printf("[ TEST 62 ] JR NC (Conditional Jump - Carry SET)...\n");
+        Vtop* dut = new Vtop;
+        MisterSDRAMModel* sdram = new MisterSDRAMModel(8);
+        sdram->cas_latency = 2;
+
+        uint8_t rom[32768];
+        memset(rom, 0x76, sizeof(rom));
+        write_cart_entry(rom);
+
+        rom[0x150] = 0x37;                    // SCF (C=1)
+        rom[0x151] = 0x30; rom[0x152] = 0x02; // JR NC,+2 (should NOT jump)
+        rom[0x153] = 0x76;                    // HALT (success - fallthrough)
+        rom[0x155] = 0x76;                    // HALT (failure - jumped)
+
+        setup_system(dut, sdram, rom, sizeof(rom));
+
+        uint16_t final_pc = 0;
+        for (int cycle = 0; cycle < SHORT_TEST_CYCLES; cycle++) {
+            tick_with_sdram(dut, sdram);
+            uint16_t pc_now = dut->dbg_cpu_addr;
+            if (pc_now == 0x153 || pc_now == 0x155) {
+                final_pc = pc_now;
+                break;
+            }
+        }
+
+        bool passed = (final_pc == 0x153);
+        record_test("JR NC when carry=1", passed,
+                    passed ? "" : "JR NC jumped when carry set");
+        printf("    Result: %s (PC=$%04X, expected HALT at $0153)\n\n",
+               passed ? "PASS" : "FAIL", final_pc);
+
+        delete sdram;
+        delete dut;
+    }
+
+    // ============================================================================
+    // TEST 63: STOP instruction smoke test
+    // ============================================================================
+    {
+        printf("[ TEST 63 ] STOP (Low-power Stop)...\n");
         Vtop* dut = new Vtop;
         MisterSDRAMModel* sdram = new MisterSDRAMModel(8);
         sdram->cas_latency = 2;

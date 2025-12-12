@@ -45,6 +45,7 @@ module GBse #(
     wire        iorq;
     wire [7:0]  dout_core;
     reg  [7:0]  di_reg;
+    reg         wait_n_prev;
     wire [6:0]  mcycle;
     wire [6:0]  tstate;
 
@@ -109,6 +110,7 @@ module GBse #(
             IORQ_n <= 1'b1;
             MREQ_n <= 1'b1;
             di_reg <= 8'h00;
+            wait_n_prev <= 1'b1;
         end
         else begin
             // Control signals update every clock (not gated by CLKEN)
@@ -169,10 +171,14 @@ module GBse #(
             end
 
             // Data input register latch
-            // Latch at T2 during READ cycles only
-            if (CLKEN && tstate[2] && WAIT_n == 1'b1 && !write && !no_read) begin
+            // Latch at T2 during READ cycles when CPU advances,
+            // and also once on WAIT_n rising edge to pre-latch data
+            // before CLKEN resumes after SDRAM wait.
+            if ((CLKEN || (!wait_n_prev && WAIT_n)) &&
+                tstate[2] && WAIT_n == 1'b1 && !write && !no_read) begin
                 di_reg <= DI;
             end
+            wait_n_prev <= WAIT_n;
         end
     end
 

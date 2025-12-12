@@ -136,14 +136,22 @@ int main() {
                        (wr_edge && write);
 
         bool in_window = (pc_reg >= 0x014C && pc_reg <= 0x0160) || (pc_reg <= 0x0010);
-        bool stack_write = (wr_edge && write && addr >= 0xB000 && addr <= 0xD000);
+        bool hram_addr = (addr >= 0xFF80 && addr <= 0xFFFE);
+        bool low_rom_addr = (addr <= 0x0040);
+        bool stack_write = (wr_edge && write && hram_addr);
+        bool stack_read = (hram_addr && !rd_n && !write);
+        bool low_rom_read = (low_rom_addr && !rd_n && !write);
+        bool stack_event = stack_write || stack_read || low_rom_read;
 
-        if (changed && (in_window || stack_write)) {
+        if (changed && (in_window || stack_event)) {
             printf("%6d  $%04X  $%04X  $%02X $%02X $%02X $%04X  %-2s %-2s  %d  %d ",
                    cycle, pc_reg, addr, ir, di, dout, sp,
                    decode_mcycle(mcycle), decode_tstate(tstate),
                    rd_n ? 1 : 0, wr_n ? 1 : 0);
-            if (wr_edge && write) {
+            if (stack_read || low_rom_read) {
+                printf("[READ  $%04X => $%02X] ", addr, di);
+            }
+            if (stack_write) {
                 printf("[WRITE $%04X <= $%02X] ", addr, dout);
             }
             printf("\n");

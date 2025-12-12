@@ -310,7 +310,10 @@ wire hdma_cpu_stop = (isGBC & hdma_active & cpu_rd_n & cpu_wr_n);
 // NOTE: ce is 1/8 clk_sys (see speedcontrol.vhd), so CAS=2 => 16 clk_sys ticks
 reg [4:0] sdram_wait_counter;
 reg sdram_wait_active;
-wire cpu_reading_ext_bus = (sel_ext_bus & ~cpu_rd_n & ~cpu_mreq_n);
+// Only stall for SDRAM-backed cartridge ROM/RAM reads.
+// Exclude boot ROM overlay and internal WRAM/HRAM so boot and stack ops
+// are not artificially stretched.
+wire cpu_reading_ext_bus = ((sel_rom | sel_cram) & ~cpu_rd_n & ~cpu_mreq_n & ~sel_boot_rom);
 
 always @(posedge clk_sys) begin
 	if (reset) begin
@@ -1065,7 +1068,11 @@ assign ext_bus_cram_sel = ~nCS & ~ext_bus_addr[14];
 assign ext_bus_rom_sel  = ~ext_bus_a15;
 
 assign ext_bus_di = (~isGBC & ext_bus_wram_sel) ? wram_do :
-                        (cart_sel & cart_oe) ? cart_do : open_bus_data;
+                        // Always use cart_do for ROM reads; cart_oe can be delayed
+                        // around WAIT-stretched M1 fetches and would otherwise
+                        // incorrectly fall back to open bus.
+                        (ext_bus_rom_sel ? cart_do :
+                         (cart_sel & cart_oe) ? cart_do : open_bus_data);
 
 assign cart_sel = ext_bus_rom_sel | ext_bus_cram_sel;
 assign cart_rd = cart_sel & ext_bus_rd;

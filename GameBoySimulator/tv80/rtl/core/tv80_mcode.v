@@ -1741,6 +1741,7 @@ module tv80_mcode
                         MCycle[0] :
                           begin
                             TStates = 3'b101;
+                            NoRead = 1'b1;
                             IncDec_16 = 4'b1111;   // SP--
                             Set_Addr_To = aSP;
                             Set_BusB_To = 4'b1101; // PC high
@@ -1753,6 +1754,7 @@ module tv80_mcode
                           end
                         MCycle[2] :
                           begin
+                            NoRead = 1'b1;
                             IncDec_16 = 4'b1111;   // SP-- for low byte
                             Set_Addr_To = aSP;
                             Set_BusB_To = 4'b1100; // PC low

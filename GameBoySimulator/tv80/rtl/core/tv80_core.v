@@ -675,25 +675,28 @@ module tv80_core (/*AUTOARG*/
                     end // if (T_Res == 1'b1 )
                   
 
-                  if (tstate[2] && wait_n == 1'b1 ) 
+                  if (tstate[2])
                     begin
-                      if (ISet == 2'b01 && mcycle[6] ) 
+                      if (wait_n == 1'b1 ) 
                         begin
-                          IR <= `TV80DELAY dinst;
-                        end
-                      if (JumpE == 1'b1 ) 
-                        begin
-                          PC <= `TV80DELAY PC16;
-                        end 
-                      else if (Inc_PC == 1'b1 ) 
-                        begin
-                          //PC <= `TV80DELAY PC + 1;
-                          PC <= `TV80DELAY PC16;
-                        end
-                      if (BTR_r == 1'b1 ) 
-                        begin
-                          //PC <= `TV80DELAY PC - 2;
-                          PC <= `TV80DELAY PC16;
+                          if (ISet == 2'b01 && mcycle[6] ) 
+                            begin
+                              IR <= `TV80DELAY dinst;
+                            end
+                          if (JumpE == 1'b1 ) 
+                            begin
+                              PC <= `TV80DELAY PC16;
+                            end 
+                          else if (Inc_PC == 1'b1 ) 
+                            begin
+                              //PC <= `TV80DELAY PC + 1;
+                              PC <= `TV80DELAY PC16;
+                            end
+                          if (BTR_r == 1'b1 ) 
+                            begin
+                              //PC <= `TV80DELAY PC - 2;
+                              PC <= `TV80DELAY PC16;
+                            end
                         end
                       if (RstP == 1'b1 ) 
                         begin

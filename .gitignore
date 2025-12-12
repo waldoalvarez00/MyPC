@@ -180,3 +180,7 @@ GameBoySimulator/verilator/test_rst_trace_new
 GameBoySimulator/verilator/test_rst_trace_new2
 GameBoySimulator/verilator/test_rst_sweep_trace_new
 GameBoySimulator/verilator/test_rst_sweep_trace
+GameBoySimulator/verilator/test_rst_sweep_trace_dbg
+GameBoySimulator/verilator/sim/x64/Release/sim.tlog/CL.command.1.tlog
+GameBoySimulator/verilator/sim/x64/Release/sim.tlog/Cl.items.tlog
+GameBoySimulator/verilator/sim/x64/Release/sim.tlog/link.secondary.1.tlog
