@@ -77,9 +77,9 @@
     <ClCompile Include="sim\vinc\verilated_save.cpp" />
     <ClCompile Include="sim\vinc\verilated_threads.cpp" />
     <ClCompile Include="sim\vinc\verilated_vcd_c.cpp" />
-    <!-- Compile the single amalgamated translation unit emitted by verilator_includer.
-         This avoids hardcoding per-module filenames/hashes that change whenever Verilator output is regenerated. -->
-    <ClCompile Include="obj_dir\Vtop__ALL.cpp" />
+    <!-- Compile all Verilator-generated translation units.
+         This avoids linker failures when Verilator adds/renames split files (e.g. __pi1). -->
+    <ClCompile Include="obj_dir\*.cpp" Exclude="obj_dir\Vtop__ALL.cpp" />
     <ClCompile Include="sim\sim_clock.cpp" />
     <ClCompile Include="sim\sim_bus.cpp" />
     <ClCompile Include="sim\sim_console.cpp" />

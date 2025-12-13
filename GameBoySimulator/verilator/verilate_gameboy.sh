@@ -263,6 +263,7 @@ if [ $BUILD_TESTS -eq 1 ]; then
 
     UNIT_TESTS=(
         "test_cpu_clken"
+        "test_inc_de"
         "test_hdma"
         "test_boot_rom"
         "test_ext_bus"

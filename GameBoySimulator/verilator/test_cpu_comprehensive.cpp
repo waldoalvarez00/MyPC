@@ -2517,10 +2517,9 @@ int main() {
         if (!results[i].passed) failed++;
     }
 
-    printf("\nFor detailed bug analysis, see:\n");
-    printf("  - JR_COMPLETE_INVESTIGATION.md (full analysis)\n");
-    printf("  - IR_REGISTER_INVESTIGATION.md (IR register behavior)\n");
-    printf("  - JR_INVESTIGATION_FINAL.md (initial findings)\n\n");
+	    printf("\nFor detailed bug analysis, see:\n");
+	    printf("  - JR_COMPLETE_INVESTIGATION.md (full analysis)\n");
+	    printf("  - JR_INVESTIGATION_FINAL.md (initial findings)\n\n");
 
     return (failed > 0) ? 1 : 0;
 }

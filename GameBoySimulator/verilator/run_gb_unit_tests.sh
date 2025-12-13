@@ -18,6 +18,7 @@ NC='\033[0m' # No Color
 # Test list
 TESTS=(
     "test_cpu_clken:CPU Clock Enable"
+    "test_inc_de:Sequential ROM Byte Reads"
     "test_hdma:HDMA Controller"
     "test_boot_rom:Boot ROM Control"
     "test_ext_bus:External Bus Arbitration"
@@ -25,6 +26,7 @@ TESTS=(
     "test_memory_banking:Memory Banking"
     "test_interrupts:Interrupt Timing"
     "test_video_output:Video Output"
+    "test_gui_raster_sanity:GUI Raster Sanity"
     "test_audio:Audio Output"
 )
 

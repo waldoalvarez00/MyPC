@@ -45,7 +45,9 @@ SOFTWARE.
 #endif // EMSCRIPTEN
 #if defined(__WIN32__) || defined(_WIN32)
 #ifndef WIN32
+#if defined(_WIN32) && !defined(WIN32)
 #define WIN32
+#endif
 #endif // WIN32
 #define stat _stat
 #define stricmp _stricmp

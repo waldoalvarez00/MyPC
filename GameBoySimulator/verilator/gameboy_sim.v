@@ -70,6 +70,9 @@ module top (
     output [15:0] dbg_cpu_addr /*verilator public_flat*/,
     output        dbg_cpu_rd_n /*verilator public_flat*/,
     output        dbg_cpu_wr_n /*verilator public_flat*/,
+    output        dbg_cpu_mreq_n /*verilator public_flat*/,
+    output        dbg_cpu_iorq_n /*verilator public_flat*/,
+    output        dbg_sel_ext_bus /*verilator public_flat*/,
     output        dbg_vram_wren /*verilator public_flat*/,
     output        dbg_vram_cpu_allow /*verilator public_flat*/,
     output        dbg_hdma_read_ext_bus /*verilator public_flat*/,
@@ -578,6 +581,9 @@ module top (
     assign dbg_cpu_addr = gameboy.cpu_addr;
     assign dbg_cpu_rd_n = gameboy.cpu_rd_n;
     assign dbg_cpu_wr_n = gameboy.cpu_wr_n;
+    assign dbg_cpu_mreq_n = gameboy.cpu_mreq_n;
+    assign dbg_cpu_iorq_n = gameboy.cpu_iorq_n;
+    assign dbg_sel_ext_bus = gameboy.sel_ext_bus;
     assign dbg_vram_wren = gameboy.vram_wren;
     assign dbg_vram_cpu_allow = gameboy.vram_cpu_allow;
     assign dbg_hdma_read_ext_bus = gameboy.hdma_read_ext_bus;

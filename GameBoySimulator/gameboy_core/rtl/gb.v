@@ -325,9 +325,15 @@ reg sdram_wait_active;
 //
 // Arm a new wait window whenever the CPU presents a *new address* while `cart_rd`
 // is asserted. This effectively provides a wait per byte read even if RD stays low.
-reg [15:0] cart_rd_addr;
-reg        cart_rd_addr_valid;
-wire cart_rd_new_addr = cart_rd && (!cart_rd_addr_valid || (cpu_addr != cart_rd_addr));
+	reg [15:0] cart_rd_addr;
+	reg        cart_rd_addr_valid;
+	// The cartridge ROM is sourced from a 16-bit SDRAM datapath. A read of an odd
+	// CPU byte address should normally be serviced from the already-fetched word,
+	// without re-arming an SDRAM wait window. Key the per-byte wait on the *word*
+	// address (A[15:1]) instead of the full byte address to avoid stalling on the
+	// low/high byte selection within the same 16-bit word.
+	wire cart_rd_new_addr = cart_rd
+	                     && (!cart_rd_addr_valid || (cpu_addr[15:1] != cart_rd_addr[15:1]));
 
 // Assert WAIT immediately when a new external read address appears, not one
 // clk_sys later when the registered wait_active flag is set.
@@ -352,16 +358,22 @@ always @(posedge clk_sys) begin
 		// Start (or restart) a wait window whenever the CPU presents a new external
 		// read address. This guarantees a per-byte wait even if the CPU keeps RD low
 		// across stretched T-states or quickly issues back-to-back reads.
-		if (sdram_wait_req) begin
-			cart_rd_addr <= cpu_addr;
-			cart_rd_addr_valid <= 1'b1;
-			sdram_wait_counter <= SDRAM_WAIT_TICKS;
-			sdram_wait_active <= 1'b1;
-		end else if (sdram_wait_active) begin
+			if (sdram_wait_req) begin
+				cart_rd_addr <= cpu_addr;
+				cart_rd_addr_valid <= 1'b1;
+				sdram_wait_counter <= SDRAM_WAIT_TICKS;
+				sdram_wait_active <= 1'b1;
+			end else if (sdram_wait_active) begin
 			if (sdram_wait_counter > 0) begin
 				sdram_wait_counter <= sdram_wait_counter - 8'd1;
 			end else begin
-				sdram_wait_active <= 1'b0;  // Wait complete
+				// Don't release WAIT_n on the same sysclk edge as a CE pulse.
+				// If WAIT_n rises coincident with a CPU advance, the GBse wrapper's
+				// `di_reg` can update too late and TV80 consumes the previous byte
+				// (breaks back-to-back ROM header reads and some immediate fetches).
+				if (!ce_cpu) begin
+					sdram_wait_active <= 1'b0;  // Wait complete
+				end
 			end
 		end
 	end

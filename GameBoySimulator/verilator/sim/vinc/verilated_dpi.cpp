@@ -34,6 +34,14 @@
 #include "verilated_imp.h"
 
 // On MSVC++ we need svdpi.h to declare exports, not imports
+#ifdef _MSC_VER
+// Build these DPI helpers into the simulator binary; avoid dllimport/dllexport
+// mismatches between svdpi.h prototypes and the function definitions below.
+#undef DPI_DLLISPEC
+#undef DPI_DLLESPEC
+#define DPI_DLLISPEC
+#define DPI_DLLESPEC
+#endif
 #define DPI_PROTOTYPES
 #undef XXTERN
 #define XXTERN DPI_EXTERN DPI_DLLESPEC

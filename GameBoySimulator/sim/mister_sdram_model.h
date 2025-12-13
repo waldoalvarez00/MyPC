@@ -120,7 +120,8 @@ public:
         uint16_t wdata, uint8_t bytesel,
         uint16_t& rdata, bool& compl_out, bool& config_done_out
     ) {
-        uint8_t cmd = (cs_n << 3) | (ras_n << 2) | (cas_n << 1) | we_n;
+        uint8_t cmd = (uint8_t(cs_n) << 3) | (uint8_t(ras_n) << 2) | (uint8_t(cas_n) << 1)
+                      | uint8_t(we_n);
 
         // Clear one-cycle signals
         read_valid = false;

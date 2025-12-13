@@ -196,7 +196,17 @@ public:
         m_mutex.lock();
     }
     /// Release/unlock mutex
-    void unlock() VL_RELEASE() VL_MT_SAFE { m_mutex.unlock(); }
+    void unlock() VL_RELEASE() VL_MT_SAFE {
+#ifdef _MSC_VER
+#pragma warning(push)
+// /analyze thread-safety warning; this wrapper is intentionally a direct forwarder.
+#pragma warning(disable : 26110)
+#endif
+        m_mutex.unlock();
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+    }
     /// Try to acquire mutex.  Returns true on success, and false on failure.
     bool try_lock() VL_TRY_ACQUIRE(true) VL_MT_SAFE { return m_mutex.try_lock(); }
     /// Acquire/lock mutex and check for stop request
