@@ -391,6 +391,13 @@ public:
         return 0;
     }
 
+    // Read single byte at byte address (for gameboy-doctor PCMEM reading)
+    // This is used by the CPU state logger to read instruction bytes at PC
+    // without going through the SDRAM controller command interface
+    uint8_t read_byte(uint32_t byte_addr) {
+        return (byte_addr < size_bytes) ? memory[byte_addr] : 0xFF;
+    }
+
     // Fill memory region with pattern
     void fill(uint32_t start, uint32_t length, uint8_t pattern) {
         if (start + length <= size_bytes) {
