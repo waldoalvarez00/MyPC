@@ -409,7 +409,12 @@ module top (
 
     assign VGA_HS = hsync_pulse;
     assign VGA_VS = ~lcd_vsync;
-    assign VGA_HB = (lcd_mode == 2'b00);  // HBlank
+
+    // The GUI video sink (SimVideo) treats each call to Clock() as one "pixel"
+    // when DE=!(hblank||vblank). The Game Boy LCD emits pixels only when
+    // lcd_clkena is asserted, so present non-pixel cycles as blanking to keep
+    // the raster aligned (160 pixels per line).
+    assign VGA_HB = ~lcd_clkena;
     assign VGA_VB = (lcd_mode == 2'b01);  // VBlank
 
     // =========================================================================
