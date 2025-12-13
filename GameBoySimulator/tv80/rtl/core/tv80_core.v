@@ -1026,7 +1026,11 @@ module tv80_core (/*AUTOARG*/
           RegWEL = 1'b1;
         end
 
-      if (IncDec_16[2] && ((tstate[2] && wait_n && ~mcycle[0]) || (tstate[3] && mcycle[0])) ) 
+      // Fix: Remove wait_n requirement for IncDec register writes.
+      // The increment is an internal CPU operation that doesn't depend on external memory.
+      // For GameBoy (Mode=3), wait_n is tied to SDRAM ready which is often low during TState=2,
+      // causing HL increment to be skipped in LD A,(HL+) and similar instructions.
+      if (IncDec_16[2] && ((tstate[2] && ~mcycle[0]) || (tstate[3] && mcycle[0])) )
         begin
           case (IncDec_16[1:0])
             2'b00 , 2'b01 , 2'b10 :
