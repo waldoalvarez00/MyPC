@@ -270,6 +270,7 @@ if [ $BUILD_TESTS -eq 1 ]; then
         "test_memory_banking"
         "test_interrupts"
         "test_video_output"
+        "test_gui_raster_sanity"
         "test_audio"
     )
 

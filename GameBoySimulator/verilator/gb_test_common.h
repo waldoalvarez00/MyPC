@@ -232,21 +232,27 @@ void print_debug_state(T* dut) {
 //=============================================================================
 // LCD Control Helper
 // Enables the LCD by setting LCDC bit 7 (required for LCD modes to cycle)
+//
+// NOTE: Verilator's internal member layout can change (flattening vs submodules).
+// Access the reg via the generated module hierarchy pointers instead of relying
+// on flattened member names.
 //=============================================================================
 #include "Vtop___024root.h"
+#include "Vtop_top.h"
+#include "Vtop_gb.h"
+#include "Vtop_video.h"
 
 template<typename T>
 void enable_lcd(T* dut) {
     auto* root = dut->rootp;
-    // LCDC register is in video module: top.gameboy.video.lcdc
-    // Bit 7 enables the LCD
-    root->top__DOT__gameboy__DOT__video__DOT__lcdc = 0x91;  // LCD on, BG enabled, OBJ enabled
+    // top module is `Vtop_top`, which contains `gameboy` (gb), which contains `video`.
+    root->top->gameboy->video->__PVT__lcdc = 0x91;  // LCD on, BG enabled, OBJ enabled
 }
 
 template<typename T>
 void disable_lcd(T* dut) {
     auto* root = dut->rootp;
-    root->top__DOT__gameboy__DOT__video__DOT__lcdc = 0x00;  // LCD off
+    root->top->gameboy->video->__PVT__lcdc = 0x00;  // LCD off
 }
 
 #endif // GB_TEST_COMMON_H

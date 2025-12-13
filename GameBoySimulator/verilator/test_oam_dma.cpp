@@ -6,7 +6,6 @@
 
 #include <verilated.h>
 #include "Vtop.h"
-#include "Vtop___024root.h"
 #include "gb_test_common.h"
 
 //=============================================================================
@@ -67,10 +66,6 @@ void test_dma_cpu_coexistence(Vtop* dut, MisterSDRAMModel* sdram, TestResults& r
     results.set_suite("OAM DMA and CPU Coexistence");
 
     reset_dut_with_sdram(dut, sdram);
-    auto* root = dut->rootp;
-
-    // Disable boot ROM
-    root->top__DOT__gameboy__DOT__boot_rom_enabled = 0;
 
     // Load ROM
     for (int i = 0; i < 0x8000; i += 2) {
@@ -82,7 +77,6 @@ void test_dma_cpu_coexistence(Vtop* dut, MisterSDRAMModel* sdram, TestResults& r
     int cpu_addr_changes = 0;
 
     for (int i = 0; i < 2000; i++) {
-        root->top__DOT__gameboy__DOT__boot_rom_enabled = 0;
         tick_with_sdram(dut, sdram);
 
         if (dut->dbg_cpu_addr != last_addr) {

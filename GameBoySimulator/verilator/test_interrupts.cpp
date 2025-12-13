@@ -6,7 +6,6 @@
 
 #include <verilated.h>
 #include "Vtop.h"
-#include "Vtop___024root.h"
 #include "gb_test_common.h"
 
 //=============================================================================
@@ -106,9 +105,6 @@ void test_cpu_interrupt_coexistence(Vtop* dut, MisterSDRAMModel* sdram, TestResu
     results.set_suite("CPU/Interrupt Coexistence");
 
     reset_dut_with_sdram(dut, sdram);
-    auto* root = dut->rootp;
-
-    root->top__DOT__gameboy__DOT__boot_rom_enabled = 0;
 
     // Load ROM
     for (int i = 0; i < 0x8000; i += 2) {
@@ -121,7 +117,6 @@ void test_cpu_interrupt_coexistence(Vtop* dut, MisterSDRAMModel* sdram, TestResu
     uint16_t last_addr = dut->dbg_cpu_addr;
 
     for (int i = 0; i < 5000; i++) {
-        root->top__DOT__gameboy__DOT__boot_rom_enabled = 0;
         tick_with_sdram(dut, sdram);
 
         if (dut->dbg_cpu_clken) cpu_clken_count++;

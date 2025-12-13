@@ -108,17 +108,21 @@ module top (
 	    output [12:0] dbg_video_vram_addr /*verilator public_flat*/,
 	    output [7:0]  dbg_video_vram_data /*verilator public_flat*/,
 	    output [7:0]  dbg_video_vram1_data /*verilator public_flat*/,
-	    output [1:0]  dbg_video_bg_pix_data /*verilator public_flat*/,
-	    output [2:0]  dbg_video_bg_fetch_cycle /*verilator public_flat*/,
-	    output [2:0]  dbg_video_bg_shift_cnt /*verilator public_flat*/,
-	    output        dbg_video_bg_reload_shift /*verilator public_flat*/,
-	    output        dbg_video_mode3 /*verilator public_flat*/,
-	    output [7:0]  dbg_video_tile_shift_0 /*verilator public_flat*/,
-	    output [7:0]  dbg_video_tile_shift_1 /*verilator public_flat*/,
-	    output [7:0]  dbg_cpu_do /*verilator public_flat*/,
-	    output [7:0]  dbg_cpu_di /*verilator public_flat*/,
-	    output [7:0]  dbg_boot_q /*verilator public_flat*/,
-	    output [7:0]  dbg_boot_do /*verilator public_flat*/,
+		    output [1:0]  dbg_video_bg_pix_data /*verilator public_flat*/,
+		    output [2:0]  dbg_video_bg_fetch_cycle /*verilator public_flat*/,
+		    output [2:0]  dbg_video_bg_shift_cnt /*verilator public_flat*/,
+		    output        dbg_video_bg_reload_shift /*verilator public_flat*/,
+		    output        dbg_video_mode3 /*verilator public_flat*/,
+		    output [7:0]  dbg_video_tile_shift_0 /*verilator public_flat*/,
+		    output [7:0]  dbg_video_tile_shift_1 /*verilator public_flat*/,
+		    output [7:0]  dbg_video_bgp /*verilator public_flat*/,
+		    output [7:0]  dbg_video_scx /*verilator public_flat*/,
+		    output [7:0]  dbg_video_scy /*verilator public_flat*/,
+		    output [7:0]  dbg_video_ly /*verilator public_flat*/,
+		    output [7:0]  dbg_cpu_do /*verilator public_flat*/,
+		    output [7:0]  dbg_cpu_di /*verilator public_flat*/,
+		    output [7:0]  dbg_boot_q /*verilator public_flat*/,
+		    output [7:0]  dbg_boot_do /*verilator public_flat*/,
     output [15:0] dbg_cpu_tmpaddr /*verilator public_flat*/,
     output [7:0]  dbg_cpu_ir /*verilator public_flat*/,
     output [15:0] dbg_cpu_pc /*verilator public_flat*/,
@@ -389,31 +393,16 @@ module top (
     assign VGA_G = isGBC_game ? {lcd_data[9:5], lcd_data[9:7]} : dmg_gray;
     assign VGA_B = isGBC_game ? {lcd_data[4:0], lcd_data[4:2]} : dmg_gray;
 
-    // Sync signals from LCD mode
-    // Generate HSync pulse when entering HBlank (mode 0)
-    reg last_hblank;
-    reg hsync_pulse;
-    always @(posedge clk_sys) begin
-        if (reset) begin
-            last_hblank <= 0;
-            hsync_pulse <= 1;
-        end else begin
-            last_hblank <= (lcd_mode == 2'b00);
-            // Generate falling edge pulse when entering HBlank
-            if ((lcd_mode == 2'b00) && !last_hblank)
-                hsync_pulse <= 0;
-            else
-                hsync_pulse <= 1;
-        end
-    end
+    // Sync/blanking signals for the GUI rasterizer.
+    //
+    // The C++ SimVideo sink expects VGA-like level signals and detects line/frame
+    // boundaries on falling edges. Use level (not 1-sysclk pulses) so edges are
+    // observable when the GUI samples at the 4MHz CE rate.
+    assign VGA_HS = (lcd_mode != 2'b00);  // low for entire HBlank
+    assign VGA_VS = (lcd_mode != 2'b01);  // low for entire VBlank
 
-    assign VGA_HS = hsync_pulse;
-    assign VGA_VS = ~lcd_vsync;
-
-    // The GUI video sink (SimVideo) treats each call to Clock() as one "pixel"
-    // when DE=!(hblank||vblank). The Game Boy LCD emits pixels only when
-    // lcd_clkena is asserted, so present non-pixel cycles as blanking to keep
-    // the raster aligned (160 pixels per line).
+    // Only present "active video" when the LCD pipeline asserts its pixel strobe.
+    // Between CE ticks lcd_clkena is held, so the GUI must sample at CE.
     assign VGA_HB = ~lcd_clkena;
     assign VGA_VB = (lcd_mode == 2'b01);  // VBlank
 
@@ -617,12 +606,16 @@ module top (
 	    assign dbg_video_vram_data = gameboy.video.vram_data;
 	    assign dbg_video_vram1_data = gameboy.video.vram1_data;
 	    assign dbg_video_bg_pix_data = gameboy.video.bg_pix_data;
-	    assign dbg_video_bg_fetch_cycle = gameboy.video.bg_fetch_cycle;
-	    assign dbg_video_bg_shift_cnt = gameboy.video.bg_shift_cnt;
-	    assign dbg_video_bg_reload_shift = gameboy.video.bg_reload_shift;
-	    assign dbg_video_mode3 = gameboy.video.mode3;
-	    assign dbg_video_tile_shift_0 = gameboy.video.tile_shift_0;
-	    assign dbg_video_tile_shift_1 = gameboy.video.tile_shift_1;
+    assign dbg_video_bg_fetch_cycle = gameboy.video.bg_fetch_cycle;
+    assign dbg_video_bg_shift_cnt = gameboy.video.bg_shift_cnt;
+    assign dbg_video_bg_reload_shift = gameboy.video.bg_reload_shift;
+    assign dbg_video_mode3 = gameboy.video.mode3;
+    assign dbg_video_tile_shift_0 = gameboy.video.tile_shift_0;
+    assign dbg_video_tile_shift_1 = gameboy.video.tile_shift_1;
+    assign dbg_video_bgp = gameboy.video.bgp;
+    assign dbg_video_scx = gameboy.video.scx;
+    assign dbg_video_scy = gameboy.video.scy;
+    assign dbg_video_ly = gameboy.video.v_cnt;
 	    assign dbg_cpu_do = gameboy.cpu_do;
 	    assign dbg_cpu_di = gameboy.cpu_di;
 	    assign dbg_boot_q = gameboy.boot_q;

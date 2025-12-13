@@ -6,7 +6,6 @@
 
 #include <verilated.h>
 #include "Vtop.h"
-#include "Vtop___024root.h"
 #include "gb_test_common.h"
 
 //=============================================================================
@@ -16,10 +15,6 @@ void test_cpu_bus_access_no_dma(Vtop* dut, MisterSDRAMModel* sdram, TestResults&
     results.set_suite("CPU Bus Access Without DMA");
 
     reset_dut_with_sdram(dut, sdram);
-    auto* root = dut->rootp;
-
-    // Disable boot ROM to force cart access
-    root->top__DOT__gameboy__DOT__boot_rom_enabled = 0;
 
     // Load ROM data
     for (int i = 0; i < 0x1000; i += 2) {
@@ -29,7 +24,6 @@ void test_cpu_bus_access_no_dma(Vtop* dut, MisterSDRAMModel* sdram, TestResults&
     // Run and verify cart_rd occurs (CPU accessing cart)
     int cart_rd_count = 0;
     for (int i = 0; i < 1000; i++) {
-        root->top__DOT__gameboy__DOT__boot_rom_enabled = 0;
         tick_with_sdram(dut, sdram);
         if (dut->dbg_cart_rd) cart_rd_count++;
     }
@@ -100,10 +94,6 @@ void test_mbc_addr_updates(Vtop* dut, MisterSDRAMModel* sdram, TestResults& resu
     results.set_suite("MBC Address Updates");
 
     reset_dut_with_sdram(dut, sdram);
-    auto* root = dut->rootp;
-
-    // Disable boot ROM
-    root->top__DOT__gameboy__DOT__boot_rom_enabled = 0;
 
     // Load ROM
     for (int i = 0; i < 0x8000; i += 2) {
@@ -115,7 +105,6 @@ void test_mbc_addr_updates(Vtop* dut, MisterSDRAMModel* sdram, TestResults& resu
     int addr_changes = 0;
 
     for (int i = 0; i < 2000; i++) {
-        root->top__DOT__gameboy__DOT__boot_rom_enabled = 0;
         tick_with_sdram(dut, sdram);
 
         if (dut->dbg_mbc_addr != last_mbc_addr) {
@@ -135,9 +124,6 @@ void test_cart_rd_wr_signals(Vtop* dut, MisterSDRAMModel* sdram, TestResults& re
     results.set_suite("Cart Read/Write Signals");
 
     reset_dut_with_sdram(dut, sdram);
-    auto* root = dut->rootp;
-
-    root->top__DOT__gameboy__DOT__boot_rom_enabled = 0;
 
     // Load ROM
     for (int i = 0; i < 0x8000; i += 2) {
@@ -149,7 +135,6 @@ void test_cart_rd_wr_signals(Vtop* dut, MisterSDRAMModel* sdram, TestResults& re
     int cart_wr_count = 0;
 
     for (int i = 0; i < 2000; i++) {
-        root->top__DOT__gameboy__DOT__boot_rom_enabled = 0;
         tick_with_sdram(dut, sdram);
 
         if (dut->dbg_cart_rd) cart_rd_count++;
@@ -168,9 +153,6 @@ void test_cpu_rd_n_behavior(Vtop* dut, MisterSDRAMModel* sdram, TestResults& res
     results.set_suite("CPU Read Signal Behavior");
 
     reset_dut_with_sdram(dut, sdram);
-    auto* root = dut->rootp;
-
-    root->top__DOT__gameboy__DOT__boot_rom_enabled = 0;
 
     // Load ROM
     for (int i = 0; i < 0x8000; i += 2) {
@@ -182,7 +164,6 @@ void test_cpu_rd_n_behavior(Vtop* dut, MisterSDRAMModel* sdram, TestResults& res
     int cpu_not_reading = 0;
 
     for (int i = 0; i < 2000; i++) {
-        root->top__DOT__gameboy__DOT__boot_rom_enabled = 0;
         tick_with_sdram(dut, sdram);
 
         if (dut->dbg_cpu_rd_n == 0) {

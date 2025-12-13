@@ -101,9 +101,6 @@ void test_cpu_clken_hdma_gating(Vtop* dut, MisterSDRAMModel* sdram, TestResults&
 
     reset_dut_with_sdram(dut, sdram);
 
-    // Get access to internal signals
-    auto* root = dut->rootp;
-
     // Run some cycles to stabilize
     run_cycles_with_sdram(dut, sdram, 100);
 
@@ -178,23 +175,14 @@ void test_cpu_address_progression(Vtop* dut, MisterSDRAMModel* sdram, TestResult
         sdram->write16(i, nop_word);
     }
 
-    // Disable boot ROM by forcing internal signal
-    auto* root = dut->rootp;
-
     // Run some cycles to get past initialization
     run_cycles_with_sdram(dut, sdram, 500);
-
-    // Force boot ROM disabled
-    root->top__DOT__gameboy__DOT__boot_rom_enabled = 0;
 
     // Track CPU address changes
     uint16_t last_addr = dut->dbg_cpu_addr;
     int addr_changes = 0;
 
     for (int i = 0; i < 2000; i++) {
-        // Keep boot ROM disabled
-        root->top__DOT__gameboy__DOT__boot_rom_enabled = 0;
-
         tick_with_sdram(dut, sdram);
 
         uint16_t curr_addr = dut->dbg_cpu_addr;
