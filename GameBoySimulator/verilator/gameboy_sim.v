@@ -153,7 +153,15 @@ module top (
     output        dbg_cpu_regwel /*verilator public_flat*/,
     output [2:0]  dbg_cpu_regaddra /*verilator public_flat*/,
     output [1:0]  dbg_cpu_prefix /*verilator public_flat*/,
-    output [1:0]  dbg_cpu_iset /*verilator public_flat*/
+    output [1:0]  dbg_cpu_iset /*verilator public_flat*/,
+    output        dbg_sdram_ready /*verilator public_flat*/,
+    // ALU debug signals for half-carry investigation
+    output [7:0]  dbg_cpu_busa /*verilator public_flat*/,
+    output [7:0]  dbg_cpu_busb /*verilator public_flat*/,
+    output [7:0]  dbg_cpu_f_out /*verilator public_flat*/,
+    output [3:0]  dbg_cpu_alu_op_r /*verilator public_flat*/,
+    output        dbg_cpu_save_alu_r /*verilator public_flat*/,
+    output        dbg_cpu_preserve_c_r /*verilator public_flat*/
 );
 
     // =========================================================================
@@ -652,5 +660,13 @@ module top (
     assign dbg_cpu_regaddra = gameboy.cpu.i_tv80_core.RegAddrA;
     assign dbg_cpu_prefix = gameboy.cpu.i_tv80_core.Prefix;
     assign dbg_cpu_iset = gameboy.cpu.i_tv80_core.ISet;
+    assign dbg_sdram_ready = gameboy.sdram_ready;
+    // ALU debug signals
+    assign dbg_cpu_busa = gameboy.cpu.i_tv80_core.BusA;
+    assign dbg_cpu_busb = gameboy.cpu.i_tv80_core.BusB;
+    assign dbg_cpu_f_out = gameboy.cpu.i_tv80_core.F_Out;
+    assign dbg_cpu_alu_op_r = gameboy.cpu.i_tv80_core.ALU_Op_r;
+    assign dbg_cpu_save_alu_r = gameboy.cpu.i_tv80_core.Save_ALU_r;
+    assign dbg_cpu_preserve_c_r = gameboy.cpu.i_tv80_core.PreserveC_r;
 
 endmodule

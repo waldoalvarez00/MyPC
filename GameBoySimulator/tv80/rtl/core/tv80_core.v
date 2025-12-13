@@ -154,6 +154,7 @@ module tv80_core (/*AUTOARG*/
   reg [7:0]     BusA;
   wire [7:0]    ALU_Q;
   wire [7:0]    F_Out;
+  reg [7:0]     F_Out_r;  // Registered F_Out to prevent register-read feedback hazard
 
   // Registered micro code outputs
   reg [4:0]     Read_To_Reg_r;
@@ -429,6 +430,7 @@ module tv80_core (/*AUTOARG*/
           Save_ALU_r <= `TV80DELAY 1'b0;
           PreserveC_r <= `TV80DELAY 1'b0;
           XY_Ind <= `TV80DELAY 1'b0;
+          F_Out_r <= `TV80DELAY 8'h00;
         end 
       else 
         begin
@@ -674,6 +676,12 @@ module tv80_core (/*AUTOARG*/
 
                       Save_ALU_r <= `TV80DELAY Save_ALU;
                       ALU_Op_r <= `TV80DELAY ALU_Op;
+                      // Capture F_Out at T_Res to prevent register-read feedback hazard
+                      // This captures the correct ALU flags before BusA is corrupted by
+                      // the register file write-back (INC r would otherwise compute
+                      // half-carry incorrectly due to BusA picking up the new value)
+                      if (Save_ALU == 1'b1)
+                        F_Out_r <= `TV80DELAY F_Out;
                       
                       if (I_CPL == 1'b1 ) 
                         begin
@@ -818,22 +826,24 @@ module tv80_core (/*AUTOARG*/
                 end // if (tstate == 3 )
               
 
-              if ((I_DJNZ == 1'b0 && Save_ALU_r == 1'b1) || ALU_Op_r == 4'b1001 ) 
+              if ((I_DJNZ == 1'b0 && Save_ALU_r == 1'b1) || ALU_Op_r == 4'b1001 )
                 begin
-                  if (Mode == 3 ) 
+                  if (Mode == 3 )
                     begin
-                      F[6] <= `TV80DELAY F_Out[6];
-                      F[5] <= `TV80DELAY F_Out[5];
-                      F[7] <= `TV80DELAY F_Out[7];
-                      if (PreserveC_r == 1'b0 ) 
+                      // Use F_Out_r (registered version) to avoid register-read feedback hazard
+                      // F_Out_r was captured at T_Res before BusA was corrupted by register write-back
+                      F[6] <= `TV80DELAY F_Out_r[6];
+                      F[5] <= `TV80DELAY F_Out_r[5];
+                      F[7] <= `TV80DELAY F_Out_r[7];
+                      if (PreserveC_r == 1'b0 )
                         begin
-                          F[4] <= `TV80DELAY F_Out[4];
+                          F[4] <= `TV80DELAY F_Out_r[4];
                         end
-                    end 
-                  else 
+                    end
+                  else
                     begin
                       F[7:1] <= `TV80DELAY F_Out[7:1];
-                      if (PreserveC_r == 1'b0 ) 
+                      if (PreserveC_r == 1'b0 )
                         begin
                           F[Flag_C] <= `TV80DELAY F_Out[0];
                         end
