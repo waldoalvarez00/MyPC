@@ -143,11 +143,11 @@ int main(int argc, char** argv) {
     run_cycles_with_sdram(dut, sdram, 500);
     dut->reset = 0;
 
-    // Create logger
+    // Create logger (but don't enable until we reach PC=0x0100)
     printf("Creating doctor logger...\n");
     GBDoctorLogger logger(log_path, false);
     logger.set_boot_rom(boot.data(), boot.size());
-    logger.set_enabled(true);
+    // Don't enable logging yet - wait for cartridge entry point
 
     // Run simulation
     printf("Running simulation...\n");
@@ -155,6 +155,7 @@ int main(int argc, char** argv) {
     int instruction_count = 0;
     uint16_t prev_pc = 0xFFFF;
     bool halted = false;
+    bool logging_active = false;  // Track if we've started logging
 
     // Blargg tests write results to serial port
     uint8_t serial_buffer[256];
@@ -166,13 +167,21 @@ int main(int argc, char** argv) {
     for (int cycle = 0; cycle < max_cycles; cycle++) {
         tick_with_sdram(dut, sdram);
 
+        // Start logging when we reach PC=0x0100 (cartridge entry point)
+        uint16_t curr_pc = dut->dbg_cpu_pc;
+        if (!logging_active && curr_pc == 0x0100) {
+            printf("Reached cartridge entry point (PC=0x0100), starting doctor logging...\n");
+            logger.set_enabled(true);
+            logger.log_initial_state(dut, sdram);  // Log state before first instruction
+            logging_active = true;
+        }
+
         // Log with doctor logger (up to max_instructions)
-        if (instruction_count < max_instructions) {
+        if (logging_active && instruction_count < max_instructions) {
             logger.tick(dut, sdram);
         }
 
-        // Track instruction count
-        uint16_t curr_pc = dut->dbg_cpu_pc;
+        // Track instruction count (curr_pc already defined above)
         if (curr_pc != prev_pc && prev_pc != 0xFFFF) {
             instruction_count++;
 

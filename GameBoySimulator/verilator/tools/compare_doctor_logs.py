@@ -50,16 +50,44 @@ def format_state(state: Dict[str, str]) -> str:
     """Format state dictionary back to log line format."""
     return f"A:{state['A']} F:{state['F']} B:{state['B']} C:{state['C']} D:{state['D']} E:{state['E']} H:{state['H']} L:{state['L']} SP:{state['SP']} PC:{state['PC']} PCMEM:{state['PCMEM0']},{state['PCMEM1']},{state['PCMEM2']},{state['PCMEM3']}"
 
-def compare_logs(reference_path: str, test_path: str) -> Tuple[bool, int, Optional[Dict], Optional[Dict]]:
+def skip_to_pc(file_obj, target_pc: str) -> Optional[Dict]:
+    """Skip lines until we reach target PC. Returns the state at target PC or None."""
+    while True:
+        line = file_obj.readline()
+        if not line:  # EOF
+            return None
+        state = parse_log_line(line)
+        if state and state['PC'] == target_pc:
+            return state
+    return None
+
+def compare_logs(reference_path: str, test_path: str, start_pc: str = None) -> Tuple[bool, int, Optional[Dict], Optional[Dict]]:
     """
     Compare two log files.
     Returns: (match, line_number, ref_state, test_state)
+    If start_pc is provided, skip to that PC in both files before comparing.
     """
     try:
         with open(reference_path, 'r') as ref_f, open(test_path, 'r') as test_f:
             line_num = 0
             ref_line_num = 0
             test_line_num = 0
+
+            # Skip to start PC if specified
+            if start_pc:
+                ref_start = skip_to_pc(ref_f, start_pc)
+                test_start = skip_to_pc(test_f, start_pc)
+                if not ref_start:
+                    print(f"ERROR: Could not find PC={start_pc} in reference log")
+                    return (False, 0, None, None)
+                if not test_start:
+                    print(f"ERROR: Could not find PC={start_pc} in test log")
+                    return (False, 0, None, None)
+                # Compare the first states at start_pc
+                line_num = 1
+                if ref_start != test_start:
+                    return (False, line_num, ref_start, test_start)
+                print(f"Starting comparison at PC={start_pc}")
 
             while True:
                 # Read next valid line from reference
@@ -120,19 +148,25 @@ def print_diff(ref_state: Dict[str, str], test_state: Dict[str, str]):
             print(f"  {key:8s}: Expected {ref_state[key]:>4s}, Got {test_state[key]:>4s}")
 
 def main():
-    if len(sys.argv) != 3:
-        print("Usage: python3 compare_doctor_logs.py <reference_log> <test_log>")
-        sys.exit(1)
+    import argparse
+    parser = argparse.ArgumentParser(description='Compare gameboy-doctor log files')
+    parser.add_argument('reference_log', help='Reference log file')
+    parser.add_argument('test_log', help='Test log file to compare')
+    parser.add_argument('--start-pc', help='Skip to this PC before comparing (e.g., 0100)', default=None)
+    args = parser.parse_args()
 
-    reference_path = sys.argv[1]
-    test_path = sys.argv[2]
+    reference_path = args.reference_log
+    test_path = args.test_log
+    start_pc = args.start_pc.upper() if args.start_pc else None
 
     print(f"Comparing logs:")
     print(f"  Reference: {reference_path}")
     print(f"  Test:      {test_path}")
+    if start_pc:
+        print(f"  Start PC:  {start_pc}")
     print()
 
-    match, line_num, ref_state, test_state = compare_logs(reference_path, test_path)
+    match, line_num, ref_state, test_state = compare_logs(reference_path, test_path, start_pc)
 
     if match:
         print(f"✓ PASS: All {line_num} instructions match!")

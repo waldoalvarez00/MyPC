@@ -9,6 +9,11 @@
 #include <cstdint>
 #include <string>
 #include "../sim/mister_sdram_model.h"
+// For accessing internal WRAM dpram
+#include "Vtop.h"
+#include "Vtop_top.h"
+#include "Vtop_gb.h"
+#include "Vtop_dpram__Af.h"
 
 class GBDoctorLogger {
 private:
@@ -16,10 +21,16 @@ private:
     bool enabled;
     bool logging_started;
     uint16_t prev_pc;
+    uint8_t prev_mcycle;   // Previous M-cycle for detecting instruction boundaries
+    uint8_t prev_tstate;   // Previous T-state for detecting M1/T1 start
+    uint16_t m1_pc;        // PC captured at M1/T1 (instruction address before increment)
     uint64_t instruction_count;
     bool debug;
     uint8_t boot_rom[256];  // Copy of boot ROM for PCMEM reading
     bool boot_rom_available;
+    bool first_log_done;   // Track if initial state was logged
+    bool skip_next_m1t4;   // Skip the next M1/T4 detection (after log_initial_state)
+    bool pending_log;      // Flag set at M1/T1, log happens at M1/T2
 
 public:
     GBDoctorLogger(const char* filename = nullptr, bool debug_mode = false)
@@ -27,9 +38,15 @@ public:
         , enabled(false)
         , logging_started(false)
         , prev_pc(0)
+        , prev_mcycle(0)
+        , prev_tstate(0)
+        , m1_pc(0)
         , instruction_count(0)
         , debug(debug_mode)
         , boot_rom_available(false)
+        , first_log_done(false)
+        , skip_next_m1t4(false)
+        , pending_log(false)
     {
         memset(boot_rom, 0, sizeof(boot_rom));
         if (filename) {
@@ -53,8 +70,27 @@ public:
         enabled = enable;
         if (enable && !logging_started) {
             logging_started = true;
+            first_log_done = true;  // Auto-enable logging (no manual initial state needed)
             if (debug) printf("GBDoctorLogger: Logging started\n");
         }
+    }
+
+    // Log initial state immediately (call when first enabling at start PC)
+    // This captures the state BEFORE the first instruction executes
+    template<typename DUT>
+    void log_initial_state(DUT* dut, MisterSDRAMModel* sdram) {
+        if (!log_file) return;
+        uint16_t curr_pc = dut->dbg_cpu_pc;
+        log_state(dut, sdram, curr_pc);
+        // Update state - this prevents duplicate logging in tick() because
+        // the transition detection will see prev_mcycle == curr_mcycle
+        prev_pc = curr_pc;
+        prev_mcycle = dut->dbg_cpu_mcycle;
+        prev_tstate = dut->dbg_cpu_tstate;
+        m1_pc = curr_pc;
+        first_log_done = true;
+        // Don't set skip_next_m1t4 - the prev_mcycle update already prevents
+        // duplicate logging, and setting it would incorrectly skip the NEXT instruction
     }
 
     bool is_enabled() const {
@@ -76,20 +112,70 @@ public:
     void tick(DUT* dut, MisterSDRAMModel* sdram) {
         if (!enabled || !log_file) return;
 
-        // Detect instruction boundary:
-        // For this GameBoy core, M-cycle stays constant at 1, so we use PC changes
-        // Each time PC changes, a new instruction has started
+        // Detect instruction boundary using M-cycle transitions:
+        // GameBoy CPU T-state encoding: 2=T1, 4=T2, 8=T3, 16=T4
+        // M-cycle values: 1=M1 (opcode fetch), 2=M2, 4=M3/M4
+        //
+        // A new instruction starts when:
+        // - M-cycle TRANSITIONS from non-1 (2 or 4) to 1
+        // - This marks the start of a new instruction's opcode fetch
+        //
+        // Important: mcycle can stay at 1 for multiple T-state cycles during
+        // extended opcode fetch (e.g., for multi-byte instructions), so we must
+        // detect the TRANSITION, not just mcycle==1.
+        uint8_t curr_mcycle = dut->dbg_cpu_mcycle;
+        uint8_t curr_tstate = dut->dbg_cpu_tstate;
         uint16_t curr_pc = dut->dbg_cpu_pc;
 
-        // Instruction boundary = PC change
-        bool instruction_complete = (curr_pc != prev_pc) && (prev_pc != 0);
+        // Instruction boundary detection:
+        // A new instruction starts when mcycle=1 and tstate=2 (M1/T1), but we need to
+        // distinguish between:
+        // 1. New instruction after multi-cycle instruction: mcycle transitions 2/4 → 1
+        // 2. New instruction after single-cycle instruction: mcycle stays at 1, tstate wraps 16 → 2
+        //
+        // Key insight: The transition from tstate=16 to tstate=2 while mcycle=1 marks
+        // a new instruction boundary (either mcycle changed to 1, or it stayed at 1 after
+        // a single-cycle instruction completed).
+        //
+        // IMPORTANT: Log at M1/T2 (tstate=4) instead of M1/T1 to ensure registers from
+        // the previous instruction have settled. The register file updates on the clock
+        // edge, so logging at T1 might capture stale register values.
 
-        if (instruction_complete) {
-            // Log the state AT the new PC
-            // The PC has advanced to the next instruction
-            log_state(dut, sdram, curr_pc);
+        // Track when we detect a new instruction start (at M1/T1)
+        bool at_m1_t1 = (curr_mcycle == 1 && curr_tstate == 2);
+        bool at_m1_t2 = (curr_mcycle == 1 && curr_tstate == 4);
+
+        // New instruction boundary at M1/T1 when:
+        // 1. mcycle transitioned from non-1 to 1 (multi-cycle instruction completed)
+        // 2. OR tstate wrapped to 2 while mcycle stays at 1 (single-cycle instruction)
+        //    Note: tstate can wrap from T4 (16), T5 (32), or T6 (64) depending on instruction
+        //    e.g., INC HL has 6 T-states, so prev_tstate=64 before wrap
+        // 3. OR first tick after reset (prev_mcycle=0)
+        bool mcycle_transition = (curr_mcycle == 1 && prev_mcycle != 1 && prev_mcycle != 0);
+        // Check for any high tstate (T4/T5/T6) wrapping to T1 while staying in M1
+        bool tstate_wrap = (prev_tstate >= 16 && curr_tstate == 2 && curr_mcycle == 1 && prev_mcycle == 1);
+        bool first_m1_after_reset = (prev_mcycle == 0 && curr_mcycle == 1 && curr_tstate == 2);
+
+        // At M1/T1: capture PC and set flag for logging at T2
+        if (at_m1_t1 && (mcycle_transition || tstate_wrap || first_m1_after_reset)) {
+            m1_pc = curr_pc;  // Save instruction PC for logging at T2
+            pending_log = true;
         }
 
+        // At M1/T2: log the state (registers have settled from previous instruction)
+        if (at_m1_t2 && pending_log && first_log_done) {
+            pending_log = false;
+            if (skip_next_m1t4) {
+                // Skip this log (initial state was already logged manually)
+                skip_next_m1t4 = false;
+            } else {
+                // Log state with the PC captured at M1/T1
+                log_state(dut, sdram, m1_pc);
+            }
+        }
+
+        prev_mcycle = curr_mcycle;
+        prev_tstate = curr_tstate;
         prev_pc = curr_pc;
     }
 
@@ -163,8 +249,11 @@ public:
                 // VRAM - read from SDRAM
                 out[i] = sdram->read_byte(addr);
             } else if (addr >= 0xC000 && addr < 0xE000) {
-                // Work RAM - read from SDRAM
-                out[i] = sdram->read_byte(addr);
+                // Work RAM - read from internal WRAM dpram
+                // DMG mode: 8KB WRAM at 0xC000-0xDFFF, use lower 13 bits
+                // Address mapping: wram_addr = addr & 0x1FFF
+                uint16_t wram_offset = addr & 0x1FFF;
+                out[i] = dut->top->gameboy->wram->mem[wram_offset];
             } else {
                 // I/O, OAM, HRAM - not in SDRAM, return 0
                 out[i] = 0x00;
@@ -187,8 +276,14 @@ public:
     // Reset logger state
     void reset() {
         prev_pc = 0;
+        prev_mcycle = 0;
+        prev_tstate = 0;
+        m1_pc = 0;
         instruction_count = 0;
         logging_started = false;
+        first_log_done = false;
+        skip_next_m1t4 = false;
+        pending_log = false;
     }
 };
 

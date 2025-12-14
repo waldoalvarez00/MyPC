@@ -49,16 +49,17 @@ module GBse #(
     wire        no_read;
     wire        write;
     wire        iorq;
-    wire [7:0]  dout_core;
+    wire [7:0]  dout_next;    // Combinational data output for proper write timing
     reg  [7:0]  di_reg;
     reg         wait_n_prev;
     wire [6:0]  mcycle;
     wire [6:0]  tstate;
 
-    // DO output from tv80_core
-
     // Stub savestate output
     assign SaveStateBus_Dout = 64'b0;
+
+    // Use combinational dout_next for DO - ensures valid data during write cycles
+    assign DO = dout_next;
 
     // Instantiate TV80 core with GameBoy mode
     tv80_core #(
@@ -98,13 +99,12 @@ module GBse #(
         // which breaks CB-prefix sequences (e.g., CB 11 decoded as LD DE,d16).
         .dinst      (DI),
         .di         (di_reg),
-        .dout       (dout_core),
+        .dout       (),                 // Not used - using dout_next for proper write timing
+        .dout_next  (dout_next),        // Combinational output for writes
         .mc         (mcycle),
         .ts         (tstate),
         .intcycle_n (intcycle_n)
     );
-
-    assign DO = dout_core;
 
     // Control signal generation
     //

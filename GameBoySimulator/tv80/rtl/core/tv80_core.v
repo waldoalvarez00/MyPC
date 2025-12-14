@@ -26,7 +26,7 @@
 
 module tv80_core (/*AUTOARG*/
   // Outputs
-  m1_n, iorq, no_read, write, rfsh_n, halt_n, busak_n, A, dout, mc,
+  m1_n, iorq, no_read, write, rfsh_n, halt_n, busak_n, A, dout, dout_next, mc,
   ts, intcycle_n, IntE, stop,
   // Inputs
   reset_n, clk, cen, wait_n, int_n, nmi_n, busrq_n, dinst, di
@@ -62,7 +62,8 @@ module tv80_core (/*AUTOARG*/
   output [15:0] A; 
   input [7:0]   dinst;  
   input [7:0]   di;     
-  output [7:0]  dout;     
+  output [7:0]  dout;
+  output [7:0]  dout_next;  // Combinational data output for write cycles
   output [6:0]  mc;     
   output [6:0]  ts;     
   output        intcycle_n;     
@@ -275,11 +276,15 @@ module tv80_core (/*AUTOARG*/
      .Write                (write)
      );
 
+  // Use combinational ALU_Op instead of registered ALU_Op_r to ensure
+  // F_Out has correct flags at T_Res when F_Out_r is captured.
+  // ALU_Op_r is updated at T_Res, so using it would cause F_Out to be
+  // computed with the OLD operation code.
   tv80_alu #(Mode, Flag_C, Flag_N, Flag_P, Flag_X, Flag_H, Flag_Y, Flag_Z, Flag_S) i_alu
     (
      .Arith16              (Arith16_r),
      .Z16                  (Z16_r),
-     .ALU_Op               (ALU_Op_r),
+     .ALU_Op               (ALU_Op),
      .IR                   (IR[5:0]),
      .ISet                 (ISet),
      .BusA                 (BusA),
@@ -832,12 +837,15 @@ module tv80_core (/*AUTOARG*/
                     begin
                       // Use F_Out_r (registered version) to avoid register-read feedback hazard
                       // F_Out_r was captured at T_Res before BusA was corrupted by register write-back
-                      F[6] <= `TV80DELAY F_Out_r[6];
-                      F[5] <= `TV80DELAY F_Out_r[5];
-                      F[7] <= `TV80DELAY F_Out_r[7];
+                      // IMPORTANT: Remap ALU flag positions to GameBoy flag positions:
+                      //   ALU format: Flag_C=0, Flag_N=1, Flag_H=4, Flag_Z=6
+                      //   GameBoy format: Z=bit7, N=bit6, H=bit5, C=bit4
+                      F[7] <= `TV80DELAY F_Out_r[Flag_Z];  // GB Z flag (bit 7) from ALU Z (bit 6)
+                      F[6] <= `TV80DELAY F_Out_r[Flag_N];  // GB N flag (bit 6) from ALU N (bit 1)
+                      F[5] <= `TV80DELAY F_Out_r[Flag_H];  // GB H flag (bit 5) from ALU H (bit 4)
                       if (PreserveC_r == 1'b0 )
                         begin
-                          F[4] <= `TV80DELAY F_Out_r[4];
+                          F[4] <= `TV80DELAY F_Out_r[Flag_C];  // GB C flag (bit 4) from ALU C (bit 0)
                         end
                     end
                   else
@@ -988,10 +996,23 @@ module tv80_core (/*AUTOARG*/
     end // always @ (posedge clk)
   
 
-  always @(/*AUTOSENSE*/Alternate or ExchangeDH or IncDec_16
-	   or RegAddrA_r or RegAddrB_r or XY_State or mcycle or tstate)
+  // Detect INC r / DEC r instructions (00xxx100 and 00xxx101, xxx != 110)
+  // For T3 detection: use IR (which has new opcode after T2 edge)
+  wire inc_dec_r_ir = (IR[7:6] == 2'b00) && (IR[2:1] == 2'b10) && (IR[5:3] != 3'b110);
+
+  always @(/*AUTOSENSE*/Alternate or ExchangeDH or IncDec_16 or IR
+	   or RegAddrA_r or RegAddrB_r or Set_BusA_To or Set_BusB_To or XY_State or mcycle or tstate or inc_dec_r_ir)
     begin
-      if ((tstate[2] || (tstate[3] && mcycle[0] && IncDec_16[2] == 1'b1)) && XY_State == 2'b00)
+      // Fix: Bypass RegAddrA for INC r / DEC r instructions during M1/T3.
+      // RegAddrA_r is updated with Set_BusA_To at clock edges, but due to non-blocking
+      // assignment ordering, RegAddrA_r captures the OLD Set_BusA_To value.
+      // At T3, IR has the new opcode (updated at T2 edge), so Set_BusA_To is correct.
+      // We bypass RegAddrA_r and use Set_BusA_To directly to get the correct register pair.
+      // tstate encoding: tstate[3] = T3 (value 8)
+      if (tstate[3] && mcycle[0] && inc_dec_r_ir)
+        // Use Set_BusA_To[2:1] directly for pair (IR-based, valid at T3)
+        RegAddrA = { Alternate, Set_BusA_To[2:1] };
+      else if ((tstate[2] || (tstate[3] && mcycle[0] && IncDec_16[2] == 1'b1)) && XY_State == 2'b00)
         RegAddrA = { Alternate, IncDec_16[1:0] };
       else if ((tstate[2] || (tstate[3] && mcycle[0] && IncDec_16[2] == 1'b1)) && IncDec_16[1:0] == 2'b10)
         RegAddrA = { XY_State[1], 2'b11 };
@@ -1004,19 +1025,26 @@ module tv80_core (/*AUTOARG*/
       
       if (ExchangeDH == 1'b1 && tstate[3])
         RegAddrB = { Alternate, 2'b01 };
+      // Fix: Use direct microcode output for RegAddrB when Set_BusB_To selects a register pair.
+      // This avoids a one-cycle delay that causes PUSH to read the wrong register.
+      // Without this, RegAddrB_r is updated at clock edge, but BusB_next needs the value
+      // immediately for dout to capture the correct data at T2.
+      else if (Set_BusB_To[3] == 1'b0 && Set_BusB_To[2:0] != 3'b111 && Set_BusB_To[2:0] != 3'b110)
+        // Set_BusB_To indicates a register pair (0-5: BC/DE/HL pair bytes)
+        RegAddrB = { Alternate, Set_BusB_To[2:1] };
       else
         RegAddrB = RegAddrB_r;
     end // always @ *
   
 
   always @(/*AUTOSENSE*/ALU_Op_r or Auto_Wait_t1 or ExchangeDH
-	   or IncDec_16 or Read_To_Reg_r or Save_ALU_r or mcycle
-	   or tstate or wait_n)
+	   or IncDec_16 or Read_To_Reg_r or Save_ALU_r or Save_ALU or mcycle
+	   or tstate or wait_n or T_Res or Read_To_Reg or Set_BusA_To)
     begin
       RegWEH = 1'b0;
       RegWEL = 1'b0;
       if ((tstate[1] && ~Save_ALU_r && ~Auto_Wait_t1) ||
-          (Save_ALU_r && (ALU_Op_r != 4'b0111)) ) 
+          (Save_ALU_r && (ALU_Op_r != 4'b0111)) )
         begin
           case (Read_To_Reg_r)
             5'b10000 , 5'b10001 , 5'b10010 , 5'b10011 , 5'b10100 , 5'b10101 :
@@ -1026,8 +1054,28 @@ module tv80_core (/*AUTOARG*/
               end // UNMATCHED !!
             default : ;
           endcase // case(Read_To_Reg_r)
-          
+
         end // if ((tstate == 1 && Save_ALU_r == 1'b0 && Auto_Wait_t1 == 1'b0) ||...
+
+      // Fix: Also write register at T_Res (end of M-cycle) when Read_To_Reg is asserted.
+      // This fixes LD rr,nn instructions where the high byte write was delayed to the
+      // next instruction due to pipelining of Read_To_Reg_r.
+      // The write uses the current cycle's Set_BusA_To directly, not the registered version.
+      // IMPORTANT: Use ~Save_ALU (combinational) not ~Save_ALU_r (registered) to exclude
+      // INC/DEC r instructions which use ALU - Save_ALU_r isn't set until this edge.
+      if (T_Res && Read_To_Reg && ~Save_ALU)
+        begin
+          // Set_BusA_To encoding for register pairs: [2:1]=pair, [0]=low/high
+          // 5'b10000 = B, 5'b10001 = C, 5'b10010 = D, 5'b10011 = E, 5'b10100 = H, 5'b10101 = L
+          case ({1'b1, Set_BusA_To})
+            5'b10000 , 5'b10001 , 5'b10010 , 5'b10011 , 5'b10100 , 5'b10101 :
+              begin
+                RegWEH = ~ Set_BusA_To[0];
+                RegWEL = Set_BusA_To[0];
+              end
+            default : ;
+          endcase
+        end
       
 
       if (ExchangeDH && (tstate[3] || tstate[4]) ) 
@@ -1135,23 +1183,36 @@ module tv80_core (/*AUTOARG*/
         BusB_next = 8'h00;
     endcase
 
-    case (Set_BusA_To)
-      4'b0111 :
-        BusA_next = ACC;
-      4'b0000 , 4'b0001 , 4'b0010 , 4'b0011 , 4'b0100 , 4'b0101 :
-        BusA_next = Set_BusA_To[0] ? RegBusA[7:0] : RegBusA[15:8];
-      4'b0110 :
-        BusA_next = DI_Reg;
-      4'b1000 :
-        BusA_next = SP[7:0];
-      4'b1001 :
-        BusA_next = SP[15:8];
-      4'b1010 :
-        BusA_next = 8'b00000000;
-      default :
-        BusA_next = 8'h00;
-    endcase
+    // Fix: For INC r/DEC r during M1/T3, use Set_BusA_To (now correct based on new IR).
+    // At T3, IR has been updated (at T2 edge), so Set_BusA_To is valid.
+    // We explicitly select the register byte using Set_BusA_To[0] from the new microcode output.
+    if (tstate[3] && mcycle[0] && inc_dec_r_ir)
+      // Use Set_BusA_To[0] for byte selection (1=low byte, 0=high byte)
+      BusA_next = Set_BusA_To[0] ? RegBusA[7:0] : RegBusA[15:8];
+    else
+      case (Set_BusA_To)
+        4'b0111 :
+          BusA_next = ACC;
+        4'b0000 , 4'b0001 , 4'b0010 , 4'b0011 , 4'b0100 , 4'b0101 :
+          BusA_next = Set_BusA_To[0] ? RegBusA[7:0] : RegBusA[15:8];
+        4'b0110 :
+          BusA_next = DI_Reg;
+        4'b1000 :
+          BusA_next = SP[7:0];
+        4'b1001 :
+          BusA_next = SP[15:8];
+        4'b1010 :
+          BusA_next = 8'b00000000;
+        default :
+          BusA_next = 8'h00;
+      endcase
   end
+
+  // Combinational data output - provides valid data on same cycle as write assertion
+  // This bypasses the registered dout for proper write timing
+  assign dout_next = (I_RLD == 1'b1) ? {BusB_next[3:0], BusA_next[3:0]} :
+                     (I_RRD == 1'b1) ? {BusA_next[3:0], BusB_next[7:4]} :
+                     BusB_next;
 
   always @ (posedge clk) begin
     BusB <= `TV80DELAY BusB_next;

@@ -52,9 +52,13 @@ module GBse #(
     reg         wait_n_prev;
     wire [6:0]  mcycle;
     wire [6:0]  tstate;
+    wire [7:0]  dout_next;  // Combinational data output for proper write timing
 
     // Stub savestate output (not implemented in TV80)
     assign SaveStateBus_Dout = 64'b0;
+
+    // Use combinational dout_next for DO - ensures valid data during write cycles
+    assign DO = dout_next;
 
     // Instantiate TV80 core with GameBoy mode
     tv80_core #(
@@ -80,7 +84,8 @@ module GBse #(
         .A          (A),
         .dinst      (DI),
         .di         (di_reg),
-        .dout       (DO),
+        .dout       (),           // Not used - using dout_next for proper write timing
+        .dout_next  (dout_next),  // Combinational output for writes
         .mc         (mcycle),
         .ts         (tstate),
         .intcycle_n (intcycle_n)
