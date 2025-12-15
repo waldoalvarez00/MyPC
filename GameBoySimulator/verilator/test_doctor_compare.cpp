@@ -63,7 +63,7 @@ static void init_cart_ready(Vtop* dut, MisterSDRAMModel* sdram) {
 
 // Create boot ROM that initializes CPU to post-boot state
 // Post-boot state: A:01 F:B0 B:00 C:13 D:00 E:D8 H:01 L:4D SP:FFFE PC:0100
-// Also enables LCD (LCDC = 0x91) so LY increments
+// Also enables LCD (LCDC = 0x91) and waits for VBlank to sync timing
 static void create_postboot_rom(uint8_t* boot) {
     memset(boot, 0x00, 256);
     int i = 0;
@@ -73,7 +73,33 @@ static void create_postboot_rom(uint8_t* boot) {
     boot[i++] = 0xFE;
     boot[i++] = 0xFF;
 
-    // 2. Set B, C, D, E
+    // 2. Enable LCD (LCDC = 0x91) early so LCD starts running
+    boot[i++] = 0x3E;  // LD A, 0x91
+    boot[i++] = 0x91;
+    boot[i++] = 0xE0;  // LDH (0x40), A -> write to 0xFF40 (LCDC)
+    boot[i++] = 0x40;
+
+    // 3. Wait for VBlank (LY >= 144) to synchronize LCD timing
+    // This ensures we start at a consistent LCD phase
+    // wait_vblank:
+    int wait_loop = i;
+    boot[i++] = 0xF0;  // LDH A, (0x44) - read LY
+    boot[i++] = 0x44;
+    boot[i++] = 0xFE;  // CP 144
+    boot[i++] = 0x90;
+    boot[i++] = 0x38;  // JR C, wait_vblank (if LY < 144, loop)
+    boot[i++] = (uint8_t)(wait_loop - (i + 1));  // relative jump back
+
+    // 4. Now wait for LY to wrap to 0 (start of new frame)
+    // wait_ly0:
+    int wait_ly0 = i;
+    boot[i++] = 0xF0;  // LDH A, (0x44) - read LY
+    boot[i++] = 0x44;
+    boot[i++] = 0xB7;  // OR A (set Z if A==0)
+    boot[i++] = 0x20;  // JR NZ, wait_ly0 (if LY != 0, loop)
+    boot[i++] = (uint8_t)(wait_ly0 - (i + 1));
+
+    // 5. Set B, C, D, E
     boot[i++] = 0x06;  // LD B, 0x00
     boot[i++] = 0x00;
     boot[i++] = 0x0E;  // LD C, 0x13
@@ -83,36 +109,23 @@ static void create_postboot_rom(uint8_t* boot) {
     boot[i++] = 0x1E;  // LD E, 0xD8
     boot[i++] = 0xD8;
 
-    // 3. Enable LCD (LCDC = 0x91) - must do this before setting final A/F
-    // 0x91 = LCD on, Window tile map 9800, Window off, BG/Window tile data 8000,
-    //        BG tile map 9800, OBJ size 8x8, OBJ off, BG on
-    boot[i++] = 0x3E;  // LD A, 0x91
-    boot[i++] = 0x91;
-    boot[i++] = 0xE0;  // LDH (0x40), A -> write to 0xFF40 (LCDC)
-    boot[i++] = 0x40;
-
-    // 4. Set H, L
+    // 6. Set H, L
     boot[i++] = 0x26;  // LD H, 0x01
     boot[i++] = 0x01;
     boot[i++] = 0x2E;  // LD L, 0x4D
     boot[i++] = 0x4D;
 
-    // 5. Set A=0x01, F=0xB0 using PUSH/POP trick
-    // Save DE (we'll use it as temp)
+    // 7. Set A=0x01, F=0xB0 using PUSH/POP trick
     boot[i++] = 0xD5;  // PUSH DE (D=00, E=D8)
-
-    // Set D=0x01 (for A), E=0xB0 (for F)
     boot[i++] = 0x16;  // LD D, 0x01
     boot[i++] = 0x01;
     boot[i++] = 0x1E;  // LD E, 0xB0
     boot[i++] = 0xB0;
     boot[i++] = 0xD5;  // PUSH DE (0x01, 0xB0)
     boot[i++] = 0xF1;  // POP AF -> A=0x01, F=0xB0
-
-    // Restore D, E
     boot[i++] = 0xD1;  // POP DE -> D=00, E=D8
 
-    // 6. Jump to cart entry point
+    // 8. Jump to cart entry point
     boot[i++] = 0xC3;  // JP 0x0100
     boot[i++] = 0x00;
     boot[i++] = 0x01;

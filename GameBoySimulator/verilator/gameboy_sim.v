@@ -161,7 +161,21 @@ module top (
     output [7:0]  dbg_cpu_f_out /*verilator public_flat*/,
     output [3:0]  dbg_cpu_alu_op_r /*verilator public_flat*/,
     output        dbg_cpu_save_alu_r /*verilator public_flat*/,
-    output        dbg_cpu_preserve_c_r /*verilator public_flat*/
+    output        dbg_cpu_preserve_c_r /*verilator public_flat*/,
+    // Timer debug signals
+    output [7:0]  dbg_timer_div /*verilator public_flat*/,
+    output [7:0]  dbg_timer_tima /*verilator public_flat*/,
+    output [2:0]  dbg_timer_tac /*verilator public_flat*/,
+    output        dbg_timer_irq /*verilator public_flat*/,
+    // CPU HALT state debug
+    output        dbg_cpu_halt /*verilator public_flat*/,
+    output        dbg_cpu_iff1 /*verilator public_flat*/,
+    output        dbg_cpu_iff2 /*verilator public_flat*/,
+    // JR debug signals
+    output        dbg_cpu_jump_e /*verilator public_flat*/,
+    output        dbg_cpu_inc_pc /*verilator public_flat*/,
+    output        dbg_cpu_no_read /*verilator public_flat*/,
+    output        dbg_cpu_last_mcycle /*verilator public_flat*/
 );
 
     // =========================================================================
@@ -668,5 +682,21 @@ module top (
     assign dbg_cpu_alu_op_r = gameboy.cpu.i_tv80_core.ALU_Op_r;
     assign dbg_cpu_save_alu_r = gameboy.cpu.i_tv80_core.Save_ALU_r;
     assign dbg_cpu_preserve_c_r = gameboy.cpu.i_tv80_core.PreserveC_r;
+    // JR debug signals
+    assign dbg_cpu_jump_e = gameboy.cpu.i_tv80_core.JumpE;
+    assign dbg_cpu_inc_pc = gameboy.cpu.i_tv80_core.Inc_PC;
+    assign dbg_cpu_no_read = gameboy.cpu.i_tv80_core.no_read;
+    assign dbg_cpu_last_mcycle = gameboy.cpu.i_tv80_core.last_mcycle;
+
+    // Timer debug signals
+    assign dbg_timer_div = gameboy.timer.div;
+    assign dbg_timer_tima = gameboy.timer.tima;
+    assign dbg_timer_tac = gameboy.timer.tac;
+    assign dbg_timer_irq = gameboy.timer.irq;
+
+    // CPU HALT/interrupt state debug
+    assign dbg_cpu_halt = ~gameboy.cpu.HALT_n;  // Active high halt flag
+    assign dbg_cpu_iff1 = gameboy.cpu.i_tv80_core.IntE;  // Interrupt enable flag
+    assign dbg_cpu_iff2 = 1'b0;  // Not exposed in TV80 for GB mode
 
 endmodule

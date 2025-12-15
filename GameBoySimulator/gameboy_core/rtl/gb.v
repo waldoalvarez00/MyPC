@@ -367,13 +367,12 @@ always @(posedge clk_sys) begin
 			if (sdram_wait_counter > 0) begin
 				sdram_wait_counter <= sdram_wait_counter - 8'd1;
 			end else begin
-				// Don't release WAIT_n on the same sysclk edge as a CE pulse.
-				// If WAIT_n rises coincident with a CPU advance, the GBse wrapper's
-				// `di_reg` can update too late and TV80 consumes the previous byte
-				// (breaks back-to-back ROM header reads and some immediate fetches).
-				if (!ce_cpu) begin
-					sdram_wait_active <= 1'b0;  // Wait complete
-				end
+				// OPTION 1 FIX: Release WAIT immediately when counter expires.
+				// The previous ce_cpu gating caused excessive stalls when counter
+				// expired during ce_cpu=1 cycles. The per-address wait tracking
+				// (cart_rd_new_addr) and adequate SDRAM_WAIT_TICKS should provide
+				// sufficient data stability without additional ce_cpu alignment.
+				sdram_wait_active <= 1'b0;  // Wait complete
 			end
 		end
 	end

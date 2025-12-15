@@ -187,6 +187,8 @@ int main(int argc, char** argv) {
     uint32_t boot_sel_cycles = 0;
     uint32_t boot_sel_ce_cycles = 0;
     uint32_t cart_header_reads = 0;
+    uint16_t last_pc = 0xFFFF;
+    uint32_t pc_changes = 0;
     uint8_t header_0104_0107[4] = {0, 0, 0, 0};
     bool header_0104_0107_seen[4] = {false, false, false, false};
     bool header_0104_0107_any_nonzero = false;
@@ -261,6 +263,12 @@ int main(int argc, char** argv) {
             if (dut->dbg_ce_cpu) boot_sel_ce_cycles++;
         }
 
+        // Track PC changes to see if CPU is actually advancing
+        if (dut->dbg_cpu_pc != last_pc) {
+            pc_changes++;
+            last_pc = dut->dbg_cpu_pc;
+        }
+
         // Observe a few header reads as seen by the CPU bus.
         // Require an actual memory read cycle (MREQ_n=0, RD_n=0).
         if (dut->dbg_cpu_mreq_n == 0 && dut->dbg_cpu_rd_n == 0) {
@@ -282,6 +290,14 @@ int main(int argc, char** argv) {
                     header_0104_0107[idx] = dut->dbg_cpu_di;
                 }
                 cart_header_reads++;
+                // Detailed trace of header reads
+                if (cart_header_reads <= 40) {  // Only print first 40 reads to avoid spam
+                    printf("  [HDR_READ #%u] addr=0x%04X di=0x%02X PC=0x%04X DE=0x%04X HL=0x%04X IR=0x%02X "
+                           "sel_ext=%u cart_rd=%u cart_ready=%u sdram_do=0x%04X\n",
+                           cart_header_reads, a, dut->dbg_cpu_di, dut->dbg_cpu_pc, dut->dbg_cpu_de,
+                           dut->dbg_cpu_hl, dut->dbg_cpu_ir, dut->dbg_sel_ext_bus, dut->dbg_cart_rd,
+                           dut->dbg_cart_ready, dut->dbg_sdram_do);
+                }
             }
         }
 
@@ -434,6 +450,7 @@ int main(int argc, char** argv) {
            vram_write_falls_allowed, vram_write_falls_blocked);
     printf("  [INFO] boot_sel: cycles=%u ce_cycles=%u boot_enabled_now=%u\n",
            boot_sel_cycles, boot_sel_ce_cycles, (uint32_t)dut->dbg_boot_rom_enabled);
+    printf("  [INFO] pc_changes=%u final_pc=0x%04X\n", pc_changes, last_pc);
     printf("  [INFO] cart_header_reads=%u cpu_di@0104..0107=%02X %02X %02X %02X\n",
            cart_header_reads,
            header_0104_0107[0], header_0104_0107[1], header_0104_0107[2], header_0104_0107[3]);
