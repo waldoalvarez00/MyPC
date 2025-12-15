@@ -129,6 +129,7 @@ module tv80_core (/*AUTOARG*/
   reg           last_mcycle, last_tstate;
   reg           IntE_FF1;
   reg           IntE_FF2;
+  reg           EI_Delay;  // GameBoy EI one-instruction delay
   reg           Halt_FF;
   reg           BusReq_s;
   reg           BusAck;
@@ -494,7 +495,10 @@ module tv80_core (/*AUTOARG*/
                         begin
                           IR <= `TV80DELAY 8'b11111111;
                         end 
-                      else if (Halt_FF == 1'b1 || (IntCycle == 1'b1 && IStatus == 2'b10) || NMICycle == 1'b1 ) 
+                      // GameBoy mode (Mode==3): fetch interrupt vector from data bus
+                      // Z80 mode 2: same behavior, but upper address uses I register
+                      else if (Halt_FF == 1'b1 || (IntCycle == 1'b1 && IStatus == 2'b10) || NMICycle == 1'b1 ||
+                               (IntCycle == 1'b1 && Mode == 3))
                         begin
                           IR <= `TV80DELAY 8'b00000000;
 			  TmpAddr[7:0] <= `TV80DELAY dinst; // Special M1 vector fetch
@@ -553,7 +557,9 @@ module tv80_core (/*AUTOARG*/
                   if (T_Res == 1'b1 ) 
                     begin
                       BTR_r <= `TV80DELAY (I_BT || I_BC || I_BTR) && ~ No_BTR;
-                      if (Jump == 1'b1 ) 
+                      // Z80 Jump: for mode 2 IntCycle, use DI_Reg:TmpAddr as jump target
+                      // Exclude GameBoy mode (Mode==3) IntCycle - handled separately below
+                      if (Jump == 1'b1 && !(IntCycle == 1'b1 && Mode == 3))
                         begin
                           A[15:8] <= `TV80DELAY DI_Reg;
                           A[7:0] <= `TV80DELAY TmpAddr[7:0];
@@ -569,12 +575,22 @@ module tv80_core (/*AUTOARG*/
                             A <= `TV80DELAY TmpAddr;
                             PC <= `TV80DELAY TmpAddr;
                           end 
-                        else if (last_mcycle && NMICycle == 1'b1 ) 
+                        else if (last_mcycle && NMICycle == 1'b1 )
                           begin
                             A <= `TV80DELAY 16'b0000000001100110;
                             PC <= `TV80DELAY 16'b0000000001100110;
-                          end 
-                        else if (mcycle[2] && IntCycle == 1'b1 && IStatus == 2'b10 ) 
+                          end
+                        // GameBoy mode (Mode==3): jump to interrupt vector at M5
+                        // Vector (0x40/0x48/0x50/0x58/0x60) is in TmpAddr[7:0], jump to 0x00XX
+                        else if (mcycle[4] && IntCycle == 1'b1 && Mode == 3)
+                          begin
+                            A[15:8] <= `TV80DELAY 8'h00;
+                            A[7:0] <= `TV80DELAY TmpAddr[7:0];
+                            PC[15:8] <= `TV80DELAY 8'h00;
+                            PC[7:0] <= `TV80DELAY TmpAddr[7:0];
+                          end
+                        // Z80 mode 2: jump to (I * 256 + vector) - handled by Jump condition above
+                        else if (mcycle[4] && IntCycle == 1'b1 && IStatus == 2'b10)
                           begin
                             A[15:8] <= `TV80DELAY I;
                             A[7:0] <= `TV80DELAY TmpAddr[7:0];
@@ -1352,6 +1368,7 @@ module tv80_core (/*AUTOARG*/
           IntCycle <= `TV80DELAY 1'b0;
           IntE_FF1 <= `TV80DELAY 1'b0;
           IntE_FF2 <= `TV80DELAY 1'b0;
+          EI_Delay <= `TV80DELAY 1'b0;  // GameBoy EI delay init
           No_BTR <= `TV80DELAY 1'b0;
           Auto_Wait_t1 <= `TV80DELAY 1'b0;
           Auto_Wait_t2 <= `TV80DELAY 1'b0;
@@ -1437,20 +1454,29 @@ module tv80_core (/*AUTOARG*/
                             begin
                               mcycle <= `TV80DELAY number_to_bitvec(Pre_XY_F_M + 1);
                             end 
-                          else if ((last_mcycle) ||
+                          // GameBoy IntCycle fix: When IntCycle or NMICycle starts, the mcycles register
+                          // still has the old value (from previous instruction). This causes last_mcycle
+                          // to be TRUE at M1 even though IntCycle needs 5 M-cycles. Skip last_mcycle
+                          // check when IntCycle/NMICycle is active and we're in M1 (first cycle).
+                          else if ((last_mcycle && !((IntCycle || NMICycle) && mcycle[0])) ||
                                    No_BTR == 1'b1 ||
-                                   (mcycle[1] && I_DJNZ == 1'b1 && IncDecZ == 1'b1) ) 
+                                   (mcycle[1] && I_DJNZ == 1'b1 && IncDecZ == 1'b1) )
                             begin
                               m1_n <= `TV80DELAY 1'b0;
                               mcycle <= `TV80DELAY 7'b0000001;
                               IntCycle <= `TV80DELAY 1'b0;
                               NMICycle <= `TV80DELAY 1'b0;
-                              if (NMI_s == 1'b1 && Prefix == 2'b00 ) 
+                              // Note: EI_Delay removed - SetEI check already provides 1-instruction delay
+                              // SetEI is 1 during EI instruction execution, blocking immediate interrupt
+                              // At end of next instruction, SetEI is 0, allowing interrupt to fire
+                              if (NMI_s == 1'b1 && Prefix == 2'b00 )
                                 begin
                                   NMICycle <= `TV80DELAY 1'b1;
                                   IntE_FF1 <= `TV80DELAY 1'b0;
-                                end 
-                              else if ((IntE_FF1 == 1'b1 && INT_s == 1'b1) && Prefix == 2'b00 && SetEI == 1'b0 ) 
+                                end
+                              // GameBoy: SetEI check enforces one-instruction delay after EI
+                              // If currently executing EI (SetEI=1), don't trigger interrupt yet
+                              else if ((IntE_FF1 == 1'b1 && INT_s == 1'b1) && Prefix == 2'b00 && SetEI == 1'b0)
                                 begin
                                   IntCycle <= `TV80DELAY 1'b1;
                                   IntE_FF1 <= `TV80DELAY 1'b0;
