@@ -92,22 +92,27 @@ module tv80_alu (/*AUTOARG*/
 
   reg [7:0] BitMask;
 
+  // Mode-aware carry flag read - GB uses F[4], Z80 uses F[0]
+  wire carry_flag_in = (Mode == 3) ? F_In[4] : F_In[Flag_C];
+  wire z_flag_in = (Mode == 3) ? F_In[7] : F_In[Flag_Z];
+  wire s_flag_in = (Mode == 3) ? 1'b0 : F_In[Flag_S];
+  wire p_flag_in = (Mode == 3) ? 1'b0 : F_In[Flag_P];
 
   always @(/*AUTOSENSE*/ALU_Op or BusA or BusB or F_In or IR)
     begin
       case (IR[5:3])
         3'b000 : BitMask = 8'b00000001;
         3'b001 : BitMask = 8'b00000010;
-        3'b010 : BitMask = 8'b00000100; 
-        3'b011 : BitMask = 8'b00001000; 
-        3'b100 : BitMask = 8'b00010000; 
-        3'b101 : BitMask = 8'b00100000; 
-        3'b110 : BitMask = 8'b01000000; 
-        default: BitMask = 8'b10000000; 
+        3'b010 : BitMask = 8'b00000100;
+        3'b011 : BitMask = 8'b00001000;
+        3'b100 : BitMask = 8'b00010000;
+        3'b101 : BitMask = 8'b00100000;
+        3'b110 : BitMask = 8'b01000000;
+        default: BitMask = 8'b10000000;
       endcase // case(IR[5:3])
-      
+
       UseCarry = ~ ALU_Op[2] && ALU_Op[0];
-      { HalfCarry_v, Q_v[3:0] } = AddSub4(BusA[3:0], BusB[3:0], ALU_Op[1], ALU_Op[1] ^ (UseCarry && F_In[Flag_C]) );
+      { HalfCarry_v, Q_v[3:0] } = AddSub4(BusA[3:0], BusB[3:0], ALU_Op[1], ALU_Op[1] ^ (UseCarry && carry_flag_in) );
       { Carry7_v, Q_v[6:4]  } = AddSub3(BusA[6:4], BusB[6:4], ALU_Op[1], HalfCarry_v);
       { Carry_v, Q_v[7] } = AddSub1(BusA[7], BusB[7], ALU_Op[1], Carry7_v);
       OverFlow_v = Carry_v ^ Carry7_v;
@@ -115,14 +120,19 @@ module tv80_alu (/*AUTOARG*/
   
   reg [7:0] Q_t;
   reg [8:0] DAA_Q;
-  
+  reg       daa_n_in, daa_h_in, daa_c_in, daa_c_out;  // DAA helper regs
+
   always @ (/*AUTOSENSE*/ALU_Op or Arith16 or BitMask or BusA or BusB
 	    or Carry_v or F_In or HalfCarry_v or IR or ISet
 	    or OverFlow_v or Q_v or Z16)
     begin
       Q_t = 8'hxx;
       DAA_Q = {9{1'bx}};
-      
+      daa_n_in = 1'b0;
+      daa_h_in = 1'b0;
+      daa_c_in = 1'b0;
+      daa_c_out = 1'b0;
+
       F_Out = F_In;
       case (ALU_Op)
 	4'b0000, 4'b0001,  4'b0010, 4'b0011, 4'b0100, 4'b0101, 4'b0110, 4'b0111 :
@@ -185,9 +195,9 @@ module tv80_alu (/*AUTOARG*/
 		F_Out[Flag_Z] = 1'b1;
 		if (Z16 == 1'b1 ) 
                   begin
-		    F_Out[Flag_Z] = F_In[Flag_Z];	// 16 bit ADC,SBC
-		  end
-	      end 
+			    F_Out[Flag_Z] = z_flag_in;	// 16 bit ADC,SBC
+			  end
+		      end 
             else 
               begin
 		F_Out[Flag_Z] = 1'b0;
@@ -202,77 +212,100 @@ module tv80_alu (/*AUTOARG*/
 	        F_Out[Flag_P] = ~(^Q_t);                    
 	    endcase // case(ALU_Op[2:0])
             
-	    if (Arith16 == 1'b1 ) 
-              begin
-		F_Out[Flag_S] = F_In[Flag_S];
-		F_Out[Flag_Z] = F_In[Flag_Z];
-		F_Out[Flag_P] = F_In[Flag_P];
-	      end
-          end // case: 4'b0000, 4'b0001,  4'b0010, 4'b0011, 4'b0100, 4'b0101, 4'b0110, 4'b0111
+		    if (Arith16 == 1'b1 ) 
+		      begin
+			F_Out[Flag_S] = s_flag_in;
+			F_Out[Flag_Z] = z_flag_in;
+			F_Out[Flag_P] = p_flag_in;
+		      end
+	          end // case: 4'b0000, 4'b0001,  4'b0010, 4'b0011, 4'b0100, 4'b0101, 4'b0110, 4'b0111
         
 	4'b1100 :
           begin
-	    // DAA
-	    F_Out[Flag_H] = F_In[Flag_H];
-	    F_Out[Flag_C] = F_In[Flag_C];
+	    // DAA - Decimal Adjust Accumulator
+	    // GameBoy (Mode==3) uses different flag bit positions:
+	    //   GB: Z=7, N=6, H=5, C=4, bits 3:0 always 0
+	    //   Z80: S=7, Z=6, Y=5, H=4, X=3, P=2, N=1, C=0
+
+	    // Read input flags at correct positions for the mode
+	    daa_n_in = (Mode == 3) ? F_In[6] : F_In[Flag_N];
+	    daa_h_in = (Mode == 3) ? F_In[5] : F_In[Flag_H];
+	    daa_c_in = (Mode == 3) ? F_In[4] : F_In[Flag_C];
+
 	    DAA_Q[7:0] = BusA;
 	    DAA_Q[8] = 1'b0;
-	    if (F_In[Flag_N] == 1'b0 ) 
-              begin
-		// After addition
-		// Alow > 9 || H == 1
-		if (DAA_Q[3:0] > 9 || F_In[Flag_H] == 1'b1 ) 
-                  begin
-		    if ((DAA_Q[3:0] > 9) ) 
-                      begin
-			F_Out[Flag_H] = 1'b1;
-		      end 
-                    else 
-                      begin
-			F_Out[Flag_H] = 1'b0;
-		      end
-		    DAA_Q = DAA_Q + 6;
-		  end // if (DAA_Q[3:0] > 9 || F_In[Flag_H] == 1'b1 )
-                
-		// new Ahigh > 9 || C == 1
-		if (DAA_Q[8:4] > 9 || F_In[Flag_C] == 1'b1 ) 
-                  begin
-		    DAA_Q = DAA_Q + 96; // 0x60
-		  end
-	      end 
-            else 
-              begin
-		// After subtraction
-		if (DAA_Q[3:0] > 9 || F_In[Flag_H] == 1'b1 ) 
-                  begin
-		    if (DAA_Q[3:0] > 5 ) 
-                      begin
-			F_Out[Flag_H] = 1'b0;
-		      end
-		    DAA_Q[7:0] = DAA_Q[7:0] - 6;
-		  end
-		if (BusA > 153 || F_In[Flag_C] == 1'b1 ) 
-                  begin
-		    DAA_Q = DAA_Q - 352; // 0x160
-		  end
-	      end // else: !if(F_In[Flag_N] == 1'b0 )
-            
-	    F_Out[Flag_X] = DAA_Q[3];
-	    F_Out[Flag_Y] = DAA_Q[5];
-	    F_Out[Flag_C] = F_In[Flag_C] || DAA_Q[8];
-	    Q_t = DAA_Q[7:0];
-            
-	    if (DAA_Q[7:0] == 8'b00000000 ) 
-              begin
-		F_Out[Flag_Z] = 1'b1;
-	      end 
-            else 
-              begin
-		F_Out[Flag_Z] = 1'b0;
+	    daa_c_out = daa_c_in;
+
+	    if (Mode == 3) begin
+	      // GameBoy DAA algorithm (SameBoy/bgb reference)
+	      // Both conditions checked on ORIGINAL A value (BusA)
+	      if (daa_n_in == 1'b0) begin
+	        // After addition
+	        // Both adjustments based on ORIGINAL value to determine if adjustment needed
+	        if (daa_c_in || BusA > 8'h99) begin
+	          DAA_Q = DAA_Q + 8'h60;
+	          daa_c_out = 1'b1;
+	        end
+	        if (daa_h_in || (BusA[3:0] > 4'd9)) begin
+	          DAA_Q = DAA_Q + 8'h06;
+	        end
+	      end else begin
+	        // After subtraction
+	        if (daa_c_in) begin
+	          DAA_Q[7:0] = DAA_Q[7:0] - 8'h60;
+	        end
+	        if (daa_h_in) begin
+	          DAA_Q[7:0] = DAA_Q[7:0] - 8'h06;
+	        end
 	      end
-            
-	    F_Out[Flag_S] = DAA_Q[7];
-	    F_Out[Flag_P] = ~ (^DAA_Q);
+	    end else begin
+	      // Z80 DAA algorithm
+	      if (daa_n_in == 1'b0) begin
+	        // After addition
+	        if (DAA_Q[3:0] > 9 || daa_h_in) begin
+	          DAA_Q = DAA_Q + 6;
+	        end
+	        if (DAA_Q[8:4] > 9 || daa_c_in) begin
+	          DAA_Q = DAA_Q + 96;
+	          daa_c_out = 1'b1;
+	        end
+	      end else begin
+	        // After subtraction
+	        if (DAA_Q[3:0] > 9 || daa_h_in) begin
+	          DAA_Q[7:0] = DAA_Q[7:0] - 6;
+	        end
+	        if (BusA > 153 || daa_c_in) begin
+	          DAA_Q[7:0] = DAA_Q[7:0] - 8'h60;
+	        end
+	      end
+	    end
+
+	    Q_t = DAA_Q[7:0];
+
+	    // Write output flags in Z80 format - core will remap for GameBoy mode
+	    // Z80 format: Flag_S=7, Flag_Z=6, Flag_Y=5, Flag_H=4, Flag_X=3, Flag_P=2, Flag_N=1, Flag_C=0
+	    // The tv80_core remaps these to GameBoy format (Z=7, N=6, H=5, C=4) when Mode==3
+	    if (Mode == 3) begin
+	      // GameBoy DAA: output in Z80 format for core to remap
+	      F_Out[Flag_Z] = (DAA_Q[7:0] == 8'b0) ? 1'b1 : 1'b0;  // Z
+	      F_Out[Flag_N] = daa_n_in;                             // N preserved
+	      F_Out[Flag_H] = 1'b0;                                 // H always cleared
+	      F_Out[Flag_C] = daa_c_out;                            // C
+	      // Unused bits in GameBoy mode but set them for consistency
+	      F_Out[Flag_S] = DAA_Q[7];
+	      F_Out[Flag_X] = DAA_Q[3];
+	      F_Out[Flag_Y] = DAA_Q[5];
+	      F_Out[Flag_P] = ~(^DAA_Q);
+	    end else begin
+	      // Z80 mode
+	      F_Out[Flag_H] = daa_h_in;
+	      F_Out[Flag_C] = daa_c_out;
+	      F_Out[Flag_X] = DAA_Q[3];
+	      F_Out[Flag_Y] = DAA_Q[5];
+	      F_Out[Flag_Z] = (DAA_Q[7:0] == 8'b0) ? 1'b1 : 1'b0;
+	      F_Out[Flag_S] = DAA_Q[7];
+	      F_Out[Flag_P] = ~(^DAA_Q);
+	    end
           end // case: 4'b1100
         
 	4'b1101, 4'b1110 :
@@ -348,12 +381,12 @@ module tv80_alu (/*AUTOARG*/
 		  F_Out[Flag_C] = BusA[7];
                 end
               
-	      3'b010 : // RL
-                begin
-		  Q_t[7:1] = BusA[6:0];
-		  Q_t[0] = F_In[Flag_C];
-		  F_Out[Flag_C] = BusA[7];
-                end
+		      3'b010 : // RL
+	                begin
+			  Q_t[7:1] = BusA[6:0];
+			  Q_t[0] = carry_flag_in;
+			  F_Out[Flag_C] = BusA[7];
+	                end
               
 	      3'b001 : // RRC
                 begin
@@ -362,12 +395,12 @@ module tv80_alu (/*AUTOARG*/
 		  F_Out[Flag_C] = BusA[0];
                 end
               
-	      3'b011 : // RR
-                begin                        
-		  Q_t[6:0] = BusA[7:1];
-		  Q_t[7] = F_In[Flag_C];
-		  F_Out[Flag_C] = BusA[0];
-                end
+		      3'b011 : // RR
+	                begin                        
+			  Q_t[6:0] = BusA[7:1];
+			  Q_t[7] = carry_flag_in;
+			  F_Out[Flag_C] = BusA[0];
+	                end
               
 	      3'b100 : // SLA
                 begin
@@ -422,13 +455,20 @@ module tv80_alu (/*AUTOARG*/
 	      end
             F_Out[Flag_P] = ~(^Q_t);
 
-	    if (ISet == 2'b00 ) 
-              begin
-		F_Out[Flag_P] = F_In[Flag_P];
-		F_Out[Flag_S] = F_In[Flag_S];
-		F_Out[Flag_Z] = F_In[Flag_Z];
-	      end
-          end // case: 4'b1000
+		    if (ISet == 2'b00 ) 
+		      begin
+			if (Mode == 3) begin
+			  // GameBoy A-rotates (RLCA/RRCA/RLA/RRA) always clear Z.
+			  F_Out[Flag_P] = 1'b0;
+			  F_Out[Flag_S] = 1'b0;
+			  F_Out[Flag_Z] = 1'b0;
+			end else begin
+			  F_Out[Flag_P] = F_In[Flag_P];
+			  F_Out[Flag_S] = F_In[Flag_S];
+			  F_Out[Flag_Z] = F_In[Flag_Z];
+			end
+		      end
+	          end // case: 4'b1000
         
         
 	default :

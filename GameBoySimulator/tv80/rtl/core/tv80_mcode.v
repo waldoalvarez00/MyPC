@@ -163,25 +163,30 @@ module tv80_mcode
   //    constant aDE    : std_logic_vector[2:0] = 3'b101;
   //    constant aZI    : std_logic_vector[2:0] = 3'b110;
 
+  // Check if condition code is true based on flags
+  // GameBoy F format: Z=bit7, N=bit6, H=bit5, C=bit4 (bits 3-0 always 0)
+  // Z80 F format: S=bit7, Z=bit6, H=bit4, P=bit2, N=bit1, C=bit0
   function is_cc_true;
     input [7:0] FF;
     input [2:0] cc;
     begin
-      if (Mode == 3 ) 
+      if (Mode == 3 )
         begin
+          // GameBoy mode - F stored in GB format
           case (cc)
-            3'b000  : is_cc_true = FF[7] == 1'b0; // NZ
-            3'b001  : is_cc_true = FF[7] == 1'b1; // Z
-            3'b010  : is_cc_true = FF[4] == 1'b0; // NC
-            3'b011  : is_cc_true = FF[4] == 1'b1; // C
-            3'b100  : is_cc_true = 0;
+            3'b000  : is_cc_true = FF[7] == 1'b0; // NZ - Zero flag at bit 7
+            3'b001  : is_cc_true = FF[7] == 1'b1; // Z  - Zero flag at bit 7
+            3'b010  : is_cc_true = FF[4] == 1'b0; // NC - Carry flag at bit 4
+            3'b011  : is_cc_true = FF[4] == 1'b1; // C  - Carry flag at bit 4
+            3'b100  : is_cc_true = 0; // GameBoy doesn't have PO/PE/P/M conditions
             3'b101  : is_cc_true = 0;
             3'b110  : is_cc_true = 0;
             3'b111  : is_cc_true = 0;
           endcase
-        end 
-      else 
+        end
+      else
         begin
+          // Z80 mode - F stored in Z80 format
           case (cc)
             3'b000  : is_cc_true = FF[6] == 1'b0; // NZ
             3'b001  : is_cc_true = FF[6] == 1'b1; // Z
@@ -290,19 +295,19 @@ module tv80_mcode
                           Read_To_Reg = 1'b1;
                         end
                     end // if (IR[2:0] == 3'b110)
-                  else if (IR[5:3] == 3'b110)
-                    begin
-                      // LD (HL),r
-                      MCycles = 3'b010;
-                      if (MCycle[0])
-                        begin
-                          Set_Addr_To = aXY;
-                          Set_BusB_To[2:0] = SSS;
-                          Set_BusB_To[3] = 1'b0;
-                        end
-                      if (MCycle[1])
-                        Write = 1'b1;
-                    end // if (IR[5:3] == 3'b110)
+	                  else if (IR[5:3] == 3'b110)
+	                    begin
+	                      // LD (HL),r
+	                      MCycles = 3'b010;
+	                      if (MCycle[0] || MCycle[1])
+	                        begin
+	                          Set_Addr_To = aXY;
+	                          Set_BusB_To[2:0] = SSS;
+	                          Set_BusB_To[3] = 1'b0;
+	                        end
+	                      if (MCycle[1])
+	                        Write = 1'b1;
+	                    end // if (IR[5:3] == 3'b110)
                   else
                     begin
                       Set_BusB_To[2:0] = SSS;
@@ -314,20 +319,22 @@ module tv80_mcode
 
               8'b00zzz110 :
                 begin
-                  if (IR[5:3] == 3'b110)
-                    begin
-                      // LD (HL),n
-                      MCycles = 3'b011;
-                      if (MCycle[1])
-                        begin
-                          Inc_PC = 1'b1;
-                          Set_Addr_To = aXY;
-                          Set_BusB_To[2:0] = SSS;
-                          Set_BusB_To[3] = 1'b0;
-                        end
-                      if (MCycle[2])
-                        Write = 1'b1;
-                    end // if (IR[5:3] == 3'b110)
+	                  if (IR[5:3] == 3'b110)
+	                    begin
+	                      // LD (HL),n
+	                      MCycles = 3'b011;
+	                      if (MCycle[1])
+	                        begin
+	                          Inc_PC = 1'b1;
+	                        end
+	                      if (MCycle[2])
+	                        begin
+	                          Write = 1'b1;
+	                          Set_Addr_To = aXY;
+	                          // Immediate data byte is in DI_Reg.
+	                          Set_BusB_To = 4'b0110;
+	                        end
+	                    end // if (IR[5:3] == 3'b110)
                   else
                     begin
                       // LD r,n
@@ -1352,14 +1359,26 @@ module tv80_mcode
                           begin
                             Inc_PC = 1'b1;
 
-                            // FIXED: Reversed MCycles logic - condition TRUE should jump (MCycles=3)
-                            // Previously backwards: TRUE→2 (no jump), FALSE→3 (jump)
-                            case (IR[4:3])
-                              0 : MCycles = (!F[Flag_Z]) ? 3'd3 : 3'd2;  // JR NZ - jump if NOT zero (FIXED)
-                              1 : MCycles = (F[Flag_Z]) ? 3'd3 : 3'd2;   // JR Z  - jump if zero (FIXED)
-                              2 : MCycles = (!F[Flag_C]) ? 3'd3 : 3'd2;  // JR NC - jump if NOT carry (FIXED)
-                              3 : MCycles = (F[Flag_C]) ? 3'd3 : 3'd2;   // JR C  - jump if carry (FIXED)
-                            endcase
+                            // Conditional JR - check condition to determine cycle count
+                            // GameBoy F format: Z=bit7, C=bit4
+                            // Z80 F format: Z=bit6, C=bit0
+                            if (Mode == 3) begin
+                              // GameBoy mode - F stored in GB format
+                              case (IR[4:3])
+                                0 : MCycles = (!F[7]) ? 3'd3 : 3'd2;  // JR NZ - jump if NOT zero
+                                1 : MCycles = (F[7]) ? 3'd3 : 3'd2;   // JR Z  - jump if zero
+                                2 : MCycles = (!F[4]) ? 3'd3 : 3'd2;  // JR NC - jump if NOT carry
+                                3 : MCycles = (F[4]) ? 3'd3 : 3'd2;   // JR C  - jump if carry
+                              endcase
+                            end else begin
+                              // Z80 mode - F stored in Z80 format
+                              case (IR[4:3])
+                                0 : MCycles = (!F[Flag_Z]) ? 3'd3 : 3'd2;  // JR NZ
+                                1 : MCycles = (F[Flag_Z]) ? 3'd3 : 3'd2;   // JR Z
+                                2 : MCycles = (!F[Flag_C]) ? 3'd3 : 3'd2;  // JR NC
+                                3 : MCycles = (F[Flag_C]) ? 3'd3 : 3'd2;   // JR C
+                              endcase
+                            end
                           end
                         
                         MCycle[2] :

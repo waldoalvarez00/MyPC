@@ -156,6 +156,7 @@ module tv80_core (/*AUTOARG*/
   wire [7:0]    ALU_Q;
   wire [7:0]    F_Out;
   reg [7:0]     F_Out_r;  // Registered F_Out to prevent register-read feedback hazard
+  reg [7:0]     ALU_Q_r;  // Registered ALU_Q to prevent corruption by next instruction
 
   // Registered micro code outputs
   reg [4:0]     Read_To_Reg_r;
@@ -386,7 +387,7 @@ module tv80_core (/*AUTOARG*/
       else if (!Save_ALU_r)
         Save_Mux = DI_Reg;
       else
-        Save_Mux = ALU_Q;
+        Save_Mux = ALU_Q_r;  // Use registered ALU result to avoid corruption by next instruction
     end // always @ *
   
   always @ (posedge clk or negedge reset_n)
@@ -685,35 +686,57 @@ module tv80_core (/*AUTOARG*/
                       // This captures the correct ALU flags before BusA is corrupted by
                       // the register file write-back (INC r would otherwise compute
                       // half-carry incorrectly due to BusA picking up the new value)
-                      if (Save_ALU == 1'b1)
+                      if (Save_ALU == 1'b1) begin
                         F_Out_r <= `TV80DELAY F_Out;
+                        ALU_Q_r <= `TV80DELAY ALU_Q;  // Capture ALU result before next instruction corrupts it
+                      end
                       
-                      if (I_CPL == 1'b1 ) 
+                      if (I_CPL == 1'b1 )
                         begin
-                          // CPL
+                          // CPL - Complement A, set N=1, H=1
                           ACC <= `TV80DELAY ~ ACC;
-                          F[Flag_Y] <= `TV80DELAY ~ ACC[5];
-                          F[Flag_H] <= `TV80DELAY 1'b1;
-                          F[Flag_X] <= `TV80DELAY ~ ACC[3];
-                          F[Flag_N] <= `TV80DELAY 1'b1;
+                          if (Mode == 3) begin
+                            // GameBoy format: N at bit 6, H at bit 5
+                            F[6] <= `TV80DELAY 1'b1;  // N flag
+                            F[5] <= `TV80DELAY 1'b1;  // H flag
+                          end else begin
+                            F[Flag_Y] <= `TV80DELAY ~ ACC[5];
+                            F[Flag_H] <= `TV80DELAY 1'b1;
+                            F[Flag_X] <= `TV80DELAY ~ ACC[3];
+                            F[Flag_N] <= `TV80DELAY 1'b1;
+                          end
                         end
-                      if (I_CCF == 1'b1 ) 
+                      if (I_CCF == 1'b1 )
                         begin
-                          // CCF
-                          F[Flag_C] <= `TV80DELAY ~ F[Flag_C];
-                          F[Flag_Y] <= `TV80DELAY ACC[5];
-                          F[Flag_H] <= `TV80DELAY F[Flag_C];
-                          F[Flag_X] <= `TV80DELAY ACC[3];
-                          F[Flag_N] <= `TV80DELAY 1'b0;
+                          // CCF - Complement Carry, set N=0, H=previous C
+                          if (Mode == 3) begin
+                            // GameBoy format: C at bit 4, N at bit 6, H at bit 5
+                            F[4] <= `TV80DELAY ~ F[4];  // Complement C
+                            F[6] <= `TV80DELAY 1'b0;    // N = 0
+                            F[5] <= `TV80DELAY F[4];    // H = previous C
+                          end else begin
+                            F[Flag_C] <= `TV80DELAY ~ F[Flag_C];
+                            F[Flag_Y] <= `TV80DELAY ACC[5];
+                            F[Flag_H] <= `TV80DELAY F[Flag_C];
+                            F[Flag_X] <= `TV80DELAY ACC[3];
+                            F[Flag_N] <= `TV80DELAY 1'b0;
+                          end
                         end
-                      if (I_SCF == 1'b1 ) 
+                      if (I_SCF == 1'b1 )
                         begin
-                          // SCF
-                          F[Flag_C] <= `TV80DELAY 1'b1;
-                          F[Flag_Y] <= `TV80DELAY ACC[5];
-                          F[Flag_H] <= `TV80DELAY 1'b0;
-                          F[Flag_X] <= `TV80DELAY ACC[3];
-                          F[Flag_N] <= `TV80DELAY 1'b0;
+                          // SCF - Set Carry, set N=0, H=0
+                          if (Mode == 3) begin
+                            // GameBoy format: C at bit 4, N at bit 6, H at bit 5
+                            F[4] <= `TV80DELAY 1'b1;   // C = 1
+                            F[6] <= `TV80DELAY 1'b0;   // N = 0
+                            F[5] <= `TV80DELAY 1'b0;   // H = 0
+                          end else begin
+                            F[Flag_C] <= `TV80DELAY 1'b1;
+                            F[Flag_Y] <= `TV80DELAY ACC[5];
+                            F[Flag_H] <= `TV80DELAY 1'b0;
+                            F[Flag_X] <= `TV80DELAY ACC[3];
+                            F[Flag_N] <= `TV80DELAY 1'b0;
+                          end
                         end
                     end // if (T_Res == 1'b1 )
                   
@@ -765,12 +788,16 @@ module tv80_core (/*AUTOARG*/
                     begin
                       SP <= `TV80DELAY RegBusC;
                     end
-                  if (ExchangeAF == 1'b1 ) 
+                  if (ExchangeAF == 1'b1 )
                     begin
                       Ap <= `TV80DELAY ACC;
                       ACC <= `TV80DELAY Ap;
                       Fp <= `TV80DELAY F;
-                      F <= `TV80DELAY Fp;
+                      // In GameBoy mode (Mode==3), F[3:0] must always be 0
+                      if (Mode == 3)
+                        F <= `TV80DELAY {Fp[7:4], 4'b0000};
+                      else
+                        F <= `TV80DELAY Fp;
                     end
                   if (ExchangeRS == 1'b1 ) 
                     begin
@@ -839,10 +866,11 @@ module tv80_core (/*AUTOARG*/
                       // F_Out_r was captured at T_Res before BusA was corrupted by register write-back
                       // IMPORTANT: Remap ALU flag positions to GameBoy flag positions:
                       //   ALU format: Flag_C=0, Flag_N=1, Flag_H=4, Flag_Z=6
-                      //   GameBoy format: Z=bit7, N=bit6, H=bit5, C=bit4
+                      //   GameBoy format: Z=bit7, N=bit6, H=bit5, C=bit4, bits 3-0 always 0
                       F[7] <= `TV80DELAY F_Out_r[Flag_Z];  // GB Z flag (bit 7) from ALU Z (bit 6)
                       F[6] <= `TV80DELAY F_Out_r[Flag_N];  // GB N flag (bit 6) from ALU N (bit 1)
                       F[5] <= `TV80DELAY F_Out_r[Flag_H];  // GB H flag (bit 5) from ALU H (bit 4)
+                      F[3:0] <= `TV80DELAY 4'b0000;       // GB: Lower 4 bits always 0
                       if (PreserveC_r == 1'b0 )
                         begin
                           F[4] <= `TV80DELAY F_Out_r[Flag_C];  // GB C flag (bit 4) from ALU C (bit 0)
@@ -930,7 +958,11 @@ module tv80_core (/*AUTOARG*/
                     5'b11001 :
                       SP[15:8] <= `TV80DELAY Save_Mux;
                     5'b11011 :
-                      F <= `TV80DELAY Save_Mux;
+                      // In GameBoy mode (Mode==3), F[3:0] must always be 0
+                      if (Mode == 3)
+                        F <= `TV80DELAY {Save_Mux[7:4], 4'b0000};
+                      else
+                        F <= `TV80DELAY Save_Mux;
                     default : ;
                   endcase
                 end // if ((tstate == 1 && Save_ALU_r == 1'b0 && Auto_Wait_t1 == 1'b0) ||...              
@@ -1172,7 +1204,8 @@ module tv80_core (/*AUTOARG*/
       4'b1010 :
         BusB_next = 8'b00000001;
       4'b1011 :
-        BusB_next = F;
+        // In GameBoy mode (Mode==3), F[3:0] must always read as 0
+        BusB_next = (Mode == 3) ? {F[7:4], 4'b0000} : F;
       4'b1100 :
         BusB_next = PC[7:0];
       4'b1101 :
