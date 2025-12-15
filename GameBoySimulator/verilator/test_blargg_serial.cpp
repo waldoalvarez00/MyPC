@@ -105,7 +105,7 @@ int main(int argc, char** argv) {
     uint8_t sb_value = 0;           // SB register (0xFF01)
     uint8_t prev_cpu_wr_n = 1;
     int cycles = 0;
-    int max_cycles = 500000000;     // 500M cycles - Blargg tests can take a while
+    int max_cycles = 2000000000;    // 2B cycles - Some Blargg tests take a very long time
     int last_serial_cycle = 0;
     bool test_complete = false;
 
@@ -167,6 +167,22 @@ int main(int argc, char** argv) {
 
         prev_cpu_wr_n = dut->dbg_cpu_wr_n;
 
+        // Track intcycle_n transitions for debug
+        static uint8_t prev_intcycle_n = 1;
+        static uint8_t prev_iff1_dbg = 0;
+        if (prev_intcycle_n != dut->dbg_intcycle_n) {
+            printf("[%luM] INTCYCLE_n changed: %d -> %d at PC=0x%04X, IF=0x%02X, irq_ack=%d, old_ack_pos=%d\n",
+                   (unsigned long)(cycles/1000000), prev_intcycle_n, dut->dbg_intcycle_n,
+                   dut->dbg_cpu_pc, dut->dbg_if_r, dut->dbg_irq_ack, dut->dbg_old_ack_pos);
+        }
+        if (prev_iff1_dbg != dut->dbg_cpu_iff1) {
+            printf("[%luM] IFF1 changed: %d -> %d at PC=0x%04X, IF=0x%02X, intcycle_n=%d, irq_ack=%d\n",
+                   (unsigned long)(cycles/1000000), prev_iff1_dbg, dut->dbg_cpu_iff1,
+                   dut->dbg_cpu_pc, dut->dbg_if_r, dut->dbg_intcycle_n, dut->dbg_irq_ack);
+        }
+        prev_intcycle_n = dut->dbg_intcycle_n;
+        prev_iff1_dbg = dut->dbg_cpu_iff1;
+
         // Progress report every 5M cycles - include opcode info and timer/interrupt state
         if (cycles % 5000000 == 0) {
             printf("\n[%dM cycles, PC=0x%04X, IR=0x%02X, A=0x%02X, F=0x%02X, LY=%d, writes=%d]\n",
@@ -174,8 +190,9 @@ int main(int argc, char** argv) {
                    dut->dbg_cpu_acc, dut->dbg_cpu_f, dut->dbg_video_ly, write_count);
             printf("  Timer: DIV=0x%02X TIMA=0x%02X TAC=0x%02X irq=%d\n",
                    dut->dbg_timer_div, dut->dbg_timer_tima, dut->dbg_timer_tac, dut->dbg_timer_irq);
-            printf("  Int: IE=0x%02X IF=0x%02X IRQ_n=%d HALT=%d IFF1=%d\n",
-                   dut->dbg_ie_r, dut->dbg_if_r, dut->dbg_irq_n, dut->dbg_cpu_halt, dut->dbg_cpu_iff1);
+            printf("  Int: IE=0x%02X IF=0x%02X IRQ_n=%d HALT=%d IFF1=%d irq_ack=%d intcycle_n=%d\n",
+                   dut->dbg_ie_r, dut->dbg_if_r, dut->dbg_irq_n, dut->dbg_cpu_halt, dut->dbg_cpu_iff1,
+                   dut->dbg_irq_ack, dut->dbg_intcycle_n);
             printf("  Regs: BC=0x%04X DE=0x%04X HL=0x%04X SP=0x%04X\n",
                    dut->dbg_cpu_bc, dut->dbg_cpu_de, dut->dbg_cpu_hl, dut->dbg_cpu_sp);
             // Detailed JR debug at stuck address
