@@ -22,7 +22,11 @@ int main(int argc, char** argv) {
     size_t rom_size = ftell(f);
     fseek(f, 0, SEEK_SET);
     uint8_t* rom = new uint8_t[rom_size];
-    fread(rom, 1, rom_size, f);
+    if (fread(rom, 1, rom_size, f) != rom_size) {
+        printf("Failed to read ROM\n");
+        fclose(f);
+        return 1;
+    }
     fclose(f);
     printf("Loaded ROM: %zu bytes\n", rom_size);
 
@@ -104,8 +108,8 @@ int main(int argc, char** argv) {
     std::string serial_output;
     uint8_t sb_value = 0;           // SB register (0xFF01)
     uint8_t prev_cpu_wr_n = 1;
-    int cycles = 0;
-    int max_cycles = 2000000000;    // 2B cycles - Some Blargg tests take a very long time
+    long long cycles = 0;
+    long long max_cycles = 20000000000LL; // 20B cycles - Some Blargg tests take a very long time
     int last_serial_cycle = 0;
     bool test_complete = false;
 
@@ -185,8 +189,8 @@ int main(int argc, char** argv) {
 
         // Progress report every 5M cycles - include opcode info and timer/interrupt state
         if (cycles % 5000000 == 0) {
-            printf("\n[%dM cycles, PC=0x%04X, IR=0x%02X, A=0x%02X, F=0x%02X, LY=%d, writes=%d]\n",
-                   cycles/1000000, dut->dbg_cpu_pc, dut->dbg_cpu_ir,
+            printf("\n[%lldM cycles, PC=0x%04X, IR=0x%02X, A=0x%02X, F=0x%02X, LY=%d, writes=%d]\n",
+                   (long long)(cycles/1000000), dut->dbg_cpu_pc, dut->dbg_cpu_ir,
                    dut->dbg_cpu_acc, dut->dbg_cpu_f, dut->dbg_video_ly, write_count);
             printf("  Timer: DIV=0x%02X TIMA=0x%02X TAC=0x%02X irq=%d\n",
                    dut->dbg_timer_div, dut->dbg_timer_tima, dut->dbg_timer_tac, dut->dbg_timer_irq);
@@ -259,8 +263,8 @@ int main(int argc, char** argv) {
         printf("Test status unclear - serial output captured but no Pass/Fail marker\n");
     }
 
-    printf("\nFinal state: PC=0x%04X, A=0x%02X, Cycles=%d\n",
-           dut->dbg_cpu_pc, dut->dbg_cpu_acc, cycles);
+    printf("\nFinal state: PC=0x%04X, A=0x%02X, Cycles=%lld\n",
+           dut->dbg_cpu_pc, dut->dbg_cpu_acc, (long long)cycles);
 
     delete[] rom;
     delete sdram;
